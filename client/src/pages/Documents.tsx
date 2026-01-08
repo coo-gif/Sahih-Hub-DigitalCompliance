@@ -9,6 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import Editor from "react-simple-wysiwyg";
 import {
   Dialog,
   DialogContent,
@@ -49,7 +52,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, MoreHorizontal, Pencil, Trash2, Send, CheckCircle, XCircle, AlertCircle } from "lucide-react";
+import { Plus, MoreHorizontal, Pencil, Trash2, Send, CheckCircle, XCircle, AlertCircle, Eye, FileText, Calendar, User, Clock } from "lucide-react";
 import { format } from "date-fns";
 import type { Document } from "@shared/schema";
 
@@ -76,6 +79,7 @@ export default function Documents() {
   const [showReviewDialog, setShowReviewDialog] = useState(false);
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showViewDialog, setShowViewDialog] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   
   const filters = {
@@ -234,6 +238,11 @@ export default function Documents() {
   const openDeleteDialog = (doc: Document) => {
     setSelectedDocument(doc);
     setShowDeleteDialog(true);
+  };
+  
+  const openViewDialog = (doc: Document) => {
+    setSelectedDocument(doc);
+    setShowViewDialog(true);
   };
   
   const reviewers = users?.filter(u => 
