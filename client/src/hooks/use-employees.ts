@@ -8,15 +8,16 @@ export function useEmployees(filters?: { status?: string; department?: string })
   if (filters?.status) params.append('status', filters.status);
   if (filters?.department) params.append('department', filters.department);
   const queryString = params.toString();
+  const url = queryString ? `/api/employees?${queryString}` : '/api/employees';
   
   return useQuery<Employee[]>({
-    queryKey: ['/api/employees', filters || {}],
+    queryKey: [url],
   });
 }
 
 export function useEmployee(id: number) {
   return useQuery<Employee>({
-    queryKey: ['/api/employees', id],
+    queryKey: [`/api/employees/${id}`],
     enabled: !!id,
   });
 }
@@ -62,15 +63,17 @@ export function useEmployeeTasks(filters?: { employeeId?: number; status?: strin
   if (filters?.employeeId) params.append('employeeId', String(filters.employeeId));
   if (filters?.status) params.append('status', filters.status);
   if (filters?.documentId) params.append('documentId', String(filters.documentId));
+  const queryString = params.toString();
+  const url = queryString ? `/api/employee-tasks?${queryString}` : '/api/employee-tasks';
   
   return useQuery<EmployeeTask[]>({
-    queryKey: ['/api/employee-tasks', filters || {}],
+    queryKey: [url],
   });
 }
 
 export function useEmployeeTask(id: number) {
   return useQuery<EmployeeTask>({
-    queryKey: ['/api/employee-tasks', id],
+    queryKey: [`/api/employee-tasks/${id}`],
     enabled: !!id,
   });
 }
