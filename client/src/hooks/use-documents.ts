@@ -11,7 +11,7 @@ export function useDocuments(filters?: { status?: string; category?: string }) {
   const url = queryString ? `/api/documents?${queryString}` : '/api/documents';
   
   return useQuery<Document[]>({
-    queryKey: ['/api/documents', filters || {}],
+    queryKey: [url],
   });
 }
 
