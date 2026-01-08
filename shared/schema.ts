@@ -58,7 +58,7 @@ export const EmploymentType = {
   FULL_TIME: "full_time",
   PART_TIME: "part_time",
   CONTRACT: "contract",
-  INTERN: "intern",
+  PROBATION: "probation",
 } as const;
 
 export const EmployeeStatus = {
@@ -72,6 +72,7 @@ export const TaskStatus = {
   PENDING: "pending",
   IN_PROGRESS: "in_progress",
   COMPLETED: "completed",
+  OVERDUE: "overdue",
   CANCELLED: "cancelled",
 } as const;
 
