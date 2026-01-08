@@ -1,0 +1,60 @@
+ct as a Senior Full-Stack Software Architect and an ISO 17021 Compliance Consultant. I need to build a secure, web-based Quality Management System (QMS) application for a Certification Body named "Sahih Certifications", which is accredited by UKAS.
+Project Goal:
+Create a web application to digitize the entire certification lifecycle, document control, and compliance monitoring. The system must ensure we are audit-ready at all times for UKAS surveillance.
+Phasing:
+We are starting with Phase 1 only. Do not code the other sections yet, but design the database schema to be extensible for them.
+Phase 1 Scope:
+Landing Page / Dashboard: A high-level overview of compliance health.
+User Management (RBAC): Critical for immediate induction training.
+Section 1: Intellectual & Informative Property: The core Document Control System (DCS).
+Technical Requirements:
+Stack: Recommending React.js (Frontend), Node.js/Express (Backend), PostgreSQL (Database - essential for relational integrity), and AWS S3/Google Cloud Storage for file hosting.
+Security: JWT Authentication, encrypted passwords, and rigid Role-Based Access Control (RBAC).
+Audit Trail: Every action (create, edit, approve, delete) must be logged with a timestamp and User ID. This is non-negotiable for ISO 17021.
+DETAILED FEATURE SPECIFICATIONS FOR PHASE 1
+1. Database Schema & Architecture
+Design a relational database schema that supports the following entities:
+Users: (ID, Name, Role, CompetencyStatus, DateJoined, Email, PasswordHash).
+Roles: (Admin, Quality Manager, Approver, Reviewer, Staff, Auditor).
+Documents: (ID, Title, Category [Policy, Manual, SOP, Format], VersionNumber, CurrentStatus [Draft, In-Review, Approved, Obsolete], CreatedBy, ApprovedBy, NextReviewDate).
+Workflows: (DocumentID, Stage, AssignedTo, Status, Comments, Timestamp).
+Notifications: (UserID, Message, IsRead, TriggerDate, UrgencyLevel).
+2. User Management Module (Priority: High)
+Functionality: Admin can invite users via email. Users must set up credentials.
+Access Control:
+Admin: Full Access.
+Quality Manager: Can Approve documents.
+Department Head: Can Review documents.
+Staff: Read-only access to "Approved" documents; Can "Create" drafts.
+Induction Prep: The user profile must have a placeholder for "Induction Training Status" (Pending/Completed).
+3. Section 1: Intellectual & Informative Property (Document Control)
+Create a CRUD interface for managing: Policies, Management System Documents, Procedures/SOPs, Formats, and the Document Master List Matrix.
+The Workflow Engine (The Core Logic):
+Implement a specific state-machine for documents:
+Draft: Staff creates a document (e.g., "SOP-01"). Uploads file/writes content.
+Review: Staff submits for review. System notifies the designated "Reviewer" (Dept Head).
+Approval: Reviewer accepts. System notifies "Approver" (Quality Manager).
+Publish: Approver digitally signs/clicks approve.
+Action: Version increments (e.g., 1.0).
+Action: Document appears in the "Master List Matrix" visible to all staff.
+Action: Old version is archived automatically.
+Rejection: If rejected at any stage, it reverts to Draft with comments.
+4. Dashboard & Notification System (Compliance Monitor)
+Visuals: A dashboard showing "Documents Expiring Soon," "Pending Approvals," and "Non-Conformance Alerts."
+Logic:
+If NextReviewDate is < 30 days away, trigger Yellow Alert to Owner.
+If NextReviewDate is passed, trigger Red Alert (Non-Compliance) to Quality Manager.
+Output Deliverables Required:
+Project Structure: File tree for the tech stack.
+Database Schema (SQL): The CREATE TABLE scripts for Users, Documents, and WorkflowLogs.
+Backend Logic (Node.js): The API endpoint code for the submitForApproval function and the checkComplianceCronJob function (for notifications).
+Frontend Component (React): A "Document Master List" table component that filters by status and shows the current version.
+Please generate the code and architecture now.
+Why this prompt is structured this way:
+The "Audit Trail" Requirement: In ISO 17021, if you cannot prove who authorized a change to an SOP, you get a "Major Non-Conformance." The prompt forces the AI to build WorkflowLogs into the database immediately.
+The "Maker-Checker" Principle: I explicitly defined roles (Staff creates -> Head reviews -> QM approves). This prevents a conflict of interest, a key requirement of UKAS accreditation.
+Compliance Triggers: You mentioned "Target dates" and "Delays." The prompt requests a "Cron Job" (automated background task) to check dates daily and flag non-compliance automatically.
+Induction Training: Since you need to start induction immediately, the User Management section is prioritized to get staff into the system, even if the rest isn't ready.
+Company name:
+Sahih Certifications
+Doha, Qatar
