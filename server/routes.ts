@@ -152,6 +152,43 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  app.put(api.users.updateSignature.path, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: 'Invalid user ID' });
+      }
+      
+      const existing = await storage.getUser(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+
+      const input = api.users.updateSignature.input.parse(req.body);
+      const user = await storage.updateUser(id, { signatureDataUrl: input.signatureDataUrl });
+
+      // Audit log
+      await storage.createAuditLog({
+        userId: DEMO_USER_ID,
+        action: AuditAction.UPDATE,
+        entityType: 'user',
+        entityId: id,
+        previousValue: JSON.stringify({ signatureDataUrl: existing.signatureDataUrl }),
+        newValue: JSON.stringify({ signatureDataUrl: input.signatureDataUrl ? '[SIGNATURE_DATA]' : null }),
+      });
+
+      res.json(user);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join('.'),
+        });
+      }
+      throw err;
+    }
+  });
+
   // ============================================
   // DOCUMENT ROUTES
   // ============================================
@@ -936,8 +973,8 @@ async function seedDatabase() {
       versionNumber: "2.0",
       status: DocumentStatus.APPROVED,
       createdById: 1,
-      approverId: 2,
-      approvedAt: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000),
+      approvedById: 2,
+      approvedBySignedAt: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000),
       nextReviewDate: new Date(now.getTime() + 275 * 24 * 60 * 60 * 1000), // 9 months away
     });
 
@@ -950,8 +987,8 @@ async function seedDatabase() {
       versionNumber: "1.0",
       status: DocumentStatus.APPROVED,
       createdById: 1,
-      approverId: 2,
-      approvedAt: new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000),
+      approvedById: 2,
+      approvedBySignedAt: new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000),
       nextReviewDate: new Date(now.getTime() + 25 * 24 * 60 * 60 * 1000), // 25 days - yellow alert
     });
 
@@ -964,8 +1001,8 @@ async function seedDatabase() {
       versionNumber: "1.0",
       status: DocumentStatus.APPROVED,
       createdById: 3,
-      approverId: 2,
-      approvedAt: new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000),
+      approvedById: 2,
+      approvedBySignedAt: new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000),
       nextReviewDate: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000), // 10 days overdue - red alert
     });
 

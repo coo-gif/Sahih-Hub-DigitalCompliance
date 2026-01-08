@@ -103,6 +103,7 @@ export class DatabaseStorage implements IStorage {
       role: users.role,
       inductionStatus: users.inductionStatus,
       isActive: users.isActive,
+      signatureDataUrl: users.signatureDataUrl,
       dateJoined: users.dateJoined,
       lastLogin: users.lastLogin,
     }).from(users).orderBy(desc(users.dateJoined));
@@ -117,6 +118,7 @@ export class DatabaseStorage implements IStorage {
       role: users.role,
       inductionStatus: users.inductionStatus,
       isActive: users.isActive,
+      signatureDataUrl: users.signatureDataUrl,
       dateJoined: users.dateJoined,
       lastLogin: users.lastLogin,
     }).from(users).where(eq(users.id, id));

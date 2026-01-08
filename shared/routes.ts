@@ -160,6 +160,17 @@ export const api = {
         404: errorSchemas.notFound,
       },
     },
+    updateSignature: {
+      method: 'PUT' as const,
+      path: '/api/users/:id/signature',
+      input: z.object({
+        signatureDataUrl: z.string().nullable(),
+      }),
+      responses: {
+        200: userResponseSchema,
+        404: errorSchemas.notFound,
+      },
+    },
   },
 
   // Documents
@@ -346,7 +357,7 @@ export const api = {
         phone: z.string().optional(),
         jobTitle: z.string().min(1),
         department: z.string().min(1),
-        employmentType: z.enum([EmploymentType.FULL_TIME, EmploymentType.PART_TIME, EmploymentType.CONTRACT, EmploymentType.INTERN]),
+        employmentType: z.enum([EmploymentType.FULL_TIME, EmploymentType.PART_TIME, EmploymentType.CONTRACT, EmploymentType.PROBATION]),
         supervisorId: z.number().optional(),
         hireDate: z.string(),
         status: z.enum([EmployeeStatus.ACTIVE, EmployeeStatus.INACTIVE, EmployeeStatus.ON_LEAVE, EmployeeStatus.TERMINATED]).optional(),
@@ -365,7 +376,7 @@ export const api = {
         phone: z.string().optional(),
         jobTitle: z.string().min(1).optional(),
         department: z.string().min(1).optional(),
-        employmentType: z.enum([EmploymentType.FULL_TIME, EmploymentType.PART_TIME, EmploymentType.CONTRACT, EmploymentType.INTERN]).optional(),
+        employmentType: z.enum([EmploymentType.FULL_TIME, EmploymentType.PART_TIME, EmploymentType.CONTRACT, EmploymentType.PROBATION]).optional(),
         supervisorId: z.number().nullable().optional(),
         status: z.enum([EmployeeStatus.ACTIVE, EmployeeStatus.INACTIVE, EmployeeStatus.ON_LEAVE, EmployeeStatus.TERMINATED]).optional(),
       }),
