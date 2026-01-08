@@ -7,11 +7,17 @@ import {
   notifications,
   workflowLogs,
   auditLogs,
+  employees,
+  employeeTasks,
   UserRole,
   DocumentCategory,
   DocumentStatus,
   UrgencyLevel,
   InductionStatus,
+  EmploymentType,
+  EmployeeStatus,
+  TaskStatus,
+  TaskPriority,
 } from './schema';
 
 // ============================================
@@ -312,6 +318,139 @@ export const api = {
       },
     },
   },
+
+  // Employees (HR)
+  employees: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/employees',
+      responses: {
+        200: z.array(z.custom<typeof employees.$inferSelect>()),
+      },
+    },
+    get: {
+      method: 'GET' as const,
+      path: '/api/employees/:id',
+      responses: {
+        200: z.custom<typeof employees.$inferSelect>(),
+        404: errorSchemas.notFound,
+      },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/employees',
+      input: z.object({
+        employeeNumber: z.string().min(1),
+        name: z.string().min(1),
+        email: z.string().email(),
+        phone: z.string().optional(),
+        jobTitle: z.string().min(1),
+        department: z.string().min(1),
+        employmentType: z.enum([EmploymentType.FULL_TIME, EmploymentType.PART_TIME, EmploymentType.CONTRACT, EmploymentType.INTERN]),
+        supervisorId: z.number().optional(),
+        hireDate: z.string(),
+        status: z.enum([EmployeeStatus.ACTIVE, EmployeeStatus.INACTIVE, EmployeeStatus.ON_LEAVE, EmployeeStatus.TERMINATED]).optional(),
+      }),
+      responses: {
+        201: z.custom<typeof employees.$inferSelect>(),
+        400: errorSchemas.validation,
+      },
+    },
+    update: {
+      method: 'PUT' as const,
+      path: '/api/employees/:id',
+      input: z.object({
+        name: z.string().min(1).optional(),
+        email: z.string().email().optional(),
+        phone: z.string().optional(),
+        jobTitle: z.string().min(1).optional(),
+        department: z.string().min(1).optional(),
+        employmentType: z.enum([EmploymentType.FULL_TIME, EmploymentType.PART_TIME, EmploymentType.CONTRACT, EmploymentType.INTERN]).optional(),
+        supervisorId: z.number().nullable().optional(),
+        status: z.enum([EmployeeStatus.ACTIVE, EmployeeStatus.INACTIVE, EmployeeStatus.ON_LEAVE, EmployeeStatus.TERMINATED]).optional(),
+      }),
+      responses: {
+        200: z.custom<typeof employees.$inferSelect>(),
+        404: errorSchemas.notFound,
+      },
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/employees/:id',
+      responses: {
+        204: z.void(),
+        404: errorSchemas.notFound,
+      },
+    },
+  },
+
+  // Employee Tasks (HR)
+  employeeTasks: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/employee-tasks',
+      responses: {
+        200: z.array(z.custom<typeof employeeTasks.$inferSelect>()),
+      },
+    },
+    get: {
+      method: 'GET' as const,
+      path: '/api/employee-tasks/:id',
+      responses: {
+        200: z.custom<typeof employeeTasks.$inferSelect>(),
+        404: errorSchemas.notFound,
+      },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/employee-tasks',
+      input: z.object({
+        employeeId: z.number(),
+        documentId: z.number().optional(),
+        title: z.string().min(1),
+        description: z.string().optional(),
+        dueDate: z.string().optional(),
+        priority: z.enum([TaskPriority.LOW, TaskPriority.MEDIUM, TaskPriority.HIGH, TaskPriority.CRITICAL]).optional(),
+        notes: z.string().optional(),
+      }),
+      responses: {
+        201: z.custom<typeof employeeTasks.$inferSelect>(),
+        400: errorSchemas.validation,
+      },
+    },
+    update: {
+      method: 'PUT' as const,
+      path: '/api/employee-tasks/:id',
+      input: z.object({
+        title: z.string().min(1).optional(),
+        description: z.string().optional(),
+        dueDate: z.string().optional(),
+        priority: z.enum([TaskPriority.LOW, TaskPriority.MEDIUM, TaskPriority.HIGH, TaskPriority.CRITICAL]).optional(),
+        status: z.enum([TaskStatus.PENDING, TaskStatus.IN_PROGRESS, TaskStatus.COMPLETED, TaskStatus.CANCELLED]).optional(),
+        notes: z.string().optional(),
+      }),
+      responses: {
+        200: z.custom<typeof employeeTasks.$inferSelect>(),
+        404: errorSchemas.notFound,
+      },
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/employee-tasks/:id',
+      responses: {
+        204: z.void(),
+        404: errorSchemas.notFound,
+      },
+    },
+    complete: {
+      method: 'POST' as const,
+      path: '/api/employee-tasks/:id/complete',
+      responses: {
+        200: z.custom<typeof employeeTasks.$inferSelect>(),
+        404: errorSchemas.notFound,
+      },
+    },
+  },
 };
 
 // ============================================
@@ -341,3 +480,7 @@ export type DocumentUpdateInput = z.infer<typeof api.documents.update.input>;
 export type SubmitForReviewInput = z.infer<typeof api.documents.submitForReview.input>;
 export type ApproveInput = z.infer<typeof api.documents.approve.input>;
 export type RejectInput = z.infer<typeof api.documents.reject.input>;
+export type EmployeeInput = z.infer<typeof api.employees.create.input>;
+export type EmployeeUpdateInput = z.infer<typeof api.employees.update.input>;
+export type EmployeeTaskInput = z.infer<typeof api.employeeTasks.create.input>;
+export type EmployeeTaskUpdateInput = z.infer<typeof api.employeeTasks.update.input>;

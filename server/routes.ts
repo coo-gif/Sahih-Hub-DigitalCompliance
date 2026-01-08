@@ -549,6 +549,318 @@ export async function registerRoutes(
   });
 
   // ============================================
+  // EMPLOYEE ROUTES (HR)
+  // ============================================
+  app.get(api.employees.list.path, async (req, res) => {
+    const filters = {
+      status: req.query.status as string | undefined,
+      department: req.query.department as string | undefined,
+    };
+    const employees = await storage.getEmployees(filters);
+    res.json(employees);
+  });
+
+  app.get(api.employees.get.path, async (req, res) => {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ message: 'Invalid employee ID' });
+    }
+    const employee = await storage.getEmployee(id);
+    if (!employee) {
+      return res.status(404).json({ message: 'Employee not found' });
+    }
+    res.json(employee);
+  });
+
+  app.post(api.employees.create.path, async (req, res) => {
+    try {
+      const input = api.employees.create.input.parse(req.body);
+      
+      // Check if employee number or email already exists
+      const existingByNumber = await storage.getEmployeeByNumber(input.employeeNumber);
+      if (existingByNumber) {
+        return res.status(400).json({ message: 'Employee number already exists', field: 'employeeNumber' });
+      }
+      
+      const existingByEmail = await storage.getEmployeeByEmail(input.email);
+      if (existingByEmail) {
+        return res.status(400).json({ message: 'Email already exists', field: 'email' });
+      }
+
+      const employee = await storage.createEmployee({
+        employeeNumber: input.employeeNumber,
+        name: input.name,
+        email: input.email,
+        phone: input.phone || null,
+        jobTitle: input.jobTitle,
+        department: input.department,
+        employmentType: input.employmentType,
+        supervisorId: input.supervisorId || null,
+        hireDate: new Date(input.hireDate),
+        status: input.status || 'active',
+      });
+
+      // Audit log
+      await storage.createAuditLog({
+        userId: DEMO_USER_ID,
+        action: AuditAction.CREATE,
+        entityType: 'employee',
+        entityId: employee.id,
+        newValue: JSON.stringify(input),
+      });
+
+      res.status(201).json(employee);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join('.'),
+        });
+      }
+      throw err;
+    }
+  });
+
+  app.put(api.employees.update.path, async (req, res) => {
+    try {
+      const input = api.employees.update.input.parse(req.body);
+      const id = Number(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: 'Invalid employee ID' });
+      }
+      
+      const existing = await storage.getEmployee(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Employee not found' });
+      }
+
+      // Check email uniqueness if email is being updated
+      if (input.email && input.email !== existing.email) {
+        const existingByEmail = await storage.getEmployeeByEmail(input.email);
+        if (existingByEmail) {
+          return res.status(400).json({ message: 'Email already exists', field: 'email' });
+        }
+      }
+
+      const employee = await storage.updateEmployee(id, input);
+
+      // Audit log
+      await storage.createAuditLog({
+        userId: DEMO_USER_ID,
+        action: AuditAction.UPDATE,
+        entityType: 'employee',
+        entityId: id,
+        previousValue: JSON.stringify(existing),
+        newValue: JSON.stringify(input),
+      });
+
+      res.json(employee);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join('.'),
+        });
+      }
+      throw err;
+    }
+  });
+
+  app.delete(api.employees.delete.path, async (req, res) => {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ message: 'Invalid employee ID' });
+    }
+    
+    const existing = await storage.getEmployee(id);
+    if (!existing) {
+      return res.status(404).json({ message: 'Employee not found' });
+    }
+
+    await storage.deleteEmployee(id);
+
+    // Audit log
+    await storage.createAuditLog({
+      userId: DEMO_USER_ID,
+      action: AuditAction.DELETE,
+      entityType: 'employee',
+      entityId: id,
+      previousValue: JSON.stringify(existing),
+    });
+
+    res.status(204).send();
+  });
+
+  // ============================================
+  // EMPLOYEE TASK ROUTES (HR)
+  // ============================================
+  app.get(api.employeeTasks.list.path, async (req, res) => {
+    const filters = {
+      employeeId: req.query.employeeId ? Number(req.query.employeeId) : undefined,
+      status: req.query.status as string | undefined,
+      documentId: req.query.documentId ? Number(req.query.documentId) : undefined,
+    };
+    const tasks = await storage.getEmployeeTasks(filters);
+    res.json(tasks);
+  });
+
+  app.get(api.employeeTasks.get.path, async (req, res) => {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ message: 'Invalid task ID' });
+    }
+    const task = await storage.getEmployeeTask(id);
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+    res.json(task);
+  });
+
+  app.post(api.employeeTasks.create.path, async (req, res) => {
+    try {
+      const input = api.employeeTasks.create.input.parse(req.body);
+      
+      // Verify employee exists
+      const employee = await storage.getEmployee(input.employeeId);
+      if (!employee) {
+        return res.status(400).json({ message: 'Employee not found', field: 'employeeId' });
+      }
+
+      // Verify document exists if provided
+      if (input.documentId) {
+        const doc = await storage.getDocument(input.documentId);
+        if (!doc) {
+          return res.status(400).json({ message: 'Document not found', field: 'documentId' });
+        }
+      }
+
+      const task = await storage.createEmployeeTask({
+        employeeId: input.employeeId,
+        documentId: input.documentId || null,
+        title: input.title,
+        description: input.description || null,
+        dueDate: input.dueDate ? new Date(input.dueDate) : null,
+        priority: input.priority || 'medium',
+        notes: input.notes || null,
+        assignedByUserId: DEMO_USER_ID,
+        status: 'pending',
+      });
+
+      // Audit log
+      await storage.createAuditLog({
+        userId: DEMO_USER_ID,
+        action: AuditAction.ASSIGN_TASK,
+        entityType: 'employee_task',
+        entityId: task.id,
+        newValue: JSON.stringify({ ...input, employeeName: employee.name }),
+      });
+
+      res.status(201).json(task);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join('.'),
+        });
+      }
+      throw err;
+    }
+  });
+
+  app.put(api.employeeTasks.update.path, async (req, res) => {
+    try {
+      const input = api.employeeTasks.update.input.parse(req.body);
+      const id = Number(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: 'Invalid task ID' });
+      }
+      
+      const existing = await storage.getEmployeeTask(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Task not found' });
+      }
+
+      const updateData: any = { ...input };
+      if (input.dueDate) {
+        updateData.dueDate = new Date(input.dueDate);
+      }
+
+      const task = await storage.updateEmployeeTask(id, updateData);
+
+      // Audit log
+      await storage.createAuditLog({
+        userId: DEMO_USER_ID,
+        action: AuditAction.UPDATE,
+        entityType: 'employee_task',
+        entityId: id,
+        previousValue: JSON.stringify(existing),
+        newValue: JSON.stringify(input),
+      });
+
+      res.json(task);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join('.'),
+        });
+      }
+      throw err;
+    }
+  });
+
+  app.delete(api.employeeTasks.delete.path, async (req, res) => {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ message: 'Invalid task ID' });
+    }
+    
+    const existing = await storage.getEmployeeTask(id);
+    if (!existing) {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+
+    await storage.deleteEmployeeTask(id);
+
+    // Audit log
+    await storage.createAuditLog({
+      userId: DEMO_USER_ID,
+      action: AuditAction.DELETE,
+      entityType: 'employee_task',
+      entityId: id,
+      previousValue: JSON.stringify(existing),
+    });
+
+    res.status(204).send();
+  });
+
+  app.post(api.employeeTasks.complete.path, async (req, res) => {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ message: 'Invalid task ID' });
+    }
+    
+    const existing = await storage.getEmployeeTask(id);
+    if (!existing) {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+
+    const task = await storage.completeEmployeeTask(id);
+
+    // Audit log
+    await storage.createAuditLog({
+      userId: DEMO_USER_ID,
+      action: AuditAction.COMPLETE_TASK,
+      entityType: 'employee_task',
+      entityId: id,
+      previousValue: JSON.stringify({ status: existing.status }),
+      newValue: JSON.stringify({ status: 'completed' }),
+    });
+
+    res.json(task);
+  });
+
+  // ============================================
   // SEED DATABASE
   // ============================================
   await seedDatabase();
