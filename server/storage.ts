@@ -1,13 +1,16 @@
 import { db } from "./db";
 import {
   users, documents, documentVersions, workflowLogs, notifications, auditLogs,
+  employees, employeeTasks,
   type User, type InsertUser,
   type Document, type InsertDocument,
   type DocumentVersion, type InsertDocumentVersion,
   type WorkflowLog, type InsertWorkflowLog,
   type Notification, type InsertNotification,
   type AuditLog, type InsertAuditLog,
-  DocumentStatus, InductionStatus,
+  type Employee, type InsertEmployee,
+  type EmployeeTask, type InsertEmployeeTask,
+  DocumentStatus, InductionStatus, TaskStatus,
 } from "@shared/schema";
 import { eq, desc, and, lt, gt, or, sql } from "drizzle-orm";
 import crypto from "crypto";
@@ -69,6 +72,23 @@ export interface IStorage {
     daysUntilExpiry: number;
     alertLevel: 'yellow' | 'red';
   }>>;
+
+  // Employees
+  getEmployees(filters?: { status?: string; department?: string }): Promise<Employee[]>;
+  getEmployee(id: number): Promise<Employee | undefined>;
+  getEmployeeByNumber(employeeNumber: string): Promise<Employee | undefined>;
+  getEmployeeByEmail(email: string): Promise<Employee | undefined>;
+  createEmployee(employee: InsertEmployee): Promise<Employee>;
+  updateEmployee(id: number, employee: Partial<InsertEmployee>): Promise<Employee>;
+  deleteEmployee(id: number): Promise<void>;
+
+  // Employee Tasks
+  getEmployeeTasks(filters?: { employeeId?: number; status?: string; documentId?: number }): Promise<EmployeeTask[]>;
+  getEmployeeTask(id: number): Promise<EmployeeTask | undefined>;
+  createEmployeeTask(task: InsertEmployeeTask): Promise<EmployeeTask>;
+  updateEmployeeTask(id: number, task: Partial<InsertEmployeeTask>): Promise<EmployeeTask>;
+  deleteEmployeeTask(id: number): Promise<void>;
+  completeEmployeeTask(id: number): Promise<EmployeeTask>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -339,6 +359,118 @@ export class DatabaseStorage implements IStorage {
     }
 
     return alerts.sort((a, b) => a.daysUntilExpiry - b.daysUntilExpiry);
+  }
+
+  // ============================================
+  // EMPLOYEES
+  // ============================================
+  async getEmployees(filters?: { status?: string; department?: string }): Promise<Employee[]> {
+    if (filters?.status && filters?.department) {
+      return await db.select().from(employees)
+        .where(and(eq(employees.status, filters.status), eq(employees.department, filters.department)))
+        .orderBy(desc(employees.createdAt));
+    } else if (filters?.status) {
+      return await db.select().from(employees)
+        .where(eq(employees.status, filters.status))
+        .orderBy(desc(employees.createdAt));
+    } else if (filters?.department) {
+      return await db.select().from(employees)
+        .where(eq(employees.department, filters.department))
+        .orderBy(desc(employees.createdAt));
+    }
+    return await db.select().from(employees).orderBy(desc(employees.createdAt));
+  }
+
+  async getEmployee(id: number): Promise<Employee | undefined> {
+    const [employee] = await db.select().from(employees).where(eq(employees.id, id));
+    return employee;
+  }
+
+  async getEmployeeByNumber(employeeNumber: string): Promise<Employee | undefined> {
+    const [employee] = await db.select().from(employees).where(eq(employees.employeeNumber, employeeNumber));
+    return employee;
+  }
+
+  async getEmployeeByEmail(email: string): Promise<Employee | undefined> {
+    const [employee] = await db.select().from(employees).where(eq(employees.email, email));
+    return employee;
+  }
+
+  async createEmployee(insertEmployee: InsertEmployee): Promise<Employee> {
+    const [employee] = await db.insert(employees).values(insertEmployee).returning();
+    return employee;
+  }
+
+  async updateEmployee(id: number, updates: Partial<InsertEmployee>): Promise<Employee> {
+    const [updated] = await db.update(employees)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(employees.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteEmployee(id: number): Promise<void> {
+    // First delete associated tasks
+    await db.delete(employeeTasks).where(eq(employeeTasks.employeeId, id));
+    await db.delete(employees).where(eq(employees.id, id));
+  }
+
+  // ============================================
+  // EMPLOYEE TASKS
+  // ============================================
+  async getEmployeeTasks(filters?: { employeeId?: number; status?: string; documentId?: number }): Promise<EmployeeTask[]> {
+    const conditions: any[] = [];
+    
+    if (filters?.employeeId) {
+      conditions.push(eq(employeeTasks.employeeId, filters.employeeId));
+    }
+    if (filters?.status) {
+      conditions.push(eq(employeeTasks.status, filters.status));
+    }
+    if (filters?.documentId) {
+      conditions.push(eq(employeeTasks.documentId, filters.documentId));
+    }
+
+    if (conditions.length > 0) {
+      return await db.select().from(employeeTasks)
+        .where(and(...conditions))
+        .orderBy(desc(employeeTasks.createdAt));
+    }
+    return await db.select().from(employeeTasks).orderBy(desc(employeeTasks.createdAt));
+  }
+
+  async getEmployeeTask(id: number): Promise<EmployeeTask | undefined> {
+    const [task] = await db.select().from(employeeTasks).where(eq(employeeTasks.id, id));
+    return task;
+  }
+
+  async createEmployeeTask(task: InsertEmployeeTask): Promise<EmployeeTask> {
+    const [created] = await db.insert(employeeTasks).values(task).returning();
+    return created;
+  }
+
+  async updateEmployeeTask(id: number, updates: Partial<InsertEmployeeTask>): Promise<EmployeeTask> {
+    const [updated] = await db.update(employeeTasks)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(employeeTasks.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteEmployeeTask(id: number): Promise<void> {
+    await db.delete(employeeTasks).where(eq(employeeTasks.id, id));
+  }
+
+  async completeEmployeeTask(id: number): Promise<EmployeeTask> {
+    const [updated] = await db.update(employeeTasks)
+      .set({ 
+        status: TaskStatus.COMPLETED, 
+        completedAt: new Date(),
+        updatedAt: new Date() 
+      })
+      .where(eq(employeeTasks.id, id))
+      .returning();
+    return updated;
   }
 }
 
