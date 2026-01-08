@@ -50,6 +50,36 @@ export const AuditAction = {
   REJECT: "reject",
   PUBLISH: "publish",
   ARCHIVE: "archive",
+  ASSIGN_TASK: "assign_task",
+  COMPLETE_TASK: "complete_task",
+} as const;
+
+export const EmploymentType = {
+  FULL_TIME: "full_time",
+  PART_TIME: "part_time",
+  CONTRACT: "contract",
+  INTERN: "intern",
+} as const;
+
+export const EmployeeStatus = {
+  ACTIVE: "active",
+  INACTIVE: "inactive",
+  ON_LEAVE: "on_leave",
+  TERMINATED: "terminated",
+} as const;
+
+export const TaskStatus = {
+  PENDING: "pending",
+  IN_PROGRESS: "in_progress",
+  COMPLETED: "completed",
+  CANCELLED: "cancelled",
+} as const;
+
+export const TaskPriority = {
+  LOW: "low",
+  MEDIUM: "medium",
+  HIGH: "high",
+  CRITICAL: "critical",
 } as const;
 
 // ============================================
@@ -147,6 +177,44 @@ export const auditLogs = pgTable("audit_logs", {
 });
 
 // ============================================
+// EMPLOYEES TABLE (HR Department)
+// ============================================
+export const employees = pgTable("employees", {
+  id: serial("id").primaryKey(),
+  employeeNumber: text("employee_number").notNull().unique(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  phone: text("phone"),
+  jobTitle: text("job_title").notNull(),
+  department: text("department").notNull(),
+  employmentType: text("employment_type").notNull().default(EmploymentType.FULL_TIME),
+  supervisorId: integer("supervisor_id"),
+  hireDate: timestamp("hire_date").notNull(),
+  status: text("status").notNull().default(EmployeeStatus.ACTIVE),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ============================================
+// EMPLOYEE TASKS (Document-Employee Linking)
+// ============================================
+export const employeeTasks = pgTable("employee_tasks", {
+  id: serial("id").primaryKey(),
+  employeeId: integer("employee_id").notNull(),
+  documentId: integer("document_id"),
+  title: text("title").notNull(),
+  description: text("description"),
+  dueDate: timestamp("due_date"),
+  status: text("status").notNull().default(TaskStatus.PENDING),
+  priority: text("priority").notNull().default(TaskPriority.MEDIUM),
+  notes: text("notes"),
+  assignedByUserId: integer("assigned_by_user_id").notNull(),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ============================================
 // RELATIONS
 // ============================================
 export const usersRelations = relations(users, ({ many }) => ({
@@ -181,6 +249,17 @@ export const notificationsRelations = relations(notifications, ({ one }) => ({
 
 export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
   user: one(users, { fields: [auditLogs.userId], references: [users.id] }),
+}));
+
+export const employeesRelations = relations(employees, ({ one, many }) => ({
+  supervisor: one(employees, { fields: [employees.supervisorId], references: [employees.id] }),
+  tasks: many(employeeTasks),
+}));
+
+export const employeeTasksRelations = relations(employeeTasks, ({ one }) => ({
+  employee: one(employees, { fields: [employeeTasks.employeeId], references: [employees.id] }),
+  document: one(documents, { fields: [employeeTasks.documentId], references: [documents.id] }),
+  assignedBy: one(users, { fields: [employeeTasks.assignedByUserId], references: [users.id] }),
 }));
 
 // ============================================
@@ -219,6 +298,19 @@ export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({
   createdAt: true 
 });
 
+export const insertEmployeeSchema = createInsertSchema(employees).omit({ 
+  id: true, 
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertEmployeeTaskSchema = createInsertSchema(employeeTasks).omit({ 
+  id: true, 
+  createdAt: true,
+  updatedAt: true,
+  completedAt: true,
+});
+
 // ============================================
 // TYPES
 // ============================================
@@ -239,6 +331,12 @@ export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
+
+export type Employee = typeof employees.$inferSelect;
+export type InsertEmployee = z.infer<typeof insertEmployeeSchema>;
+
+export type EmployeeTask = typeof employeeTasks.$inferSelect;
+export type InsertEmployeeTask = z.infer<typeof insertEmployeeTaskSchema>;
 
 // ============================================
 // API REQUEST/RESPONSE TYPES

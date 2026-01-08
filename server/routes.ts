@@ -46,7 +46,11 @@ export async function registerRoutes(
   });
 
   app.get(api.users.get.path, async (req, res) => {
-    const user = await storage.getUser(Number(req.params.id));
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ message: 'Invalid user ID' });
+    }
+    const user = await storage.getUser(id);
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
@@ -161,7 +165,11 @@ export async function registerRoutes(
   });
 
   app.get(api.documents.get.path, async (req, res) => {
-    const doc = await storage.getDocument(Number(req.params.id));
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ message: 'Invalid document ID' });
+    }
+    const doc = await storage.getDocument(id);
     if (!doc) {
       return res.status(404).json({ message: 'Document not found' });
     }
