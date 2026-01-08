@@ -83,6 +83,12 @@ export const TaskPriority = {
   CRITICAL: "critical",
 } as const;
 
+export const SignatoryRole = {
+  PREPARED_BY: "prepared_by",
+  REVIEWED_BY: "reviewed_by",
+  APPROVED_BY: "approved_by",
+} as const;
+
 // ============================================
 // USERS TABLE
 // ============================================
@@ -94,6 +100,7 @@ export const users = pgTable("users", {
   role: text("role").notNull().default(UserRole.STAFF),
   inductionStatus: text("induction_status").notNull().default(InductionStatus.PENDING),
   isActive: boolean("is_active").default(true),
+  signatureDataUrl: text("signature_data_url"),
   dateJoined: timestamp("date_joined").defaultNow(),
   lastLogin: timestamp("last_login"),
 });
@@ -116,6 +123,15 @@ export const documents = pgTable("documents", {
   approverId: integer("approver_id"),
   approvedAt: timestamp("approved_at"),
   nextReviewDate: timestamp("next_review_date"),
+  requiresPreparedBy: boolean("requires_prepared_by").default(true),
+  requiresReviewedBy: boolean("requires_reviewed_by").default(false),
+  requiresApprovedBy: boolean("requires_approved_by").default(true),
+  preparedById: integer("prepared_by_id"),
+  preparedBySignedAt: timestamp("prepared_by_signed_at"),
+  reviewedById: integer("reviewed_by_id"),
+  reviewedBySignedAt: timestamp("reviewed_by_signed_at"),
+  approvedById: integer("approved_by_id"),
+  approvedBySignedAt: timestamp("approved_by_signed_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
