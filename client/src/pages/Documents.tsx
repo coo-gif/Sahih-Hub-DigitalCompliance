@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import Editor from "react-simple-wysiwyg";
+import DOMPurify from "dompurify";
 import {
   Dialog,
   DialogContent,
@@ -127,7 +128,11 @@ export default function Documents() {
   const handleCreate = async () => {
     try {
       await createMutation.mutateAsync({
-        ...formData,
+        documentCode: formData.documentCode,
+        title: formData.title,
+        description: formData.description || undefined,
+        category: formData.category as "policy" | "manual" | "sop" | "format",
+        content: formData.content || undefined,
         nextReviewDate: formData.nextReviewDate || undefined,
       });
       toast({ title: "Document created successfully" });
@@ -369,6 +374,9 @@ export default function Documents() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => openViewDialog(doc)} data-testid={`menu-view-${doc.id}`}>
+                            <Eye className="w-4 h-4 mr-2" /> View Document
+                          </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => openEditDialog(doc)} data-testid={`menu-edit-${doc.id}`}>
                             <Pencil className="w-4 h-4 mr-2" /> Edit
                           </DropdownMenuItem>
@@ -417,7 +425,7 @@ export default function Documents() {
 
       {/* Create Document Dialog */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="max-w-lg" data-testid="dialog-create-document">
+        <DialogContent className="max-w-3xl" data-testid="dialog-create-document">
           <DialogHeader>
             <DialogTitle>Create New Document</DialogTitle>
             <DialogDescription>Add a new document to the Document Control System</DialogDescription>
@@ -474,14 +482,13 @@ export default function Documents() {
             </div>
             <div>
               <Label htmlFor="content">Content</Label>
-              <Textarea
-                id="content"
-                placeholder="Document content..."
-                rows={4}
-                value={formData.content}
-                onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-                data-testid="input-content"
-              />
+              <div className="border rounded-md min-h-[200px]" data-testid="input-content">
+                <Editor
+                  value={formData.content}
+                  onChange={(e) => setFormData({ ...formData, content: e.target.value })}
+                  containerProps={{ style: { minHeight: '200px' } }}
+                />
+              </div>
             </div>
             <div>
               <Label htmlFor="nextReviewDate">Next Review Date</Label>
@@ -509,7 +516,7 @@ export default function Documents() {
 
       {/* Edit Document Dialog */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent className="max-w-lg" data-testid="dialog-edit-document">
+        <DialogContent className="max-w-3xl" data-testid="dialog-edit-document">
           <DialogHeader>
             <DialogTitle>Edit Document</DialogTitle>
             <DialogDescription>Update document details</DialogDescription>
@@ -535,13 +542,13 @@ export default function Documents() {
             </div>
             <div>
               <Label htmlFor="edit-content">Content</Label>
-              <Textarea
-                id="edit-content"
-                rows={4}
-                value={formData.content}
-                onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-                data-testid="input-edit-content"
-              />
+              <div className="border rounded-md min-h-[200px]" data-testid="input-edit-content">
+                <Editor
+                  value={formData.content}
+                  onChange={(e) => setFormData({ ...formData, content: e.target.value })}
+                  containerProps={{ style: { minHeight: '200px' } }}
+                />
+              </div>
             </div>
             <div>
               <Label htmlFor="edit-nextReviewDate">Next Review Date</Label>
@@ -668,6 +675,102 @@ export default function Documents() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Document Viewer Dialog */}
+      <Dialog open={showViewDialog} onOpenChange={setShowViewDialog}>
+        <DialogContent className="max-w-4xl max-h-[90vh]" data-testid="dialog-view-document">
+          {selectedDocument && (
+            <>
+              <div className="border-b pb-4 mb-4">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <Badge className={categoryColors[selectedDocument.category] || ""} variant="secondary">
+                        {selectedDocument.category.toUpperCase()}
+                      </Badge>
+                      <Badge className={statusColors[selectedDocument.status] || ""} variant="secondary">
+                        {selectedDocument.status.replace('_', ' ').toUpperCase()}
+                      </Badge>
+                      <Badge variant="outline">v{selectedDocument.versionNumber}</Badge>
+                    </div>
+                    <h2 className="text-xl font-bold text-slate-900" data-testid="text-view-title">
+                      {selectedDocument.title}
+                    </h2>
+                    <p className="text-sm text-slate-500 font-mono" data-testid="text-view-code">
+                      {selectedDocument.documentCode}
+                    </p>
+                  </div>
+                  <Button variant="outline" onClick={() => setShowViewDialog(false)} data-testid="button-close-viewer">
+                    Close
+                  </Button>
+                </div>
+                {selectedDocument.description && (
+                  <p className="text-slate-600 mt-3" data-testid="text-view-description">
+                    {selectedDocument.description}
+                  </p>
+                )}
+              </div>
+              
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm mb-4 p-3 bg-slate-50 rounded-md dark:bg-slate-800">
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-slate-400" />
+                  <div>
+                    <div className="text-slate-500 text-xs">Created</div>
+                    <div className="font-medium">
+                      {selectedDocument.createdAt 
+                        ? format(new Date(selectedDocument.createdAt), "MMM d, yyyy")
+                        : "-"
+                      }
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-slate-400" />
+                  <div>
+                    <div className="text-slate-500 text-xs">Next Review</div>
+                    <div className="font-medium">
+                      {selectedDocument.nextReviewDate 
+                        ? format(new Date(selectedDocument.nextReviewDate), "MMM d, yyyy")
+                        : "-"
+                      }
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-slate-400" />
+                  <div>
+                    <div className="text-slate-500 text-xs">Version</div>
+                    <div className="font-medium">{selectedDocument.versionNumber}</div>
+                  </div>
+                </div>
+                {selectedDocument.approvedAt && (
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-500" />
+                    <div>
+                      <div className="text-slate-500 text-xs">Approved</div>
+                      <div className="font-medium">
+                        {format(new Date(selectedDocument.approvedAt), "MMM d, yyyy")}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <Separator className="my-4" />
+              
+              <ScrollArea className="h-[400px] pr-4">
+                <div 
+                  className="prose prose-slate max-w-none dark:prose-invert"
+                  data-testid="text-view-content"
+                  dangerouslySetInnerHTML={{ 
+                    __html: DOMPurify.sanitize(selectedDocument.content || '<p class="text-slate-400 italic">No content available</p>') 
+                  }}
+                />
+              </ScrollArea>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
