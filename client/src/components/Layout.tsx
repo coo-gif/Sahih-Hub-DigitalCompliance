@@ -16,7 +16,8 @@ import {
   History, 
   Bell,
   Menu,
-  CheckCheck
+  CheckCheck,
+  UserCog
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -25,6 +26,7 @@ const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/documents", label: "Documents", icon: FileText },
   { href: "/users", label: "Users", icon: Users },
+  { href: "/employees", label: "HR - Employees", icon: UserCog },
   { href: "/audit-log", label: "Audit Log", icon: History },
 ];
 
