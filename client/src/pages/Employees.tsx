@@ -283,7 +283,7 @@ export default function Employees() {
     setShowTaskDialog(true);
   };
 
-  const departments = [...new Set((employees || []).map(e => e.department).filter(Boolean))];
+  const departments = Array.from(new Set((employees || []).map(e => e.department).filter(Boolean)));
   const approvedDocs = (documents || []).filter(d => d.status === 'approved');
 
   const getEmployeeTasks = (employeeId: number) => {
