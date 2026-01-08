@@ -1,0 +1,21 @@
+import { useQuery } from "@tanstack/react-query";
+import type { DashboardStats, ComplianceAlert } from "@shared/routes";
+import type { AuditLog } from "@shared/schema";
+
+export function useDashboardStats() {
+  return useQuery<DashboardStats>({
+    queryKey: ['/api/dashboard/stats'],
+  });
+}
+
+export function useComplianceAlerts() {
+  return useQuery<ComplianceAlert[]>({
+    queryKey: ['/api/dashboard/alerts'],
+  });
+}
+
+export function useRecentActivity() {
+  return useQuery<AuditLog[]>({
+    queryKey: ['/api/dashboard/activity'],
+  });
+}

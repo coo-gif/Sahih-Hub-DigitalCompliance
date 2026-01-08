@@ -4,8 +4,9 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Dashboard from "@/pages/Dashboard";
-import Tasks from "@/pages/Tasks";
-import Policies from "@/pages/Policies";
+import Documents from "@/pages/Documents";
+import Users from "@/pages/Users";
+import AuditLog from "@/pages/AuditLog";
 import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/Layout";
 
@@ -14,8 +15,9 @@ function Router() {
     <Layout>
       <Switch>
         <Route path="/" component={Dashboard} />
-        <Route path="/tasks" component={Tasks} />
-        <Route path="/policies" component={Policies} />
+        <Route path="/documents" component={Documents} />
+        <Route path="/users" component={Users} />
+        <Route path="/audit-log" component={AuditLog} />
         <Route component={NotFound} />
       </Switch>
     </Layout>
