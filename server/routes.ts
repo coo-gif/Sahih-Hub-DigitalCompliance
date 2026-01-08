@@ -165,6 +165,30 @@ export async function registerRoutes(
       }
 
       const input = api.users.updateSignature.input.parse(req.body);
+      
+      // Security: Validate signature data URL to prevent XSS via SVG
+      if (input.signatureDataUrl) {
+        const allowedMimeTypes = ['data:image/png', 'data:image/jpeg', 'data:image/jpg'];
+        const isValidMimeType = allowedMimeTypes.some(mime => 
+          input.signatureDataUrl!.toLowerCase().startsWith(mime)
+        );
+        
+        if (!isValidMimeType) {
+          return res.status(400).json({ 
+            message: 'Only PNG and JPEG images are allowed for signatures. SVG and other formats are not permitted.',
+            field: 'signatureDataUrl'
+          });
+        }
+        
+        // Additional validation: ensure it's a valid data URL format
+        if (!input.signatureDataUrl.includes(';base64,')) {
+          return res.status(400).json({ 
+            message: 'Invalid image format. Please upload a valid PNG or JPEG image.',
+            field: 'signatureDataUrl'
+          });
+        }
+      }
+      
       const user = await storage.updateUser(id, { signatureDataUrl: input.signatureDataUrl });
 
       // Audit log
@@ -228,6 +252,9 @@ export async function registerRoutes(
         status: DocumentStatus.DRAFT,
         createdById: DEMO_USER_ID,
         nextReviewDate: input.nextReviewDate ? new Date(input.nextReviewDate) : null,
+        requiresPreparedBy: input.requiresPreparedBy ?? true,
+        requiresReviewedBy: input.requiresReviewedBy ?? true,
+        requiresApprovedBy: input.requiresApprovedBy ?? true,
       });
 
       // Audit log
@@ -270,10 +297,17 @@ export async function registerRoutes(
         return res.status(404).json({ message: 'Document not found' });
       }
 
-      const updateData: any = { ...input };
+      const updateData: any = {};
+      if (input.title !== undefined) updateData.title = input.title;
+      if (input.description !== undefined) updateData.description = input.description;
+      if (input.content !== undefined) updateData.content = input.content;
+      if (input.fileUrl !== undefined) updateData.fileUrl = input.fileUrl;
       if (input.nextReviewDate) {
         updateData.nextReviewDate = new Date(input.nextReviewDate);
       }
+      if (input.requiresPreparedBy !== undefined) updateData.requiresPreparedBy = input.requiresPreparedBy;
+      if (input.requiresReviewedBy !== undefined) updateData.requiresReviewedBy = input.requiresReviewedBy;
+      if (input.requiresApprovedBy !== undefined) updateData.requiresApprovedBy = input.requiresApprovedBy;
 
       const doc = await storage.updateDocument(id, updateData);
 

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useUsers, useCreateUser, useUpdateUser, useDeleteUser } from "@/hooks/use-users";
+import { useState, useRef } from "react";
+import { useUsers, useCreateUser, useUpdateUser, useDeleteUser, useUpdateSignature } from "@/hooks/use-users";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -48,7 +48,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
-import { Plus, MoreHorizontal, Pencil, Trash2, UserCheck, UserX, AlertCircle } from "lucide-react";
+import { Plus, MoreHorizontal, Pencil, Trash2, UserCheck, UserX, AlertCircle, PenTool, Upload, X } from "lucide-react";
 import { format } from "date-fns";
 
 const roleColors: Record<string, string> = {
@@ -71,7 +71,10 @@ export default function Users() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showSignatureDialog, setShowSignatureDialog] = useState(false);
   const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [signaturePreview, setSignaturePreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const { data: users, isLoading, isError } = useUsers();
   const { toast } = useToast();
@@ -79,6 +82,7 @@ export default function Users() {
   const createMutation = useCreateUser();
   const updateMutation = useUpdateUser();
   const deleteMutation = useDeleteUser();
+  const signatureMutation = useUpdateSignature();
   
   const [formData, setFormData] = useState({
     name: "",
@@ -120,7 +124,12 @@ export default function Users() {
     try {
       await updateMutation.mutateAsync({
         id: selectedUser.id,
-        data: editFormData,
+        data: {
+          name: editFormData.name,
+          role: editFormData.role as "admin" | "quality_manager" | "department_head" | "staff" | "auditor",
+          inductionStatus: editFormData.inductionStatus as "pending" | "completed",
+          isActive: editFormData.isActive,
+        },
       });
       toast({ title: "User updated successfully" });
       setShowEditDialog(false);
@@ -148,7 +157,7 @@ export default function Users() {
     try {
       await updateMutation.mutateAsync({
         id: user.id,
-        data: { inductionStatus: newStatus },
+        data: { inductionStatus: newStatus as "pending" | "completed" },
       });
       toast({ 
         title: newStatus === "completed" 
@@ -174,6 +183,59 @@ export default function Users() {
   const openDeleteDialog = (user: any) => {
     setSelectedUser(user);
     setShowDeleteDialog(true);
+  };
+
+  const openSignatureDialog = (user: any) => {
+    setSelectedUser(user);
+    setSignaturePreview(user.signatureDataUrl || null);
+    setShowSignatureDialog(true);
+  };
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 500 * 1024) {
+      toast({ title: "File too large", description: "Please select an image under 500KB", variant: "destructive" });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      setSignaturePreview(dataUrl);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveSignature = async () => {
+    if (!selectedUser) return;
+    try {
+      await signatureMutation.mutateAsync({
+        id: selectedUser.id,
+        signatureDataUrl: signaturePreview,
+      });
+      toast({ title: "Signature updated successfully" });
+      setShowSignatureDialog(false);
+      setSelectedUser(null);
+      setSignaturePreview(null);
+    } catch (error: any) {
+      toast({ title: "Error updating signature", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const handleRemoveSignature = async () => {
+    if (!selectedUser) return;
+    try {
+      await signatureMutation.mutateAsync({
+        id: selectedUser.id,
+        signatureDataUrl: null,
+      });
+      toast({ title: "Signature removed successfully" });
+      setSignaturePreview(null);
+    } catch (error: any) {
+      toast({ title: "Error removing signature", description: error.message, variant: "destructive" });
+    }
   };
 
   if (isError) {
@@ -210,6 +272,7 @@ export default function Users() {
                 <TableHead>Role</TableHead>
                 <TableHead>Induction</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Signature</TableHead>
                 <TableHead>Date Joined</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -223,6 +286,7 @@ export default function Users() {
                     <TableCell><Skeleton className="h-5 w-20" /></TableCell>
                     <TableCell><Skeleton className="h-5 w-16" /></TableCell>
                     <TableCell><Skeleton className="h-5 w-12" /></TableCell>
+                    <TableCell><Skeleton className="h-5 w-16" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                     <TableCell><Skeleton className="h-8 w-8 ml-auto" /></TableCell>
                   </TableRow>
@@ -261,6 +325,15 @@ export default function Users() {
                         {user.isActive ? "Active" : "Inactive"}
                       </Badge>
                     </TableCell>
+                    <TableCell>
+                      {user.signatureDataUrl ? (
+                        <Badge variant="secondary" className="bg-blue-100 text-blue-700" data-testid={`badge-signature-${user.id}`}>
+                          <PenTool className="w-3 h-3 mr-1" /> Uploaded
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground text-sm" data-testid={`text-no-signature-${user.id}`}>None</span>
+                      )}
+                    </TableCell>
                     <TableCell data-testid={`text-date-joined-${user.id}`}>
                       {user.dateJoined 
                         ? format(new Date(user.dateJoined), "MMM d, yyyy")
@@ -277,6 +350,9 @@ export default function Users() {
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onClick={() => openEditDialog(user)} data-testid={`menu-edit-${user.id}`}>
                             <Pencil className="w-4 h-4 mr-2" /> Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => openSignatureDialog(user)} data-testid={`menu-signature-${user.id}`}>
+                            <PenTool className="w-4 h-4 mr-2" /> Manage Signature
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => handleToggleInduction(user)} data-testid={`menu-toggle-induction-${user.id}`}>
                             {user.inductionStatus === "completed" ? (
@@ -304,7 +380,7 @@ export default function Users() {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-slate-500" data-testid="text-no-users">
+                  <TableCell colSpan={8} className="text-center py-8 text-slate-500" data-testid="text-no-users">
                     No users found
                   </TableCell>
                 </TableRow>
@@ -480,6 +556,93 @@ export default function Users() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Signature Upload Dialog */}
+      <Dialog open={showSignatureDialog} onOpenChange={setShowSignatureDialog}>
+        <DialogContent className="max-w-md" data-testid="dialog-signature">
+          <DialogHeader>
+            <DialogTitle>Manage Signature</DialogTitle>
+            <DialogDescription>
+              Upload a digital signature for {selectedUser?.name}. This signature will be used on approved documents.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="border rounded-md p-4 min-h-32 flex items-center justify-center bg-slate-50 dark:bg-slate-900">
+              {signaturePreview ? (
+                <div className="relative w-full">
+                  <img 
+                    src={signaturePreview} 
+                    alt="Signature preview" 
+                    className="max-h-24 mx-auto object-contain"
+                    data-testid="img-signature-preview"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="absolute top-0 right-0"
+                    onClick={() => setSignaturePreview(null)}
+                    data-testid="button-clear-signature"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="text-center text-muted-foreground">
+                  <PenTool className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No signature uploaded</p>
+                </div>
+              )}
+            </div>
+            
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              accept="image/png,image/jpeg"
+              className="hidden"
+              data-testid="input-signature-file"
+            />
+            
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                className="flex-1"
+                data-testid="button-upload-signature"
+              >
+                <Upload className="w-4 h-4 mr-2" />
+                Upload Image
+              </Button>
+              {selectedUser?.signatureDataUrl && (
+                <Button
+                  variant="outline"
+                  onClick={handleRemoveSignature}
+                  disabled={signatureMutation.isPending}
+                  data-testid="button-remove-signature"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Remove
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Accepted formats: PNG, JPEG. Max size: 500KB. For best results, use a transparent PNG.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSignatureDialog(false)} data-testid="button-cancel-signature">
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleSaveSignature} 
+              disabled={signatureMutation.isPending || signaturePreview === selectedUser?.signatureDataUrl}
+              data-testid="button-save-signature"
+            >
+              {signatureMutation.isPending ? "Saving..." : "Save Signature"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
 import Editor from "react-simple-wysiwyg";
 import DOMPurify from "dompurify";
 import {
@@ -53,9 +54,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, MoreHorizontal, Pencil, Trash2, Send, CheckCircle, XCircle, AlertCircle, Eye, FileText, Calendar, User, Clock } from "lucide-react";
+import { Plus, MoreHorizontal, Pencil, Trash2, Send, CheckCircle, XCircle, AlertCircle, Eye, FileText, Calendar, User, Clock, PenTool } from "lucide-react";
 import { format } from "date-fns";
 import type { Document } from "@shared/schema";
+import sahihLogoPath from "@assets/sahih_logo-1.png";
 
 const statusColors: Record<string, string> = {
   draft: "bg-slate-100 text-slate-700",
@@ -106,6 +108,9 @@ export default function Documents() {
     category: "sop" as string,
     content: "",
     nextReviewDate: "",
+    requiresPreparedBy: true,
+    requiresReviewedBy: true,
+    requiresApprovedBy: true,
   });
   const [reviewerId, setReviewerId] = useState<string>("");
   const [reviewComments, setReviewComments] = useState("");
@@ -119,6 +124,9 @@ export default function Documents() {
       category: "sop",
       content: "",
       nextReviewDate: "",
+      requiresPreparedBy: true,
+      requiresReviewedBy: true,
+      requiresApprovedBy: true,
     });
     setReviewerId("");
     setReviewComments("");
@@ -134,6 +142,9 @@ export default function Documents() {
         category: formData.category as "policy" | "manual" | "sop" | "format",
         content: formData.content || undefined,
         nextReviewDate: formData.nextReviewDate || undefined,
+        requiresPreparedBy: formData.requiresPreparedBy,
+        requiresReviewedBy: formData.requiresReviewedBy,
+        requiresApprovedBy: formData.requiresApprovedBy,
       });
       toast({ title: "Document created successfully" });
       setShowCreateDialog(false);
@@ -153,6 +164,9 @@ export default function Documents() {
           description: formData.description,
           content: formData.content,
           nextReviewDate: formData.nextReviewDate || undefined,
+          requiresPreparedBy: formData.requiresPreparedBy,
+          requiresReviewedBy: formData.requiresReviewedBy,
+          requiresApprovedBy: formData.requiresApprovedBy,
         },
       });
       toast({ title: "Document updated successfully" });
@@ -226,6 +240,9 @@ export default function Documents() {
       category: doc.category,
       content: doc.content || "",
       nextReviewDate: doc.nextReviewDate ? format(new Date(doc.nextReviewDate), "yyyy-MM-dd") : "",
+      requiresPreparedBy: doc.requiresPreparedBy ?? true,
+      requiresReviewedBy: doc.requiresReviewedBy ?? true,
+      requiresApprovedBy: doc.requiresApprovedBy ?? true,
     });
     setShowEditDialog(true);
   };
@@ -500,6 +517,46 @@ export default function Documents() {
                 data-testid="input-next-review-date"
               />
             </div>
+            <Separator />
+            <div>
+              <Label className="text-base font-medium">Signature Requirements</Label>
+              <p className="text-sm text-muted-foreground mb-3">Select which signatures are required for this document</p>
+              <div className="space-y-3">
+                <div className="flex items-center space-x-3">
+                  <Checkbox
+                    id="requiresPreparedBy"
+                    checked={formData.requiresPreparedBy}
+                    onCheckedChange={(checked) => setFormData({ ...formData, requiresPreparedBy: !!checked })}
+                    data-testid="checkbox-requires-prepared-by"
+                  />
+                  <Label htmlFor="requiresPreparedBy" className="font-normal cursor-pointer">
+                    Prepared By - Document author signature
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <Checkbox
+                    id="requiresReviewedBy"
+                    checked={formData.requiresReviewedBy}
+                    onCheckedChange={(checked) => setFormData({ ...formData, requiresReviewedBy: !!checked })}
+                    data-testid="checkbox-requires-reviewed-by"
+                  />
+                  <Label htmlFor="requiresReviewedBy" className="font-normal cursor-pointer">
+                    Reviewed By - Department head review signature
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <Checkbox
+                    id="requiresApprovedBy"
+                    checked={formData.requiresApprovedBy}
+                    onCheckedChange={(checked) => setFormData({ ...formData, requiresApprovedBy: !!checked })}
+                    data-testid="checkbox-requires-approved-by"
+                  />
+                  <Label htmlFor="requiresApprovedBy" className="font-normal cursor-pointer">
+                    Approved By - Quality manager approval signature
+                  </Label>
+                </div>
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreateDialog(false)} data-testid="button-cancel-create">Cancel</Button>
@@ -559,6 +616,46 @@ export default function Documents() {
                 onChange={(e) => setFormData({ ...formData, nextReviewDate: e.target.value })}
                 data-testid="input-edit-next-review-date"
               />
+            </div>
+            <Separator />
+            <div>
+              <Label className="text-base font-medium">Signature Requirements</Label>
+              <p className="text-sm text-muted-foreground mb-3">Select which signatures are required for this document</p>
+              <div className="space-y-3">
+                <div className="flex items-center space-x-3">
+                  <Checkbox
+                    id="edit-requiresPreparedBy"
+                    checked={formData.requiresPreparedBy}
+                    onCheckedChange={(checked) => setFormData({ ...formData, requiresPreparedBy: !!checked })}
+                    data-testid="checkbox-edit-requires-prepared-by"
+                  />
+                  <Label htmlFor="edit-requiresPreparedBy" className="font-normal cursor-pointer">
+                    Prepared By - Document author signature
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <Checkbox
+                    id="edit-requiresReviewedBy"
+                    checked={formData.requiresReviewedBy}
+                    onCheckedChange={(checked) => setFormData({ ...formData, requiresReviewedBy: !!checked })}
+                    data-testid="checkbox-edit-requires-reviewed-by"
+                  />
+                  <Label htmlFor="edit-requiresReviewedBy" className="font-normal cursor-pointer">
+                    Reviewed By - Department head review signature
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <Checkbox
+                    id="edit-requiresApprovedBy"
+                    checked={formData.requiresApprovedBy}
+                    onCheckedChange={(checked) => setFormData({ ...formData, requiresApprovedBy: !!checked })}
+                    data-testid="checkbox-edit-requires-approved-by"
+                  />
+                  <Label htmlFor="edit-requiresApprovedBy" className="font-normal cursor-pointer">
+                    Approved By - Quality manager approval signature
+                  </Label>
+                </div>
+              </div>
             </div>
           </div>
           <DialogFooter>
@@ -681,31 +778,40 @@ export default function Documents() {
         <DialogContent className="max-w-4xl max-h-[90vh]" data-testid="dialog-view-document">
           {selectedDocument && (
             <>
+              {/* Document Header with Company Logo */}
               <div className="border-b pb-4 mb-4">
                 <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <Badge className={categoryColors[selectedDocument.category] || ""} variant="secondary">
-                        {selectedDocument.category.toUpperCase()}
-                      </Badge>
-                      <Badge className={statusColors[selectedDocument.status] || ""} variant="secondary">
-                        {selectedDocument.status.replace('_', ' ').toUpperCase()}
-                      </Badge>
-                      <Badge variant="outline">v{selectedDocument.versionNumber}</Badge>
+                  <div className="flex items-start gap-4">
+                    <img 
+                      src={sahihLogoPath} 
+                      alt="Sahih Certifications" 
+                      className="h-16 object-contain"
+                      data-testid="img-company-logo"
+                    />
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
+                        <Badge className={categoryColors[selectedDocument.category] || ""} variant="secondary">
+                          {selectedDocument.category.toUpperCase()}
+                        </Badge>
+                        <Badge className={statusColors[selectedDocument.status] || ""} variant="secondary">
+                          {selectedDocument.status.replace('_', ' ').toUpperCase()}
+                        </Badge>
+                        <Badge variant="outline">v{selectedDocument.versionNumber}</Badge>
+                      </div>
+                      <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100" data-testid="text-view-title">
+                        {selectedDocument.title}
+                      </h2>
+                      <p className="text-sm text-slate-500 font-mono" data-testid="text-view-code">
+                        {selectedDocument.documentCode}
+                      </p>
                     </div>
-                    <h2 className="text-xl font-bold text-slate-900" data-testid="text-view-title">
-                      {selectedDocument.title}
-                    </h2>
-                    <p className="text-sm text-slate-500 font-mono" data-testid="text-view-code">
-                      {selectedDocument.documentCode}
-                    </p>
                   </div>
                   <Button variant="outline" onClick={() => setShowViewDialog(false)} data-testid="button-close-viewer">
                     Close
                   </Button>
                 </div>
                 {selectedDocument.description && (
-                  <p className="text-slate-600 mt-3" data-testid="text-view-description">
+                  <p className="text-slate-600 dark:text-slate-400 mt-3" data-testid="text-view-description">
                     {selectedDocument.description}
                   </p>
                 )}
@@ -743,13 +849,13 @@ export default function Documents() {
                     <div className="font-medium">{selectedDocument.versionNumber}</div>
                   </div>
                 </div>
-                {selectedDocument.approvedAt && (
+                {selectedDocument.approvedBySignedAt && (
                   <div className="flex items-center gap-2">
                     <CheckCircle className="w-4 h-4 text-green-500" />
                     <div>
                       <div className="text-slate-500 text-xs">Approved</div>
                       <div className="font-medium">
-                        {format(new Date(selectedDocument.approvedAt), "MMM d, yyyy")}
+                        {format(new Date(selectedDocument.approvedBySignedAt), "MMM d, yyyy")}
                       </div>
                     </div>
                   </div>
@@ -758,7 +864,7 @@ export default function Documents() {
 
               <Separator className="my-4" />
               
-              <ScrollArea className="h-[400px] pr-4">
+              <ScrollArea className="h-[350px] pr-4">
                 <div 
                   className="prose prose-slate max-w-none dark:prose-invert"
                   data-testid="text-view-content"
@@ -767,6 +873,100 @@ export default function Documents() {
                   }}
                 />
               </ScrollArea>
+
+              {/* Signature Block */}
+              <Separator className="my-4" />
+              <div className="bg-slate-50 dark:bg-slate-800 rounded-md p-4" data-testid="section-signatures">
+                <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                  <PenTool className="w-4 h-4" />
+                  Document Signatures
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {selectedDocument.requiresPreparedBy && (
+                    <div className="border rounded-md p-3 bg-white dark:bg-slate-900" data-testid="signature-block-prepared">
+                      <div className="text-xs text-slate-500 mb-1">Prepared By</div>
+                      <div className="h-12 flex items-center justify-center border-b border-dashed mb-2">
+                        {selectedDocument.preparedById && users?.find(u => u.id === selectedDocument.preparedById)?.signatureDataUrl ? (
+                          <img 
+                            src={users.find(u => u.id === selectedDocument.preparedById)?.signatureDataUrl || ''} 
+                            alt="Signature" 
+                            className="max-h-10 object-contain"
+                            data-testid="img-signature-prepared"
+                          />
+                        ) : (
+                          <span className="text-xs text-slate-400 italic">Pending signature</span>
+                        )}
+                      </div>
+                      <div className="text-sm font-medium">
+                        {selectedDocument.preparedById 
+                          ? users?.find(u => u.id === selectedDocument.preparedById)?.name || 'Unknown'
+                          : '---'}
+                      </div>
+                      {selectedDocument.preparedBySignedAt && (
+                        <div className="text-xs text-slate-500">
+                          {format(new Date(selectedDocument.preparedBySignedAt), "MMM d, yyyy")}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {selectedDocument.requiresReviewedBy && (
+                    <div className="border rounded-md p-3 bg-white dark:bg-slate-900" data-testid="signature-block-reviewed">
+                      <div className="text-xs text-slate-500 mb-1">Reviewed By</div>
+                      <div className="h-12 flex items-center justify-center border-b border-dashed mb-2">
+                        {selectedDocument.reviewedById && users?.find(u => u.id === selectedDocument.reviewedById)?.signatureDataUrl ? (
+                          <img 
+                            src={users.find(u => u.id === selectedDocument.reviewedById)?.signatureDataUrl || ''} 
+                            alt="Signature" 
+                            className="max-h-10 object-contain"
+                            data-testid="img-signature-reviewed"
+                          />
+                        ) : (
+                          <span className="text-xs text-slate-400 italic">Pending signature</span>
+                        )}
+                      </div>
+                      <div className="text-sm font-medium">
+                        {selectedDocument.reviewedById 
+                          ? users?.find(u => u.id === selectedDocument.reviewedById)?.name || 'Unknown'
+                          : '---'}
+                      </div>
+                      {selectedDocument.reviewedBySignedAt && (
+                        <div className="text-xs text-slate-500">
+                          {format(new Date(selectedDocument.reviewedBySignedAt), "MMM d, yyyy")}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {selectedDocument.requiresApprovedBy && (
+                    <div className="border rounded-md p-3 bg-white dark:bg-slate-900" data-testid="signature-block-approved">
+                      <div className="text-xs text-slate-500 mb-1">Approved By</div>
+                      <div className="h-12 flex items-center justify-center border-b border-dashed mb-2">
+                        {selectedDocument.approvedById && users?.find(u => u.id === selectedDocument.approvedById)?.signatureDataUrl ? (
+                          <img 
+                            src={users.find(u => u.id === selectedDocument.approvedById)?.signatureDataUrl || ''} 
+                            alt="Signature" 
+                            className="max-h-10 object-contain"
+                            data-testid="img-signature-approved"
+                          />
+                        ) : (
+                          <span className="text-xs text-slate-400 italic">Pending signature</span>
+                        )}
+                      </div>
+                      <div className="text-sm font-medium">
+                        {selectedDocument.approvedById 
+                          ? users?.find(u => u.id === selectedDocument.approvedById)?.name || 'Unknown'
+                          : '---'}
+                      </div>
+                      {selectedDocument.approvedBySignedAt && (
+                        <div className="text-xs text-slate-500">
+                          {format(new Date(selectedDocument.approvedBySignedAt), "MMM d, yyyy")}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
             </>
           )}
         </DialogContent>

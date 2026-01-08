@@ -11,6 +11,7 @@ interface UserResponse {
   isActive: boolean | null;
   dateJoined: string | null;
   lastLogin: string | null;
+  signatureDataUrl: string | null;
 }
 
 export function useUsers() {
@@ -60,6 +61,18 @@ export function useDeleteUser() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/users'] });
       queryClient.invalidateQueries({ queryKey: ['/api/dashboard'] });
+    },
+  });
+}
+
+export function useUpdateSignature() {
+  return useMutation({
+    mutationFn: async ({ id, signatureDataUrl }: { id: number; signatureDataUrl: string | null }) => {
+      const res = await apiRequest('PUT', `/api/users/${id}/signature`, { signatureDataUrl });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/users'] });
     },
   });
 }

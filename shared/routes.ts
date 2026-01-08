@@ -205,6 +205,9 @@ export const api = {
         content: z.string().optional(),
         fileUrl: z.string().optional(),
         nextReviewDate: z.string().optional(),
+        requiresPreparedBy: z.boolean().optional(),
+        requiresReviewedBy: z.boolean().optional(),
+        requiresApprovedBy: z.boolean().optional(),
       }),
       responses: {
         201: z.custom<typeof documents.$inferSelect>(),
@@ -220,6 +223,9 @@ export const api = {
         content: z.string().optional(),
         fileUrl: z.string().optional(),
         nextReviewDate: z.string().optional(),
+        requiresPreparedBy: z.boolean().optional(),
+        requiresReviewedBy: z.boolean().optional(),
+        requiresApprovedBy: z.boolean().optional(),
       }),
       responses: {
         200: z.custom<typeof documents.$inferSelect>(),
