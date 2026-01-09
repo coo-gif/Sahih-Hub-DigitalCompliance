@@ -208,9 +208,10 @@ export default function Login({ onLogin }: LoginProps) {
             <CardContent className="p-8 space-y-6">
               <div className="text-center space-y-2">
                 <div 
-                  className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4 bg-gradient-to-br from-indigo-500 to-purple-600"
+                  className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4"
+                  style={{ background: 'linear-gradient(135deg, #BF953F 0%, #FCF6BA 25%, #B38728 50%, #FBF5B7 75%, #AA771C 100%)' }}
                 >
-                  <Shield className="w-8 h-8 text-white" />
+                  <Shield className="w-8 h-8 text-amber-900" />
                 </div>
                 <h2 className="text-2xl font-bold text-slate-800 dark:text-white">
                   Welcome Back
@@ -232,7 +233,7 @@ export default function Login({ onLogin }: LoginProps) {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     disabled={isLoading}
-                    className="h-12 border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:ring-indigo-500/20"
+                    className="h-12 border-slate-200 dark:border-slate-700 focus:border-amber-500 focus:ring-amber-500/20"
                     data-testid="input-email"
                   />
                 </div>
@@ -242,7 +243,7 @@ export default function Login({ onLogin }: LoginProps) {
                     <Label htmlFor="password" className="text-slate-700 dark:text-slate-300 font-medium">
                       Password
                     </Label>
-                    <button type="button" className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">
+                    <button type="button" className="text-sm text-amber-600 hover:text-amber-700 font-medium">
                       Forgot password?
                     </button>
                   </div>
@@ -253,20 +254,24 @@ export default function Login({ onLogin }: LoginProps) {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     disabled={isLoading}
-                    className="h-12 border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:ring-indigo-500/20"
+                    className="h-12 border-slate-200 dark:border-slate-700 focus:border-amber-500 focus:ring-amber-500/20"
                     data-testid="input-password"
                   />
                 </div>
 
                 <Button 
                   type="submit" 
-                  className="w-full h-12 text-base font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-lg shadow-indigo-500/25 transition-all duration-300" 
+                  className="w-full h-12 text-base font-semibold text-amber-900 shadow-lg transition-all duration-300 hover:scale-[1.02]" 
+                  style={{
+                    background: 'linear-gradient(135deg, #BF953F 0%, #FCF6BA 25%, #B38728 50%, #FBF5B7 75%, #AA771C 100%)',
+                    boxShadow: '0 4px 15px rgba(191, 149, 63, 0.4)'
+                  }}
                   disabled={isLoading}
                   data-testid="button-login"
                 >
                   {isLoading ? (
                     <span className="flex items-center gap-2">
-                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                      <div className="w-5 h-5 border-2 border-amber-900/30 border-t-amber-900 rounded-full animate-spin"></div>
                       Signing in...
                     </span>
                   ) : (
