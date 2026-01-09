@@ -87,10 +87,10 @@ export default function Login({ onLogin }: LoginProps) {
             
             <div className="text-center space-y-4">
               <h1 className="text-4xl font-bold tracking-tight">
-                Sahih Certifications
+                Sahih - Hub
               </h1>
               <p className="text-xl text-white/80 font-light">
-                Qatar's Premier Certification Body
+                Digital Compliance Interface
               </p>
               <div className="flex items-center justify-center gap-2 text-white/60 text-sm">
                 <Globe className="w-4 h-4" />
@@ -145,7 +145,7 @@ export default function Login({ onLogin }: LoginProps) {
               className="h-32 object-contain"
               data-testid="img-login-logo-mobile"
             />
-            <h2 className="text-xl font-semibold text-slate-800 dark:text-slate-200">Sahih Certifications</h2>
+            <h2 className="text-xl font-semibold text-slate-800 dark:text-slate-200">Sahih - Hub</h2>
           </div>
 
           <Card className="border-0 shadow-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm">
@@ -240,9 +240,9 @@ export default function Login({ onLogin }: LoginProps) {
           </Card>
 
           <p className="text-center text-sm text-slate-500 dark:text-slate-400">
-            ISO 17021 Quality Management System
+            Digital Compliance Interface
             <br />
-            <span className="text-xs">&copy; {new Date().getFullYear()} Sahih Certifications. Doha, Qatar.</span>
+            <span className="text-xs">&copy; {new Date().getFullYear()} Sahih - Hub. Doha, Qatar.</span>
           </p>
         </div>
       </div>
