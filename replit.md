@@ -47,10 +47,36 @@ State machine for document lifecycle:
 1. **Draft** → Staff creates document
 2. **In-Review** → Submitted for departmental review
 3. **Pending Approval** → Reviewer accepts, awaiting Quality Manager approval
-4. **Approved** → Published with version increment, old versions archived
+4. **Approved** → Published with edition/revision increment, old versions archived
 5. **Obsolete** → Archived documents
 
 Rejection at any stage reverts document to Draft with comments.
+
+### Edition/Revision Numbering
+- Documents use Edition (Ed.) and Revision (Rev.) numbering instead of simple version numbers
+- Revision number auto-increments by 1 on each approval
+- Edition number remains constant unless manually incremented for major changes
+- Version string format: "Ed.X Rev.Y" (e.g., Ed.1 Rev.3)
+
+### PDF Generation (Puppeteer)
+- PDF generation using Puppeteer for server-side HTML-to-PDF conversion
+- PDFs include document header, content, and signature blocks
+- Generated PDFs stored as base64 data URLs in the database
+- "View Final Draft" button to view generated PDFs
+- Download functionality for approved documents
+
+### Download Permission System
+- Documents can require admin approval before download
+- Download request workflow with pending/approved/rejected states
+- Admin/Quality Manager can approve or reject download requests
+- Notifications sent when requests are submitted or decided
+- Full audit trail for download request actions
+
+### Signatory System
+- Three signatory roles: Prepared By, Reviewed By, Approved By
+- User selection dropdowns for each signatory role
+- Signature blocks displayed in document preview
+- Timestamps recorded when each signatory signs
 
 ### Compliance Monitoring
 - Automated alerts when document review dates approach (yellow: <30 days, red: overdue)

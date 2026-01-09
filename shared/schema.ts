@@ -89,6 +89,12 @@ export const SignatoryRole = {
   APPROVED_BY: "approved_by",
 } as const;
 
+export const DownloadRequestStatus = {
+  PENDING: "pending",
+  APPROVED: "approved",
+  REJECTED: "rejected",
+} as const;
+
 // ============================================
 // USERS TABLE
 // ============================================
@@ -117,6 +123,8 @@ export const documents = pgTable("documents", {
   content: text("content"), // Document content or file URL
   fileUrl: text("file_url"),
   versionNumber: text("version_number").notNull().default("1.0"),
+  editionNumber: integer("edition_number").notNull().default(1),
+  revisionNumber: integer("revision_number").notNull().default(0),
   status: text("status").notNull().default(DocumentStatus.DRAFT),
   createdById: integer("created_by_id").notNull(),
   reviewerId: integer("reviewer_id"),
@@ -132,6 +140,9 @@ export const documents = pgTable("documents", {
   reviewedBySignedAt: timestamp("reviewed_by_signed_at"),
   approvedById: integer("approved_by_id"),
   approvedBySignedAt: timestamp("approved_by_signed_at"),
+  finalPdfUrl: text("final_pdf_url"),
+  finalPdfGeneratedAt: timestamp("final_pdf_generated_at"),
+  downloadRequiresApproval: boolean("download_requires_approval").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -143,10 +154,27 @@ export const documentVersions = pgTable("document_versions", {
   id: serial("id").primaryKey(),
   documentId: integer("document_id").notNull(),
   versionNumber: text("version_number").notNull(),
+  editionNumber: integer("edition_number").notNull().default(1),
+  revisionNumber: integer("revision_number").notNull().default(0),
   content: text("content"),
   fileUrl: text("file_url"),
+  pdfUrl: text("pdf_url"),
   approvedById: integer("approved_by_id"),
   archivedAt: timestamp("archived_at").defaultNow(),
+});
+
+// ============================================
+// DOWNLOAD REQUESTS
+// ============================================
+export const downloadRequests = pgTable("download_requests", {
+  id: serial("id").primaryKey(),
+  documentId: integer("document_id").notNull(),
+  requesterId: integer("requester_id").notNull(),
+  status: text("status").notNull().default(DownloadRequestStatus.PENDING),
+  decidedById: integer("decided_by_id"),
+  decidedAt: timestamp("decided_at"),
+  reason: text("reason"),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 // ============================================
@@ -279,6 +307,12 @@ export const employeeTasksRelations = relations(employeeTasks, ({ one }) => ({
   assignedBy: one(users, { fields: [employeeTasks.assignedByUserId], references: [users.id] }),
 }));
 
+export const downloadRequestsRelations = relations(downloadRequests, ({ one }) => ({
+  document: one(documents, { fields: [downloadRequests.documentId], references: [documents.id] }),
+  requester: one(users, { fields: [downloadRequests.requesterId], references: [users.id] }),
+  decidedBy: one(users, { fields: [downloadRequests.decidedById], references: [users.id] }),
+}));
+
 // ============================================
 // INSERT SCHEMAS
 // ============================================
@@ -328,6 +362,12 @@ export const insertEmployeeTaskSchema = createInsertSchema(employeeTasks).omit({
   completedAt: true,
 });
 
+export const insertDownloadRequestSchema = createInsertSchema(downloadRequests).omit({ 
+  id: true, 
+  createdAt: true,
+  decidedAt: true,
+});
+
 // ============================================
 // TYPES
 // ============================================
@@ -354,6 +394,9 @@ export type InsertEmployee = z.infer<typeof insertEmployeeSchema>;
 
 export type EmployeeTask = typeof employeeTasks.$inferSelect;
 export type InsertEmployeeTask = z.infer<typeof insertEmployeeTaskSchema>;
+
+export type DownloadRequest = typeof downloadRequests.$inferSelect;
+export type InsertDownloadRequest = z.infer<typeof insertDownloadRequestSchema>;
 
 // ============================================
 // API REQUEST/RESPONSE TYPES

@@ -8,8 +8,12 @@ import {
   UrgencyLevel,
   UserRole,
   InductionStatus,
+  DownloadRequestStatus,
 } from "@shared/schema";
 import { z } from "zod";
+import puppeteer from "puppeteer";
+import path from "path";
+import fs from "fs";
 
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) {
@@ -520,15 +524,20 @@ export async function registerRoutes(
         updateData.approverId = getCurrentUserId(req);
         updateData.approvedAt = new Date();
         
-        // Increment version if republishing
-        const versionParts = doc.versionNumber.split('.');
-        const major = parseInt(versionParts[0]);
-        updateData.versionNumber = `${major + 1}.0`;
+        // Increment revision number on approval
+        const currentRevision = doc.revisionNumber || 0;
+        const currentEdition = doc.editionNumber || 1;
+        updateData.revisionNumber = currentRevision + 1;
+        
+        // Update version string to match edition.revision format
+        updateData.versionNumber = `${currentEdition}.${currentRevision + 1}`;
 
-        // Archive old version
+        // Archive old version with edition/revision info
         await storage.createDocumentVersion({
           documentId: id,
           versionNumber: doc.versionNumber,
+          editionNumber: currentEdition,
+          revisionNumber: currentRevision,
           content: doc.content,
           fileUrl: doc.fileUrl,
           approvedById: doc.approverId,
@@ -999,6 +1008,269 @@ export async function registerRoutes(
     });
 
     res.json(task);
+  });
+
+  // ============================================
+  // PDF GENERATION
+  // ============================================
+  app.post('/api/documents/:id/generate-pdf', requireAuth, async (req, res) => {
+    const id = Number(req.params.id);
+    const doc = await storage.getDocument(id);
+    
+    if (!doc) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+
+    try {
+      const users = await storage.getUsers();
+      const preparedBy = users.find(u => u.id === doc.preparedById);
+      const reviewedBy = users.find(u => u.id === doc.reviewerId);
+      const approvedBy = users.find(u => u.id === doc.approverId);
+
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            @page { size: A4; margin: 20mm; }
+            body { font-family: Arial, sans-serif; font-size: 12px; line-height: 1.4; margin: 0; padding: 0; }
+            .header { display: flex; justify-content: space-between; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; }
+            .logo { font-weight: bold; font-size: 18px; }
+            .doc-info { text-align: right; font-size: 10px; }
+            .content { min-height: 600px; }
+            .content table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+            .content table td, .content table th { border: 1px solid #000; padding: 8px; }
+            .content img { max-width: 100%; }
+            .signatures { margin-top: 40px; display: flex; justify-content: space-between; border-top: 1px solid #ccc; padding-top: 20px; }
+            .signature-block { width: 30%; text-align: center; }
+            .signature-line { border-top: 1px solid #000; margin-top: 40px; padding-top: 5px; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="logo">SAHIH CERTIFICATIONS</div>
+            <div class="doc-info">
+              <div><strong>${doc.documentCode}</strong></div>
+              <div>Ed.${doc.editionNumber || 1} Rev.${doc.revisionNumber || 0}</div>
+              <div>Status: ${doc.status}</div>
+            </div>
+          </div>
+          <h1 style="text-align: center; margin-bottom: 30px;">${doc.title}</h1>
+          <div class="content">${doc.content || ''}</div>
+          <div class="signatures">
+            <div class="signature-block">
+              <div>Prepared By</div>
+              <div class="signature-line">${preparedBy?.name || 'N/A'}</div>
+            </div>
+            <div class="signature-block">
+              <div>Reviewed By</div>
+              <div class="signature-line">${reviewedBy?.name || 'N/A'}</div>
+            </div>
+            <div class="signature-block">
+              <div>Approved By</div>
+              <div class="signature-line">${approvedBy?.name || 'N/A'}</div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      const browser = await puppeteer.launch({ 
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      });
+      const page = await browser.newPage();
+      await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+      
+      const pdfBuffer = await page.pdf({
+        format: 'A4',
+        margin: { top: '20mm', right: '20mm', bottom: '20mm', left: '20mm' },
+        printBackground: true
+      });
+      
+      await browser.close();
+
+      const pdfBase64 = Buffer.from(pdfBuffer).toString('base64');
+      const pdfDataUrl = `data:application/pdf;base64,${pdfBase64}`;
+
+      await storage.updateDocument(id, { 
+        finalPdfUrl: pdfDataUrl,
+        finalPdfGeneratedAt: new Date()
+      });
+
+      await storage.createAuditLog({
+        userId: getCurrentUserId(req),
+        action: AuditAction.UPDATE,
+        entityType: 'document',
+        entityId: id,
+        newValue: JSON.stringify({ action: 'PDF generated' }),
+      });
+
+      res.json({ success: true, pdfUrl: pdfDataUrl });
+    } catch (error) {
+      console.error('PDF generation error:', error);
+      res.status(500).json({ message: 'Failed to generate PDF' });
+    }
+  });
+
+  app.get('/api/documents/:id/pdf', requireAuth, async (req, res) => {
+    const id = Number(req.params.id);
+    const doc = await storage.getDocument(id);
+    
+    if (!doc) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+    
+    if (!doc.finalPdfUrl) {
+      return res.status(404).json({ message: 'PDF not generated yet' });
+    }
+
+    res.json({ pdfUrl: doc.finalPdfUrl });
+  });
+
+  // ============================================
+  // DOWNLOAD REQUESTS
+  // ============================================
+  app.get('/api/download-requests', requireAuth, async (req, res) => {
+    const user = await storage.getUser(getCurrentUserId(req));
+    if (!user) {
+      return res.status(401).json({ message: 'User not found' });
+    }
+
+    let requests;
+    if (user.role === UserRole.ADMIN || user.role === UserRole.QUALITY_MANAGER) {
+      requests = await storage.getDownloadRequests();
+    } else {
+      requests = await storage.getDownloadRequests({ requesterId: user.id });
+    }
+
+    res.json(requests);
+  });
+
+  app.post('/api/download-requests', requireAuth, async (req, res) => {
+    try {
+      const { documentId, reason } = req.body;
+      
+      if (!documentId) {
+        return res.status(400).json({ message: 'Document ID is required' });
+      }
+
+      const doc = await storage.getDocument(documentId);
+      if (!doc) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+
+      const request = await storage.createDownloadRequest({
+        documentId,
+        requesterId: getCurrentUserId(req),
+        reason: reason || null,
+        status: DownloadRequestStatus.PENDING,
+      });
+
+      await storage.createAuditLog({
+        userId: getCurrentUserId(req),
+        action: AuditAction.CREATE,
+        entityType: 'download_request',
+        entityId: request.id,
+        newValue: JSON.stringify({ documentId, reason }),
+      });
+
+      const admins = (await storage.getUsers()).filter(u => 
+        u.role === UserRole.ADMIN || u.role === UserRole.QUALITY_MANAGER
+      );
+      for (const admin of admins) {
+        await storage.createNotification({
+          userId: admin.id,
+          title: 'Download Request Pending',
+          message: `A user has requested permission to download "${doc.title}" (${doc.documentCode}).`,
+          urgencyLevel: UrgencyLevel.MEDIUM,
+          relatedDocumentId: documentId,
+        });
+      }
+
+      res.status(201).json(request);
+    } catch (err) {
+      console.error('Create download request error:', err);
+      res.status(500).json({ message: 'Failed to create download request' });
+    }
+  });
+
+  app.post('/api/download-requests/:id/approve', requireAuth, async (req, res) => {
+    const id = Number(req.params.id);
+    const user = await storage.getUser(getCurrentUserId(req));
+    
+    if (!user || (user.role !== UserRole.ADMIN && user.role !== UserRole.QUALITY_MANAGER)) {
+      return res.status(403).json({ message: 'Only Admin or Quality Manager can approve download requests' });
+    }
+
+    const request = await storage.getDownloadRequest(id);
+    if (!request) {
+      return res.status(404).json({ message: 'Download request not found' });
+    }
+
+    const updated = await storage.updateDownloadRequest(id, {
+      status: DownloadRequestStatus.APPROVED,
+      decidedById: user.id,
+      decidedAt: new Date(),
+    });
+
+    await storage.createAuditLog({
+      userId: user.id,
+      action: AuditAction.APPROVE,
+      entityType: 'download_request',
+      entityId: id,
+      previousValue: JSON.stringify({ status: request.status }),
+      newValue: JSON.stringify({ status: DownloadRequestStatus.APPROVED }),
+    });
+
+    await storage.createNotification({
+      userId: request.requesterId,
+      title: 'Download Request Approved',
+      message: `Your request to download document has been approved.`,
+      urgencyLevel: UrgencyLevel.LOW,
+    });
+
+    res.json(updated);
+  });
+
+  app.post('/api/download-requests/:id/reject', requireAuth, async (req, res) => {
+    const id = Number(req.params.id);
+    const { reason } = req.body;
+    const user = await storage.getUser(getCurrentUserId(req));
+    
+    if (!user || (user.role !== UserRole.ADMIN && user.role !== UserRole.QUALITY_MANAGER)) {
+      return res.status(403).json({ message: 'Only Admin or Quality Manager can reject download requests' });
+    }
+
+    const request = await storage.getDownloadRequest(id);
+    if (!request) {
+      return res.status(404).json({ message: 'Download request not found' });
+    }
+
+    const updated = await storage.updateDownloadRequest(id, {
+      status: DownloadRequestStatus.REJECTED,
+      decidedById: user.id,
+      decidedAt: new Date(),
+    });
+
+    await storage.createAuditLog({
+      userId: user.id,
+      action: AuditAction.REJECT,
+      entityType: 'download_request',
+      entityId: id,
+      previousValue: JSON.stringify({ status: request.status }),
+      newValue: JSON.stringify({ status: DownloadRequestStatus.REJECTED, reason }),
+    });
+
+    await storage.createNotification({
+      userId: request.requesterId,
+      title: 'Download Request Rejected',
+      message: `Your request to download document was rejected.${reason ? ' Reason: ' + reason : ''}`,
+      urgencyLevel: UrgencyLevel.LOW,
+    });
+
+    res.json(updated);
   });
 
   // ============================================

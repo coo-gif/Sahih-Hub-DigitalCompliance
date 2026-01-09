@@ -1,7 +1,7 @@
 import { db } from "./db";
 import {
   users, documents, documentVersions, workflowLogs, notifications, auditLogs,
-  employees, employeeTasks,
+  employees, employeeTasks, downloadRequests,
   type User, type InsertUser,
   type Document, type InsertDocument,
   type DocumentVersion, type InsertDocumentVersion,
@@ -10,6 +10,7 @@ import {
   type AuditLog, type InsertAuditLog,
   type Employee, type InsertEmployee,
   type EmployeeTask, type InsertEmployeeTask,
+  type DownloadRequest, type InsertDownloadRequest,
   DocumentStatus, InductionStatus, TaskStatus,
 } from "@shared/schema";
 import { eq, desc, and, lt, gt, or, sql } from "drizzle-orm";
@@ -94,6 +95,12 @@ export interface IStorage {
   updateEmployeeTask(id: number, task: Partial<InsertEmployeeTask>): Promise<EmployeeTask>;
   deleteEmployeeTask(id: number): Promise<void>;
   completeEmployeeTask(id: number): Promise<EmployeeTask>;
+
+  // Download Requests
+  getDownloadRequests(filters?: { documentId?: number; requesterId?: number; status?: string }): Promise<DownloadRequest[]>;
+  getDownloadRequest(id: number): Promise<DownloadRequest | undefined>;
+  createDownloadRequest(request: InsertDownloadRequest): Promise<DownloadRequest>;
+  updateDownloadRequest(id: number, request: Partial<InsertDownloadRequest>): Promise<DownloadRequest>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -477,6 +484,47 @@ export class DatabaseStorage implements IStorage {
         updatedAt: new Date() 
       })
       .where(eq(employeeTasks.id, id))
+      .returning();
+    return updated;
+  }
+
+  // ============================================
+  // DOWNLOAD REQUESTS
+  // ============================================
+  async getDownloadRequests(filters?: { documentId?: number; requesterId?: number; status?: string }): Promise<DownloadRequest[]> {
+    const conditions = [];
+    if (filters?.documentId) {
+      conditions.push(eq(downloadRequests.documentId, filters.documentId));
+    }
+    if (filters?.requesterId) {
+      conditions.push(eq(downloadRequests.requesterId, filters.requesterId));
+    }
+    if (filters?.status) {
+      conditions.push(eq(downloadRequests.status, filters.status));
+    }
+
+    if (conditions.length > 0) {
+      return await db.select().from(downloadRequests)
+        .where(and(...conditions))
+        .orderBy(desc(downloadRequests.createdAt));
+    }
+    return await db.select().from(downloadRequests).orderBy(desc(downloadRequests.createdAt));
+  }
+
+  async getDownloadRequest(id: number): Promise<DownloadRequest | undefined> {
+    const [request] = await db.select().from(downloadRequests).where(eq(downloadRequests.id, id));
+    return request;
+  }
+
+  async createDownloadRequest(request: InsertDownloadRequest): Promise<DownloadRequest> {
+    const [created] = await db.insert(downloadRequests).values(request).returning();
+    return created;
+  }
+
+  async updateDownloadRequest(id: number, updates: Partial<InsertDownloadRequest>): Promise<DownloadRequest> {
+    const [updated] = await db.update(downloadRequests)
+      .set(updates)
+      .where(eq(downloadRequests.id, id))
       .returning();
     return updated;
   }

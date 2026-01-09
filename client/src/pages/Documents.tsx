@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
-import Editor, { BtnBold, BtnItalic, BtnUnderline, BtnStrikeThrough, BtnBulletList, BtnNumberedList, BtnLink, BtnClearFormatting, Separator as EditorSeparator, Toolbar, BtnRedo, BtnUndo } from "react-simple-wysiwyg";
+import TiptapEditor from "@/components/TiptapEditor";
 import DOMPurify from "dompurify";
 import {
   Dialog,
@@ -54,7 +54,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, MoreHorizontal, Pencil, Trash2, Send, CheckCircle, XCircle, AlertCircle, Eye, FileText, Calendar, User, Clock, PenTool } from "lucide-react";
+import { Plus, MoreHorizontal, Pencil, Trash2, Send, CheckCircle, XCircle, AlertCircle, Eye, FileText, Calendar, User, Clock, PenTool, FileDown, Download, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import type { Document } from "@shared/schema";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
@@ -83,7 +83,11 @@ export default function Documents() {
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showViewDialog, setShowViewDialog] = useState(false);
+  const [showPreviewDialog, setShowPreviewDialog] = useState(false);
+  const [showPdfDialog, setShowPdfDialog] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   
   const filters = {
     status: statusFilter !== "all" ? statusFilter : undefined,
@@ -111,6 +115,9 @@ export default function Documents() {
     requiresPreparedBy: true,
     requiresReviewedBy: true,
     requiresApprovedBy: true,
+    preparedById: "",
+    reviewedById: "",
+    approvedById: "",
   });
   const [reviewerId, setReviewerId] = useState<string>("");
   const [reviewComments, setReviewComments] = useState("");
@@ -127,6 +134,9 @@ export default function Documents() {
       requiresPreparedBy: true,
       requiresReviewedBy: true,
       requiresApprovedBy: true,
+      preparedById: "",
+      reviewedById: "",
+      approvedById: "",
     });
     setReviewerId("");
     setReviewComments("");
@@ -145,6 +155,9 @@ export default function Documents() {
         requiresPreparedBy: formData.requiresPreparedBy,
         requiresReviewedBy: formData.requiresReviewedBy,
         requiresApprovedBy: formData.requiresApprovedBy,
+        preparedById: formData.preparedById ? parseInt(formData.preparedById) : undefined,
+        reviewedById: formData.reviewedById ? parseInt(formData.reviewedById) : undefined,
+        approvedById: formData.approvedById ? parseInt(formData.approvedById) : undefined,
       });
       toast({ title: "Document created successfully" });
       setShowCreateDialog(false);
@@ -167,6 +180,9 @@ export default function Documents() {
           requiresPreparedBy: formData.requiresPreparedBy,
           requiresReviewedBy: formData.requiresReviewedBy,
           requiresApprovedBy: formData.requiresApprovedBy,
+          preparedById: formData.preparedById ? parseInt(formData.preparedById) : undefined,
+          reviewedById: formData.reviewedById ? parseInt(formData.reviewedById) : undefined,
+          approvedById: formData.approvedById ? parseInt(formData.approvedById) : undefined,
         },
       });
       toast({ title: "Document updated successfully" });
@@ -230,6 +246,74 @@ export default function Documents() {
       toast({ title: "Error rejecting document", description: error.message, variant: "destructive" });
     }
   };
+
+  const handleGeneratePdf = async (doc: Document) => {
+    setSelectedDocument(doc);
+    setIsGeneratingPdf(true);
+    setPdfUrl(null);
+    setShowPdfDialog(true);
+    
+    try {
+      const response = await fetch(`/api/documents/${doc.id}/generate-pdf`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate PDF');
+      }
+      
+      const data = await response.json();
+      setPdfUrl(data.pdfUrl);
+      toast({ title: "PDF generated successfully" });
+    } catch (error: any) {
+      toast({ title: "Error generating PDF", description: error.message, variant: "destructive" });
+      setShowPdfDialog(false);
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
+  const handleViewPdf = async (doc: Document) => {
+    setSelectedDocument(doc);
+    setShowPdfDialog(true);
+    
+    if (doc.finalPdfUrl) {
+      setPdfUrl(doc.finalPdfUrl);
+    } else {
+      handleGeneratePdf(doc);
+    }
+  };
+
+  const handleDownloadPdf = () => {
+    if (!pdfUrl || !selectedDocument) return;
+    
+    const link = document.createElement('a');
+    link.href = pdfUrl;
+    link.download = `${selectedDocument.documentCode}_Ed${selectedDocument.editionNumber || 1}_Rev${selectedDocument.revisionNumber || 0}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleRequestDownload = async (doc: Document) => {
+    try {
+      const response = await fetch('/api/download-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ documentId: doc.id, reason: 'Document download request' }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to request download');
+      }
+      
+      toast({ title: "Download request submitted", description: "An admin will review your request." });
+    } catch (error: any) {
+      toast({ title: "Error requesting download", description: error.message, variant: "destructive" });
+    }
+  };
   
   const openEditDialog = (doc: Document) => {
     setSelectedDocument(doc);
@@ -243,6 +327,9 @@ export default function Documents() {
       requiresPreparedBy: doc.requiresPreparedBy ?? true,
       requiresReviewedBy: doc.requiresReviewedBy ?? true,
       requiresApprovedBy: doc.requiresApprovedBy ?? true,
+      preparedById: doc.preparedById ? String(doc.preparedById) : "",
+      reviewedById: doc.reviewedById ? String(doc.reviewedById) : "",
+      approvedById: doc.approvedById ? String(doc.approvedById) : "",
     });
     setShowEditDialog(true);
   };
@@ -343,7 +430,7 @@ export default function Documents() {
                 <TableHead>Title</TableHead>
                 <TableHead>Category</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Version</TableHead>
+                <TableHead>Edition/Rev</TableHead>
                 <TableHead>Next Review</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -376,7 +463,9 @@ export default function Documents() {
                         {doc.status.replace('_', ' ')}
                       </Badge>
                     </TableCell>
-                    <TableCell data-testid={`text-version-${doc.id}`}>{doc.versionNumber}</TableCell>
+                    <TableCell data-testid={`text-version-${doc.id}`}>
+                      Ed.{doc.editionNumber || 1} Rev.{doc.revisionNumber || 0}
+                    </TableCell>
                     <TableCell data-testid={`text-review-date-${doc.id}`}>
                       {doc.nextReviewDate 
                         ? format(new Date(doc.nextReviewDate), "MMM d, yyyy")
@@ -413,6 +502,24 @@ export default function Documents() {
                                 <XCircle className="w-4 h-4 mr-2" /> Reject
                               </DropdownMenuItem>
                             </>
+                          )}
+                          
+                          <DropdownMenuSeparator />
+                          
+                          {doc.finalPdfUrl ? (
+                            <DropdownMenuItem onClick={() => handleViewPdf(doc)} data-testid={`menu-view-pdf-${doc.id}`}>
+                              <FileDown className="w-4 h-4 mr-2" /> View Final Draft
+                            </DropdownMenuItem>
+                          ) : (
+                            <DropdownMenuItem onClick={() => handleGeneratePdf(doc)} data-testid={`menu-generate-pdf-${doc.id}`}>
+                              <FileDown className="w-4 h-4 mr-2" /> Generate PDF
+                            </DropdownMenuItem>
+                          )}
+                          
+                          {doc.downloadRequiresApproval && (
+                            <DropdownMenuItem onClick={() => handleRequestDownload(doc)} data-testid={`menu-request-download-${doc.id}`}>
+                              <Download className="w-4 h-4 mr-2" /> Request Download
+                            </DropdownMenuItem>
                           )}
                           
                           <DropdownMenuSeparator />
@@ -499,56 +606,12 @@ export default function Documents() {
             </div>
             <div>
               <Label htmlFor="content">Content</Label>
-              <div className="border rounded-md min-h-[200px]" data-testid="input-content">
-                <Editor
-                  value={formData.content}
-                  onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-                  containerProps={{ style: { minHeight: '200px' } }}
-                >
-                  <Toolbar>
-                    <BtnUndo />
-                    <BtnRedo />
-                    <EditorSeparator />
-                    <BtnBold />
-                    <BtnItalic />
-                    <BtnUnderline />
-                    <BtnStrikeThrough />
-                    <EditorSeparator />
-                    <BtnBulletList />
-                    <BtnNumberedList />
-                    <EditorSeparator />
-                    <BtnLink />
-                    <BtnClearFormatting />
-                    <EditorSeparator />
-                    <select
-                      onChange={(e) => {
-                        const size = e.target.value;
-                        if (!size) return;
-                        const editorEl = e.target.closest('.rsw-editor')?.querySelector('[contenteditable]');
-                        const existingFonts = new Set(editorEl?.querySelectorAll('font[size="7"]') || []);
-                        document.execCommand('fontSize', false, '7');
-                        if (editorEl) {
-                          editorEl.querySelectorAll('font[size="7"]').forEach((font: Element) => {
-                            if (existingFonts.has(font)) return;
-                            const span = document.createElement('span');
-                            span.style.fontSize = size + 'px';
-                            while (font.firstChild) span.appendChild(font.firstChild);
-                            font.parentNode?.replaceChild(span, font);
-                          });
-                        }
-                        e.target.value = '';
-                      }}
-                      className="rsw-dd"
-                      title="Font Size"
-                      defaultValue=""
-                    >
-                      <option value="">Size</option>
-                      {[10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30].map((size) => (
-                        <option key={size} value={size}>{size}</option>
-                      ))}
-                    </select>
-                  </Toolbar>
-                </Editor>
+              <div data-testid="input-content">
+                <TiptapEditor
+                  content={formData.content}
+                  onChange={(content) => setFormData({ ...formData, content })}
+                  onPreview={() => setShowPreviewDialog(true)}
+                />
               </div>
             </div>
             <div>
@@ -601,6 +664,64 @@ export default function Documents() {
                 </div>
               </div>
             </div>
+            <Separator />
+            <div>
+              <Label className="text-base font-medium">Signatory Selection</Label>
+              <p className="text-sm text-muted-foreground mb-3">Select users for each signature role</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {formData.requiresPreparedBy && (
+                  <div>
+                    <Label htmlFor="preparedById">Prepared By</Label>
+                    <Select value={formData.preparedById} onValueChange={(v) => setFormData({ ...formData, preparedById: v })}>
+                      <SelectTrigger id="preparedById" data-testid="select-prepared-by">
+                        <SelectValue placeholder="Select user" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {users?.map((user) => (
+                          <SelectItem key={user.id} value={String(user.id)} data-testid={`option-prepared-by-${user.id}`}>
+                            {user.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {formData.requiresReviewedBy && (
+                  <div>
+                    <Label htmlFor="reviewedById">Reviewed By</Label>
+                    <Select value={formData.reviewedById} onValueChange={(v) => setFormData({ ...formData, reviewedById: v })}>
+                      <SelectTrigger id="reviewedById" data-testid="select-reviewed-by">
+                        <SelectValue placeholder="Select user" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {reviewers.map((user) => (
+                          <SelectItem key={user.id} value={String(user.id)} data-testid={`option-reviewed-by-${user.id}`}>
+                            {user.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {formData.requiresApprovedBy && (
+                  <div>
+                    <Label htmlFor="approvedById">Approved By</Label>
+                    <Select value={formData.approvedById} onValueChange={(v) => setFormData({ ...formData, approvedById: v })}>
+                      <SelectTrigger id="approvedById" data-testid="select-approved-by">
+                        <SelectValue placeholder="Select user" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {reviewers.map((user) => (
+                          <SelectItem key={user.id} value={String(user.id)} data-testid={`option-approved-by-${user.id}`}>
+                            {user.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreateDialog(false)} data-testid="button-cancel-create">Cancel</Button>
@@ -643,56 +764,12 @@ export default function Documents() {
             </div>
             <div>
               <Label htmlFor="edit-content">Content</Label>
-              <div className="border rounded-md min-h-[200px]" data-testid="input-edit-content">
-                <Editor
-                  value={formData.content}
-                  onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-                  containerProps={{ style: { minHeight: '200px' } }}
-                >
-                  <Toolbar>
-                    <BtnUndo />
-                    <BtnRedo />
-                    <EditorSeparator />
-                    <BtnBold />
-                    <BtnItalic />
-                    <BtnUnderline />
-                    <BtnStrikeThrough />
-                    <EditorSeparator />
-                    <BtnBulletList />
-                    <BtnNumberedList />
-                    <EditorSeparator />
-                    <BtnLink />
-                    <BtnClearFormatting />
-                    <EditorSeparator />
-                    <select
-                      onChange={(e) => {
-                        const size = e.target.value;
-                        if (!size) return;
-                        const editorEl = e.target.closest('.rsw-editor')?.querySelector('[contenteditable]');
-                        const existingFonts = new Set(editorEl?.querySelectorAll('font[size="7"]') || []);
-                        document.execCommand('fontSize', false, '7');
-                        if (editorEl) {
-                          editorEl.querySelectorAll('font[size="7"]').forEach((font: Element) => {
-                            if (existingFonts.has(font)) return;
-                            const span = document.createElement('span');
-                            span.style.fontSize = size + 'px';
-                            while (font.firstChild) span.appendChild(font.firstChild);
-                            font.parentNode?.replaceChild(span, font);
-                          });
-                        }
-                        e.target.value = '';
-                      }}
-                      className="rsw-dd"
-                      title="Font Size"
-                      defaultValue=""
-                    >
-                      <option value="">Size</option>
-                      {[10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30].map((size) => (
-                        <option key={size} value={size}>{size}</option>
-                      ))}
-                    </select>
-                  </Toolbar>
-                </Editor>
+              <div data-testid="input-edit-content">
+                <TiptapEditor
+                  content={formData.content}
+                  onChange={(content) => setFormData({ ...formData, content })}
+                  onPreview={() => setShowPreviewDialog(true)}
+                />
               </div>
             </div>
             <div>
@@ -743,6 +820,64 @@ export default function Documents() {
                     Approved By - Quality manager approval signature
                   </Label>
                 </div>
+              </div>
+            </div>
+            <Separator />
+            <div>
+              <Label className="text-base font-medium">Signatory Selection</Label>
+              <p className="text-sm text-muted-foreground mb-3">Select users for each signature role</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {formData.requiresPreparedBy && (
+                  <div>
+                    <Label htmlFor="edit-preparedById">Prepared By</Label>
+                    <Select value={formData.preparedById} onValueChange={(v) => setFormData({ ...formData, preparedById: v })}>
+                      <SelectTrigger id="edit-preparedById" data-testid="select-edit-prepared-by">
+                        <SelectValue placeholder="Select user" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {users?.map((user) => (
+                          <SelectItem key={user.id} value={String(user.id)} data-testid={`option-edit-prepared-by-${user.id}`}>
+                            {user.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {formData.requiresReviewedBy && (
+                  <div>
+                    <Label htmlFor="edit-reviewedById">Reviewed By</Label>
+                    <Select value={formData.reviewedById} onValueChange={(v) => setFormData({ ...formData, reviewedById: v })}>
+                      <SelectTrigger id="edit-reviewedById" data-testid="select-edit-reviewed-by">
+                        <SelectValue placeholder="Select user" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {reviewers.map((user) => (
+                          <SelectItem key={user.id} value={String(user.id)} data-testid={`option-edit-reviewed-by-${user.id}`}>
+                            {user.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {formData.requiresApprovedBy && (
+                  <div>
+                    <Label htmlFor="edit-approvedById">Approved By</Label>
+                    <Select value={formData.approvedById} onValueChange={(v) => setFormData({ ...formData, approvedById: v })}>
+                      <SelectTrigger id="edit-approvedById" data-testid="select-edit-approved-by">
+                        <SelectValue placeholder="Select user" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {reviewers.map((user) => (
+                          <SelectItem key={user.id} value={String(user.id)} data-testid={`option-edit-approved-by-${user.id}`}>
+                            {user.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -884,7 +1019,7 @@ export default function Documents() {
                         <Badge className={statusColors[selectedDocument.status] || ""} variant="secondary">
                           {selectedDocument.status.replace('_', ' ').toUpperCase()}
                         </Badge>
-                        <Badge variant="outline">v{selectedDocument.versionNumber}</Badge>
+                        <Badge variant="outline">Ed.{selectedDocument.editionNumber || 1} Rev.{selectedDocument.revisionNumber || 0}</Badge>
                       </div>
                       <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100" data-testid="text-view-title">
                         {selectedDocument.title}
@@ -933,8 +1068,8 @@ export default function Documents() {
                 <div className="flex items-center gap-2">
                   <FileText className="w-4 h-4 text-slate-400" />
                   <div>
-                    <div className="text-slate-500 text-xs">Version</div>
-                    <div className="font-medium">{selectedDocument.versionNumber}</div>
+                    <div className="text-slate-500 text-xs">Edition/Revision</div>
+                    <div className="font-medium">Ed.{selectedDocument.editionNumber || 1} Rev.{selectedDocument.revisionNumber || 0}</div>
                   </div>
                 </div>
                 {selectedDocument.approvedBySignedAt && (
@@ -1058,6 +1193,153 @@ export default function Documents() {
               </div>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Preview Dialog with Black Border */}
+      <Dialog open={showPreviewDialog} onOpenChange={setShowPreviewDialog}>
+        <DialogContent className="max-w-4xl max-h-[90vh]" data-testid="dialog-preview-document">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="w-5 h-5" />
+              Document Preview
+            </DialogTitle>
+            <DialogDescription>Preview how your document will appear when printed or exported</DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="h-[70vh]">
+            <div 
+              className="bg-white mx-auto shadow-lg"
+              style={{
+                width: '210mm',
+                minHeight: '297mm',
+                maxWidth: '100%',
+                border: '2px solid black',
+                padding: '20mm',
+                fontFamily: 'Roboto, sans-serif',
+              }}
+              data-testid="preview-document-content"
+            >
+              <div className="flex items-start justify-between mb-6 pb-4 border-b-2 border-black">
+                <img 
+                  src={sahihLogoPath} 
+                  alt="Sahih Certifications" 
+                  className="h-16 object-contain"
+                />
+                <div className="text-right">
+                  <div className="font-bold text-lg">{formData.title || 'Untitled Document'}</div>
+                  <div className="text-sm text-gray-600">{formData.documentCode || 'No Code'}</div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    Edition: 1 | Revision: 0
+                  </div>
+                </div>
+              </div>
+              
+              <div 
+                className="prose prose-sm max-w-none document-content"
+                dangerouslySetInnerHTML={{ 
+                  __html: DOMPurify.sanitize(formData.content || '<p class="text-gray-400 italic">No content to preview</p>') 
+                }}
+              />
+              
+              <div className="mt-8 pt-4 border-t-2 border-black">
+                <div className="grid grid-cols-3 gap-4 text-center">
+                  {formData.requiresPreparedBy && (
+                    <div>
+                      <div className="border-b border-black pb-8 mb-2"></div>
+                      <div className="text-sm font-medium">Prepared By</div>
+                      <div className="text-xs text-gray-500">
+                        {formData.preparedById 
+                          ? users?.find(u => u.id === parseInt(formData.preparedById))?.name || '---'
+                          : '---'}
+                      </div>
+                    </div>
+                  )}
+                  {formData.requiresReviewedBy && (
+                    <div>
+                      <div className="border-b border-black pb-8 mb-2"></div>
+                      <div className="text-sm font-medium">Reviewed By</div>
+                      <div className="text-xs text-gray-500">
+                        {formData.reviewedById 
+                          ? users?.find(u => u.id === parseInt(formData.reviewedById))?.name || '---'
+                          : '---'}
+                      </div>
+                    </div>
+                  )}
+                  {formData.requiresApprovedBy && (
+                    <div>
+                      <div className="border-b border-black pb-8 mb-2"></div>
+                      <div className="text-sm font-medium">Approved By</div>
+                      <div className="text-xs text-gray-500">
+                        {formData.approvedById 
+                          ? users?.find(u => u.id === parseInt(formData.approvedById))?.name || '---'
+                          : '---'}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </ScrollArea>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPreviewDialog(false)} data-testid="button-close-preview">
+              Close Preview
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* PDF View/Generate Dialog */}
+      <Dialog open={showPdfDialog} onOpenChange={(open) => {
+        setShowPdfDialog(open);
+        if (!open) {
+          setPdfUrl(null);
+        }
+      }}>
+        <DialogContent className="max-w-4xl max-h-[90vh]" data-testid="dialog-pdf-document">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileDown className="w-5 h-5" />
+              {selectedDocument?.title || 'Document'} - PDF
+            </DialogTitle>
+            <DialogDescription>
+              {selectedDocument?.documentCode} | Ed.{selectedDocument?.editionNumber || 1} Rev.{selectedDocument?.revisionNumber || 0}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex-1 min-h-[500px]">
+            {isGeneratingPdf ? (
+              <div className="flex flex-col items-center justify-center h-full gap-4" data-testid="pdf-generating">
+                <Loader2 className="w-12 h-12 animate-spin text-primary" />
+                <p className="text-slate-500">Generating PDF... This may take a moment.</p>
+              </div>
+            ) : pdfUrl ? (
+              <iframe 
+                src={pdfUrl} 
+                className="w-full h-[500px] border rounded-md"
+                title="Document PDF"
+                data-testid="pdf-viewer"
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full gap-4" data-testid="pdf-not-available">
+                <FileDown className="w-12 h-12 text-slate-300" />
+                <p className="text-slate-500">No PDF available. Click Generate to create one.</p>
+                <Button onClick={() => selectedDocument && handleGeneratePdf(selectedDocument)} data-testid="button-generate-pdf">
+                  Generate PDF
+                </Button>
+              </div>
+            )}
+          </div>
+          
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowPdfDialog(false)} data-testid="button-close-pdf">
+              Close
+            </Button>
+            {pdfUrl && (
+              <Button onClick={handleDownloadPdf} data-testid="button-download-pdf">
+                <Download className="w-4 h-4 mr-2" /> Download PDF
+              </Button>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
