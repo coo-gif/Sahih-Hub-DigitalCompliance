@@ -59,8 +59,8 @@ function App() {
     checkAuth();
   }, []);
 
-  const handleLogin = () => {
-    checkAuth();
+  const handleLogin = async () => {
+    await checkAuth();
   };
 
   const handleLogout = async () => {

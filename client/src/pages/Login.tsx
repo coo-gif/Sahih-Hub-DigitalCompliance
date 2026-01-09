@@ -17,7 +17,7 @@ declare global {
 }
 
 interface LoginProps {
-  onLogin: () => void;
+  onLogin: () => Promise<void>;
 }
 
 export default function Login({ onLogin }: LoginProps) {
@@ -109,9 +109,9 @@ export default function Login({ onLogin }: LoginProps) {
       await apiRequest('POST', '/api/auth/login', { email, password });
       
       queryClient.invalidateQueries();
-      onLogin();
-      setLocation('/');
+      await onLogin();
       toast({ title: "Login successful" });
+      setLocation('/');
     } catch (error: any) {
       toast({ 
         title: "Login failed", 
