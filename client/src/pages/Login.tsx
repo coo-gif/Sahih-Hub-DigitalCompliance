@@ -53,7 +53,7 @@ export default function Login({ onLogin }: LoginProps) {
   return (
     <div className="min-h-screen flex">
       {/* Left Panel - Hero Section with Qatar Elements */}
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-[#8D1B3D] via-[#6B1530] to-[#4A0F22]">
+      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-[#8D1B3D]/70 via-[#6B1530]/70 to-[#4A0F22]/70">
         {/* Geometric Pattern Overlay - Islamic Art Inspired */}
         <div className="absolute inset-0 opacity-10">
           <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
