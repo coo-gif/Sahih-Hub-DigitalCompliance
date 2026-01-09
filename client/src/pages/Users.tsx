@@ -195,11 +195,6 @@ export default function Users() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 500 * 1024) {
-      toast({ title: "File too large", description: "Please select an image under 500KB", variant: "destructive" });
-      return;
-    }
-
     const reader = new FileReader();
     reader.onload = (e) => {
       const dataUrl = e.target?.result as string;
@@ -626,7 +621,7 @@ export default function Users() {
               )}
             </div>
             <p className="text-xs text-muted-foreground">
-              Accepted formats: PNG, JPEG. Max size: 500KB. For best results, use a transparent PNG.
+              Accepted formats: PNG, JPEG. For best results, use a transparent PNG.
             </p>
           </div>
           <DialogFooter>
