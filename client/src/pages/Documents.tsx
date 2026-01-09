@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
-import Editor from "react-simple-wysiwyg";
+import Editor, { BtnBold, BtnItalic, BtnUnderline, BtnStrikeThrough, BtnBulletList, BtnNumberedList, BtnLink, BtnClearFormatting, Separator as EditorSeparator, Toolbar, BtnRedo, BtnUndo } from "react-simple-wysiwyg";
 import DOMPurify from "dompurify";
 import {
   Dialog,
@@ -504,7 +504,51 @@ export default function Documents() {
                   value={formData.content}
                   onChange={(e) => setFormData({ ...formData, content: e.target.value })}
                   containerProps={{ style: { minHeight: '200px' } }}
-                />
+                >
+                  <Toolbar>
+                    <BtnUndo />
+                    <BtnRedo />
+                    <EditorSeparator />
+                    <BtnBold />
+                    <BtnItalic />
+                    <BtnUnderline />
+                    <BtnStrikeThrough />
+                    <EditorSeparator />
+                    <BtnBulletList />
+                    <BtnNumberedList />
+                    <EditorSeparator />
+                    <BtnLink />
+                    <BtnClearFormatting />
+                    <EditorSeparator />
+                    <select
+                      onChange={(e) => {
+                        const size = e.target.value;
+                        if (!size) return;
+                        const editorEl = e.target.closest('.rsw-editor')?.querySelector('[contenteditable]');
+                        const existingFonts = new Set(editorEl?.querySelectorAll('font[size="7"]') || []);
+                        document.execCommand('fontSize', false, '7');
+                        if (editorEl) {
+                          editorEl.querySelectorAll('font[size="7"]').forEach((font: Element) => {
+                            if (existingFonts.has(font)) return;
+                            const span = document.createElement('span');
+                            span.style.fontSize = size + 'px';
+                            while (font.firstChild) span.appendChild(font.firstChild);
+                            font.parentNode?.replaceChild(span, font);
+                          });
+                        }
+                        e.target.value = '';
+                      }}
+                      className="rsw-dd"
+                      title="Font Size"
+                      defaultValue=""
+                    >
+                      <option value="">Size</option>
+                      {[10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30].map((size) => (
+                        <option key={size} value={size}>{size}</option>
+                      ))}
+                    </select>
+                  </Toolbar>
+                </Editor>
               </div>
             </div>
             <div>
@@ -604,7 +648,51 @@ export default function Documents() {
                   value={formData.content}
                   onChange={(e) => setFormData({ ...formData, content: e.target.value })}
                   containerProps={{ style: { minHeight: '200px' } }}
-                />
+                >
+                  <Toolbar>
+                    <BtnUndo />
+                    <BtnRedo />
+                    <EditorSeparator />
+                    <BtnBold />
+                    <BtnItalic />
+                    <BtnUnderline />
+                    <BtnStrikeThrough />
+                    <EditorSeparator />
+                    <BtnBulletList />
+                    <BtnNumberedList />
+                    <EditorSeparator />
+                    <BtnLink />
+                    <BtnClearFormatting />
+                    <EditorSeparator />
+                    <select
+                      onChange={(e) => {
+                        const size = e.target.value;
+                        if (!size) return;
+                        const editorEl = e.target.closest('.rsw-editor')?.querySelector('[contenteditable]');
+                        const existingFonts = new Set(editorEl?.querySelectorAll('font[size="7"]') || []);
+                        document.execCommand('fontSize', false, '7');
+                        if (editorEl) {
+                          editorEl.querySelectorAll('font[size="7"]').forEach((font: Element) => {
+                            if (existingFonts.has(font)) return;
+                            const span = document.createElement('span');
+                            span.style.fontSize = size + 'px';
+                            while (font.firstChild) span.appendChild(font.firstChild);
+                            font.parentNode?.replaceChild(span, font);
+                          });
+                        }
+                        e.target.value = '';
+                      }}
+                      className="rsw-dd"
+                      title="Font Size"
+                      defaultValue=""
+                    >
+                      <option value="">Size</option>
+                      {[10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30].map((size) => (
+                        <option key={size} value={size}>{size}</option>
+                      ))}
+                    </select>
+                  </Toolbar>
+                </Editor>
               </div>
             </div>
             <div>
@@ -866,7 +954,8 @@ export default function Documents() {
               
               <ScrollArea className="h-[350px] pr-4">
                 <div 
-                  className="prose prose-slate max-w-none dark:prose-invert"
+                  className="prose prose-slate max-w-none dark:prose-invert document-content"
+                  style={{ fontFamily: 'Roboto, sans-serif' }}
                   data-testid="text-view-content"
                   dangerouslySetInnerHTML={{ 
                     __html: DOMPurify.sanitize(selectedDocument.content || '<p class="text-slate-400 italic">No content available</p>') 
