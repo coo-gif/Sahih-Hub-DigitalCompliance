@@ -354,9 +354,8 @@ export default function Documents() {
     setShowViewDialog(true);
   };
   
-  const reviewers = users?.filter(u => 
-    u.role === "department_head" || u.role === "quality_manager" || u.role === "admin"
-  ) || [];
+  // All active users can be selected as signatories
+  const activeUsers = users?.filter(u => u.isActive) || [];
 
   if (isError) {
     return (
@@ -549,11 +548,12 @@ export default function Documents() {
 
       {/* Create Document Dialog */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="max-w-3xl" data-testid="dialog-create-document">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col" data-testid="dialog-create-document">
           <DialogHeader>
             <DialogTitle>Create New Document</DialogTitle>
             <DialogDescription>Add a new document to the Document Control System</DialogDescription>
           </DialogHeader>
+          <ScrollArea className="flex-1 pr-4">
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -694,7 +694,7 @@ export default function Documents() {
                         <SelectValue placeholder="Select user" />
                       </SelectTrigger>
                       <SelectContent>
-                        {reviewers.map((user) => (
+                        {activeUsers.map((user) => (
                           <SelectItem key={user.id} value={String(user.id)} data-testid={`option-reviewed-by-${user.id}`}>
                             {user.name}
                           </SelectItem>
@@ -711,7 +711,7 @@ export default function Documents() {
                         <SelectValue placeholder="Select user" />
                       </SelectTrigger>
                       <SelectContent>
-                        {reviewers.map((user) => (
+                        {activeUsers.map((user) => (
                           <SelectItem key={user.id} value={String(user.id)} data-testid={`option-approved-by-${user.id}`}>
                             {user.name}
                           </SelectItem>
@@ -723,6 +723,7 @@ export default function Documents() {
               </div>
             </div>
           </div>
+          </ScrollArea>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreateDialog(false)} data-testid="button-cancel-create">Cancel</Button>
             <Button 
@@ -738,11 +739,12 @@ export default function Documents() {
 
       {/* Edit Document Dialog */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent className="max-w-3xl" data-testid="dialog-edit-document">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col" data-testid="dialog-edit-document">
           <DialogHeader>
             <DialogTitle>Edit Document</DialogTitle>
             <DialogDescription>Update document details</DialogDescription>
           </DialogHeader>
+          <ScrollArea className="flex-1 pr-4">
           <div className="space-y-4">
             <div>
               <Label htmlFor="edit-title">Title</Label>
@@ -852,7 +854,7 @@ export default function Documents() {
                         <SelectValue placeholder="Select user" />
                       </SelectTrigger>
                       <SelectContent>
-                        {reviewers.map((user) => (
+                        {activeUsers.map((user) => (
                           <SelectItem key={user.id} value={String(user.id)} data-testid={`option-edit-reviewed-by-${user.id}`}>
                             {user.name}
                           </SelectItem>
@@ -869,7 +871,7 @@ export default function Documents() {
                         <SelectValue placeholder="Select user" />
                       </SelectTrigger>
                       <SelectContent>
-                        {reviewers.map((user) => (
+                        {activeUsers.map((user) => (
                           <SelectItem key={user.id} value={String(user.id)} data-testid={`option-edit-approved-by-${user.id}`}>
                             {user.name}
                           </SelectItem>
@@ -881,6 +883,7 @@ export default function Documents() {
               </div>
             </div>
           </div>
+          </ScrollArea>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowEditDialog(false)} data-testid="button-cancel-edit">Cancel</Button>
             <Button 
@@ -909,7 +912,7 @@ export default function Documents() {
                   <SelectValue placeholder="Select reviewer" />
                 </SelectTrigger>
                 <SelectContent>
-                  {reviewers.map((user) => (
+                  {activeUsers.map((user) => (
                     <SelectItem key={user.id} value={String(user.id)} data-testid={`option-reviewer-${user.id}`}>
                       {user.name} ({user.role.replace('_', ' ')})
                     </SelectItem>
