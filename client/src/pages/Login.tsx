@@ -82,98 +82,175 @@ export default function Login({ onLogin }: LoginProps) {
   };
 
   return (
-    <div className="min-h-screen flex">
-      {/* Left Panel - Qatar Night Sky with NASA APOD */}
-      <div 
-        className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-slate-900"
-        style={{
-          backgroundImage: backgroundImage ? `url(${backgroundImage})` : undefined,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-        }}
-      >
-        {/* Dark overlay for readability */}
-        <div className="absolute inset-0 bg-gradient-to-br from-slate-900/70 via-slate-900/50 to-transparent"></div>
-        
-        {/* Animated stars overlay */}
-        <div className="absolute inset-0 overflow-hidden">
-          {[...Array(20)].map((_, i) => (
-            <div
-              key={i}
-              className="absolute w-1 h-1 bg-white rounded-full animate-pulse"
+    <div 
+      className="min-h-screen flex relative"
+      style={{
+        backgroundImage: backgroundImage ? `url(${backgroundImage})` : undefined,
+        backgroundColor: '#0a0a1a',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundAttachment: 'fixed',
+      }}
+    >
+      {/* Full screen dark overlay for consistency */}
+      <div className="absolute inset-0 bg-gradient-to-br from-slate-950/80 via-slate-900/60 to-slate-950/70"></div>
+      
+      {/* Animated stars overlay across entire screen */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        {[...Array(30)].map((_, i) => (
+          <div
+            key={i}
+            className="absolute rounded-full animate-pulse"
+            style={{
+              width: `${1 + Math.random() * 2}px`,
+              height: `${1 + Math.random() * 2}px`,
+              backgroundColor: '#fff',
+              top: `${Math.random() * 100}%`,
+              left: `${Math.random() * 100}%`,
+              animationDelay: `${Math.random() * 3}s`,
+              animationDuration: `${2 + Math.random() * 2}s`,
+              boxShadow: '0 0 8px 2px rgba(255,255,255,0.7)',
+              opacity: 0.5 + Math.random() * 0.5,
+            }}
+          />
+        ))}
+      </div>
+
+      {/* Left Panel - Branding */}
+      <div className="hidden lg:flex lg:w-1/2 relative z-10 flex-col justify-center items-center px-12 text-white">
+        <div className="max-w-md space-y-8">
+          {/* Logo with star glow effect */}
+          <div className="flex justify-center mb-8">
+            <div 
+              className="rounded-2xl p-8 border border-amber-400/30"
               style={{
-                top: `${Math.random() * 100}%`,
-                left: `${Math.random() * 100}%`,
-                animationDelay: `${Math.random() * 3}s`,
-                animationDuration: `${2 + Math.random() * 2}s`,
-                boxShadow: '0 0 6px 1px rgba(255,255,255,0.6)',
-                opacity: 0.6 + Math.random() * 0.4,
+                background: 'radial-gradient(ellipse at center, rgba(191, 149, 63, 0.15) 0%, transparent 70%)',
+                boxShadow: '0 0 60px 20px rgba(191, 149, 63, 0.2), 0 0 100px 40px rgba(191, 149, 63, 0.1)',
               }}
-            />
-          ))}
-        </div>
-        
-        {/* Content */}
-        <div className="relative z-10 flex flex-col justify-center items-center w-full px-12 text-white">
-          <div className="max-w-md space-y-8">
-            {/* Logo - 3x Size */}
-            <div className="flex justify-center mb-8">
-              <div className="bg-black/30 backdrop-blur-md rounded-2xl p-6 border border-white/20 shadow-2xl">
-                <img 
-                  src={sahihLogoPath} 
-                  alt="Sahih Certifications" 
-                  className="h-60 object-contain"
-                  data-testid="img-login-logo"
-                />
+            >
+              <img 
+                src={sahihLogoPath} 
+                alt="Sahih Certifications" 
+                className="h-60 object-contain"
+                style={{
+                  filter: 'brightness(1.2) drop-shadow(0 0 20px rgba(255, 215, 0, 0.6)) drop-shadow(0 0 40px rgba(255, 215, 0, 0.4))',
+                }}
+                data-testid="img-login-logo"
+              />
+            </div>
+          </div>
+          
+          <div className="text-center space-y-4">
+            <h1 
+              className="text-5xl font-bold tracking-tight"
+              style={{ 
+                background: 'linear-gradient(135deg, #BF953F 0%, #FCF6BA 25%, #FBF5B7 50%, #FCF6BA 75%, #BF953F 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                textShadow: '0 0 30px rgba(191, 149, 63, 0.5)',
+                filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))',
+              }}
+            >
+              SAHIH-HUB
+            </h1>
+            <p 
+              className="text-xl font-light tracking-wide"
+              style={{ 
+                color: '#e2d5b5',
+                textShadow: '0 0 10px rgba(191, 149, 63, 0.3), 0 2px 4px rgba(0,0,0,0.5)' 
+              }}
+            >
+              Digital Compliance Interface
+            </p>
+            <div 
+              className="flex items-center justify-center gap-2 text-sm pt-2"
+              style={{ color: '#c4b896' }}
+            >
+              <Globe className="w-4 h-4" />
+              <span>Doha, Qatar</span>
+            </div>
+          </div>
+
+          {/* Features with better visibility */}
+          <div className="space-y-4 pt-8">
+            <div 
+              className="flex items-start gap-4 rounded-xl p-4 border"
+              style={{
+                background: 'linear-gradient(135deg, rgba(191, 149, 63, 0.15) 0%, rgba(0,0,0,0.4) 100%)',
+                borderColor: 'rgba(191, 149, 63, 0.3)',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)',
+              }}
+            >
+              <div 
+                className="p-2 rounded-lg"
+                style={{ background: 'linear-gradient(135deg, #BF953F, #FCF6BA, #AA771C)' }}
+              >
+                <Shield className="w-6 h-6 text-amber-900" />
+              </div>
+              <div>
+                <h3 
+                  className="font-semibold text-lg"
+                  style={{ color: '#FCF6BA', textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}
+                >
+                  ISO 17021 Compliant
+                </h3>
+                <p style={{ color: '#c4b896', textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}>
+                  UKAS surveillance-ready QMS platform
+                </p>
               </div>
             </div>
             
-            <div className="text-center space-y-4">
-              <h1 
-                className="text-4xl font-bold tracking-tight"
-                style={{ textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}
+            <div 
+              className="flex items-start gap-4 rounded-xl p-4 border"
+              style={{
+                background: 'linear-gradient(135deg, rgba(191, 149, 63, 0.15) 0%, rgba(0,0,0,0.4) 100%)',
+                borderColor: 'rgba(191, 149, 63, 0.3)',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)',
+              }}
+            >
+              <div 
+                className="p-2 rounded-lg"
+                style={{ background: 'linear-gradient(135deg, #BF953F, #FCF6BA, #AA771C)' }}
               >
-                Sahih - Hub
-              </h1>
-              <p className="text-xl text-white/90 font-light" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.5)' }}>
-                Digital Compliance Interface
-              </p>
-              <div className="flex items-center justify-center gap-2 text-white/80 text-sm">
-                <Globe className="w-4 h-4" />
-                <span>Doha, Qatar</span>
+                <Award className="w-6 h-6 text-amber-900" />
+              </div>
+              <div>
+                <h3 
+                  className="font-semibold text-lg"
+                  style={{ color: '#FCF6BA', textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}
+                >
+                  Accredited Excellence
+                </h3>
+                <p style={{ color: '#c4b896', textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}>
+                  International standards certification
+                </p>
               </div>
             </div>
-
-            {/* Features */}
-            <div className="space-y-4 pt-8">
-              <div className="flex items-start gap-4 bg-black/30 backdrop-blur-md rounded-xl p-4 border border-white/10 shadow-lg">
-                <div className="p-2 bg-white/20 rounded-lg">
-                  <Shield className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="font-semibold">ISO 17021 Compliant</h3>
-                  <p className="text-sm text-white/70">UKAS surveillance-ready QMS platform</p>
-                </div>
+            
+            <div 
+              className="flex items-start gap-4 rounded-xl p-4 border"
+              style={{
+                background: 'linear-gradient(135deg, rgba(191, 149, 63, 0.15) 0%, rgba(0,0,0,0.4) 100%)',
+                borderColor: 'rgba(191, 149, 63, 0.3)',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)',
+              }}
+            >
+              <div 
+                className="p-2 rounded-lg"
+                style={{ background: 'linear-gradient(135deg, #BF953F, #FCF6BA, #AA771C)' }}
+              >
+                <Building2 className="w-6 h-6 text-amber-900" />
               </div>
-              
-              <div className="flex items-start gap-4 bg-black/30 backdrop-blur-md rounded-xl p-4 border border-white/10 shadow-lg">
-                <div className="p-2 bg-white/20 rounded-lg">
-                  <Award className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="font-semibold">Accredited Excellence</h3>
-                  <p className="text-sm text-white/70">International standards certification</p>
-                </div>
-              </div>
-              
-              <div className="flex items-start gap-4 bg-black/30 backdrop-blur-md rounded-xl p-4 border border-white/10 shadow-lg">
-                <div className="p-2 bg-white/20 rounded-lg">
-                  <Building2 className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="font-semibold">Enterprise Grade</h3>
-                  <p className="text-sm text-white/70">Secure document control & audit trails</p>
-                </div>
+              <div>
+                <h3 
+                  className="font-semibold text-lg"
+                  style={{ color: '#FCF6BA', textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}
+                >
+                  Enterprise Grade
+                </h3>
+                <p style={{ color: '#c4b896', textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}>
+                  Secure document control & audit trails
+                </p>
               </div>
             </div>
           </div>
@@ -182,7 +259,7 @@ export default function Login({ onLogin }: LoginProps) {
         {/* Image Credit */}
         {imageCredit && (
           <div className="absolute bottom-4 left-4 right-4 text-center">
-            <p className="text-xs text-white/50 flex items-center justify-center gap-1">
+            <p className="text-xs flex items-center justify-center gap-1" style={{ color: 'rgba(196, 184, 150, 0.6)' }}>
               <Star className="w-3 h-3" />
               Today's Sky: {imageCredit} - NASA APOD
             </p>
@@ -190,8 +267,8 @@ export default function Login({ onLogin }: LoginProps) {
         )}
       </div>
 
-      {/* Right Panel - Login Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-950 p-6">
+      {/* Right Panel - Login Form blended with night sky */}
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-6 relative z-10">
         <div className="w-full max-w-md space-y-8">
           {/* Mobile Logo */}
           <div className="lg:hidden flex flex-col items-center space-y-4">
@@ -199,31 +276,60 @@ export default function Login({ onLogin }: LoginProps) {
               src={sahihLogoPath} 
               alt="Sahih Certifications" 
               className="h-32 object-contain"
+              style={{
+                filter: 'brightness(1.2) drop-shadow(0 0 15px rgba(255, 215, 0, 0.5))',
+              }}
               data-testid="img-login-logo-mobile"
             />
-            <h2 className="text-xl font-semibold text-slate-800 dark:text-slate-200">Sahih - Hub</h2>
+            <h2 
+              className="text-2xl font-bold"
+              style={{ 
+                background: 'linear-gradient(135deg, #BF953F, #FCF6BA, #AA771C)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+              }}
+            >
+              SAHIH-HUB
+            </h2>
           </div>
 
-          <Card className="border-0 shadow-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm">
+          <Card 
+            className="border shadow-2xl backdrop-blur-md"
+            style={{
+              background: 'linear-gradient(135deg, rgba(15, 15, 35, 0.85) 0%, rgba(25, 25, 50, 0.9) 100%)',
+              borderColor: 'rgba(191, 149, 63, 0.3)',
+              boxShadow: '0 0 40px rgba(0,0,0,0.5), 0 0 60px rgba(191, 149, 63, 0.1)',
+            }}
+          >
             <CardContent className="p-8 space-y-6">
               <div className="text-center space-y-2">
                 <div 
                   className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4"
-                  style={{ background: 'linear-gradient(135deg, #BF953F 0%, #FCF6BA 25%, #B38728 50%, #FBF5B7 75%, #AA771C 100%)' }}
+                  style={{ 
+                    background: 'linear-gradient(135deg, #BF953F 0%, #FCF6BA 25%, #B38728 50%, #FBF5B7 75%, #AA771C 100%)',
+                    boxShadow: '0 0 30px rgba(191, 149, 63, 0.5)',
+                  }}
                 >
                   <Shield className="w-8 h-8 text-amber-900" />
                 </div>
-                <h2 className="text-2xl font-bold text-slate-800 dark:text-white">
+                <h2 
+                  className="text-2xl font-bold"
+                  style={{ color: '#FCF6BA', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}
+                >
                   Welcome Back
                 </h2>
-                <p className="text-slate-500 dark:text-slate-400">
+                <p style={{ color: '#a09880' }}>
                   Sign in to access your QMS portal
                 </p>
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-5">
                 <div className="space-y-2">
-                  <Label htmlFor="email" className="text-slate-700 dark:text-slate-300 font-medium">
+                  <Label 
+                    htmlFor="email" 
+                    className="font-medium"
+                    style={{ color: '#d4c8a8' }}
+                  >
                     Email Address
                   </Label>
                   <Input
@@ -233,17 +339,30 @@ export default function Login({ onLogin }: LoginProps) {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     disabled={isLoading}
-                    className="h-12 border-slate-200 dark:border-slate-700 focus:border-amber-500 focus:ring-amber-500/20"
+                    className="h-12"
+                    style={{
+                      background: 'rgba(0,0,0,0.3)',
+                      borderColor: 'rgba(191, 149, 63, 0.3)',
+                      color: '#e2d5b5',
+                    }}
                     data-testid="input-email"
                   />
                 </div>
                 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <Label htmlFor="password" className="text-slate-700 dark:text-slate-300 font-medium">
+                    <Label 
+                      htmlFor="password" 
+                      className="font-medium"
+                      style={{ color: '#d4c8a8' }}
+                    >
                       Password
                     </Label>
-                    <button type="button" className="text-sm text-amber-600 hover:text-amber-700 font-medium">
+                    <button 
+                      type="button" 
+                      className="text-sm font-medium hover:underline"
+                      style={{ color: '#BF953F' }}
+                    >
                       Forgot password?
                     </button>
                   </div>
@@ -254,17 +373,22 @@ export default function Login({ onLogin }: LoginProps) {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     disabled={isLoading}
-                    className="h-12 border-slate-200 dark:border-slate-700 focus:border-amber-500 focus:ring-amber-500/20"
+                    className="h-12"
+                    style={{
+                      background: 'rgba(0,0,0,0.3)',
+                      borderColor: 'rgba(191, 149, 63, 0.3)',
+                      color: '#e2d5b5',
+                    }}
                     data-testid="input-password"
                   />
                 </div>
 
                 <Button 
                   type="submit" 
-                  className="w-full h-12 text-base font-semibold text-amber-900 shadow-lg transition-all duration-300 hover:scale-[1.02]" 
+                  className="w-full h-12 text-base font-semibold text-amber-900 transition-all duration-300 hover:scale-[1.02]" 
                   style={{
                     background: 'linear-gradient(135deg, #BF953F 0%, #FCF6BA 25%, #B38728 50%, #FBF5B7 75%, #AA771C 100%)',
-                    boxShadow: '0 4px 15px rgba(191, 149, 63, 0.4)'
+                    boxShadow: '0 4px 20px rgba(191, 149, 63, 0.4), 0 0 30px rgba(191, 149, 63, 0.2)'
                   }}
                   disabled={isLoading}
                   data-testid="button-login"
@@ -283,18 +407,18 @@ export default function Login({ onLogin }: LoginProps) {
                 </Button>
               </form>
 
-              <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
-                <div className="flex items-center justify-center gap-6 text-sm text-slate-500 dark:text-slate-400">
+              <div className="pt-4 border-t" style={{ borderColor: 'rgba(191, 149, 63, 0.2)' }}>
+                <div className="flex items-center justify-center gap-6 text-sm" style={{ color: '#a09880' }}>
                   <div className="flex items-center gap-1">
-                    <CheckCircle className="w-4 h-4 text-green-500" />
+                    <CheckCircle className="w-4 h-4 text-emerald-400" />
                     <span>Secure</span>
                   </div>
                   <div className="flex items-center gap-1">
-                    <CheckCircle className="w-4 h-4 text-green-500" />
+                    <CheckCircle className="w-4 h-4 text-emerald-400" />
                     <span>Encrypted</span>
                   </div>
                   <div className="flex items-center gap-1">
-                    <CheckCircle className="w-4 h-4 text-green-500" />
+                    <CheckCircle className="w-4 h-4 text-emerald-400" />
                     <span>Compliant</span>
                   </div>
                 </div>
@@ -302,10 +426,10 @@ export default function Login({ onLogin }: LoginProps) {
             </CardContent>
           </Card>
 
-          <p className="text-center text-sm text-slate-500 dark:text-slate-400">
+          <p className="text-center text-sm" style={{ color: '#8a7f65' }}>
             Digital Compliance Interface
             <br />
-            <span className="text-xs">&copy; {new Date().getFullYear()} Sahih - Hub. Doha, Qatar.</span>
+            <span className="text-xs">&copy; {new Date().getFullYear()} SAHIH-HUB. Doha, Qatar.</span>
           </p>
         </div>
       </div>
