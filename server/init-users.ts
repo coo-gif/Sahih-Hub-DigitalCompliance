@@ -26,9 +26,10 @@ export async function initializeDefaultUsers(): Promise<void> {
         const existingUsers = await db.select({ id: users.id, email: users.email }).from(users);
         const existing = existingUsers.find(u => u.email.toLowerCase() === user.email.toLowerCase());
         
+        const hashedPassword = await bcrypt.hash(user.password, SALT_ROUNDS);
+        
         if (!existing) {
           console.log(`[init] Creating user: ${user.email}`);
-          const hashedPassword = await bcrypt.hash(user.password, SALT_ROUNDS);
           await db.insert(users).values({
             name: user.name,
             email: user.email,
@@ -39,7 +40,13 @@ export async function initializeDefaultUsers(): Promise<void> {
           });
           console.log(`[init] Successfully created user: ${user.email}`);
         } else {
-          console.log(`[init] User already exists: ${user.email} (id: ${existing.id})`);
+          // Update password for existing user to ensure it matches
+          console.log(`[init] Updating password for existing user: ${user.email} (id: ${existing.id})`);
+          await db.update(users).set({ 
+            passwordHash: hashedPassword,
+            isActive: true 
+          }).where(sql`${users.id} = ${existing.id}`);
+          console.log(`[init] Password updated for: ${user.email}`);
         }
       } catch (err: any) {
         console.error(`[init] Error creating user ${user.email}:`, err.message || err);
