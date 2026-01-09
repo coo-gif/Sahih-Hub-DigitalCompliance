@@ -1,6 +1,6 @@
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
-import { storage } from "./storage";
+import { storage, verifyPassword } from "./storage";
 import { api } from "@shared/routes";
 import { 
   DocumentStatus, 
@@ -11,13 +11,83 @@ import {
 } from "@shared/schema";
 import { z } from "zod";
 
-// Simple user context for demo (in production, use JWT auth)
-const DEMO_USER_ID = 1;
+function requireAuth(req: Request, res: Response, next: NextFunction) {
+  if (!req.session?.userId) {
+    return res.status(401).json({ message: 'Authentication required' });
+  }
+  next();
+}
+
+function getCurrentUserId(req: any): number {
+  if (!req.session?.userId) {
+    throw new Error('Not authenticated');
+  }
+  return req.session.userId;
+}
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+
+  // ============================================
+  // AUTHENTICATION ROUTES
+  // ============================================
+  app.post('/api/auth/login', async (req, res) => {
+    try {
+      const { email, password } = req.body;
+      
+      if (!email || !password) {
+        return res.status(400).json({ message: 'Email and password are required' });
+      }
+
+      const user = await storage.getUserByEmail(email);
+      if (!user) {
+        return res.status(401).json({ message: 'Invalid email or password' });
+      }
+
+      const isValidPassword = await verifyPassword(password, user.passwordHash);
+      if (!isValidPassword) {
+        return res.status(401).json({ message: 'Invalid email or password' });
+      }
+
+      if (!user.isActive) {
+        return res.status(403).json({ message: 'Account is deactivated. Contact administrator.' });
+      }
+
+      req.session.userId = user.id;
+      
+      const { passwordHash, ...userWithoutPassword } = user;
+      res.json({ user: userWithoutPassword });
+    } catch (err) {
+      console.error('Login error:', err);
+      res.status(500).json({ message: 'Login failed' });
+    }
+  });
+
+  app.post('/api/auth/logout', (req, res) => {
+    req.session.destroy((err) => {
+      if (err) {
+        return res.status(500).json({ message: 'Logout failed' });
+      }
+      res.clearCookie('connect.sid');
+      res.json({ message: 'Logged out successfully' });
+    });
+  });
+
+  app.get('/api/auth/me', async (req, res) => {
+    if (!req.session.userId) {
+      return res.status(401).json({ message: 'Not authenticated' });
+    }
+
+    const user = await storage.getUser(req.session.userId);
+    if (!user) {
+      req.session.destroy(() => {});
+      return res.status(401).json({ message: 'User not found' });
+    }
+
+    res.json({ user });
+  });
 
   // ============================================
   // DASHBOARD ROUTES
@@ -78,7 +148,7 @@ export async function registerRoutes(
 
       // Audit log
       await storage.createAuditLog({
-        userId: DEMO_USER_ID,
+        userId: getCurrentUserId(req),
         action: AuditAction.CREATE,
         entityType: 'user',
         entityId: user.id,
@@ -111,7 +181,7 @@ export async function registerRoutes(
 
       // Audit log
       await storage.createAuditLog({
-        userId: DEMO_USER_ID,
+        userId: getCurrentUserId(req),
         action: AuditAction.UPDATE,
         entityType: 'user',
         entityId: id,
@@ -142,7 +212,7 @@ export async function registerRoutes(
 
     // Audit log
     await storage.createAuditLog({
-      userId: DEMO_USER_ID,
+      userId: getCurrentUserId(req),
       action: AuditAction.DELETE,
       entityType: 'user',
       entityId: id,
@@ -193,7 +263,7 @@ export async function registerRoutes(
 
       // Audit log
       await storage.createAuditLog({
-        userId: DEMO_USER_ID,
+        userId: getCurrentUserId(req),
         action: AuditAction.UPDATE,
         entityType: 'user',
         entityId: id,
@@ -250,7 +320,7 @@ export async function registerRoutes(
         fileUrl: input.fileUrl || null,
         versionNumber: "1.0",
         status: DocumentStatus.DRAFT,
-        createdById: DEMO_USER_ID,
+        createdById: getCurrentUserId(req),
         nextReviewDate: input.nextReviewDate ? new Date(input.nextReviewDate) : null,
         requiresPreparedBy: input.requiresPreparedBy ?? true,
         requiresReviewedBy: input.requiresReviewedBy ?? true,
@@ -259,7 +329,7 @@ export async function registerRoutes(
 
       // Audit log
       await storage.createAuditLog({
-        userId: DEMO_USER_ID,
+        userId: getCurrentUserId(req),
         action: AuditAction.CREATE,
         entityType: 'document',
         entityId: doc.id,
@@ -271,7 +341,7 @@ export async function registerRoutes(
         documentId: doc.id,
         fromStatus: null,
         toStatus: DocumentStatus.DRAFT,
-        actionById: DEMO_USER_ID,
+        actionById: getCurrentUserId(req),
         comments: 'Document created',
       });
 
@@ -313,7 +383,7 @@ export async function registerRoutes(
 
       // Audit log
       await storage.createAuditLog({
-        userId: DEMO_USER_ID,
+        userId: getCurrentUserId(req),
         action: AuditAction.UPDATE,
         entityType: 'document',
         entityId: id,
@@ -344,7 +414,7 @@ export async function registerRoutes(
 
     // Audit log
     await storage.createAuditLog({
-      userId: DEMO_USER_ID,
+      userId: getCurrentUserId(req),
       action: AuditAction.DELETE,
       entityType: 'document',
       entityId: id,
@@ -384,13 +454,13 @@ export async function registerRoutes(
         fromStatus: DocumentStatus.DRAFT,
         toStatus: DocumentStatus.IN_REVIEW,
         assignedToId: input.reviewerId,
-        actionById: DEMO_USER_ID,
+        actionById: getCurrentUserId(req),
         comments: input.comments || 'Submitted for review',
       });
 
       // Audit log
       await storage.createAuditLog({
-        userId: DEMO_USER_ID,
+        userId: getCurrentUserId(req),
         action: AuditAction.SUBMIT_FOR_REVIEW,
         entityType: 'document',
         entityId: id,
@@ -447,7 +517,7 @@ export async function registerRoutes(
 
       const updateData: any = { status: newStatus };
       if (newStatus === DocumentStatus.APPROVED) {
-        updateData.approverId = DEMO_USER_ID;
+        updateData.approverId = getCurrentUserId(req);
         updateData.approvedAt = new Date();
         
         // Increment version if republishing
@@ -472,13 +542,13 @@ export async function registerRoutes(
         documentId: id,
         fromStatus: doc.status,
         toStatus: newStatus,
-        actionById: DEMO_USER_ID,
+        actionById: getCurrentUserId(req),
         comments: input.comments || 'Approved',
       });
 
       // Audit log
       await storage.createAuditLog({
-        userId: DEMO_USER_ID,
+        userId: getCurrentUserId(req),
         action: actionType,
         entityType: 'document',
         entityId: id,
@@ -547,13 +617,13 @@ export async function registerRoutes(
         documentId: id,
         fromStatus: doc.status,
         toStatus: DocumentStatus.DRAFT,
-        actionById: DEMO_USER_ID,
+        actionById: getCurrentUserId(req),
         comments: input.comments,
       });
 
       // Audit log
       await storage.createAuditLog({
-        userId: DEMO_USER_ID,
+        userId: getCurrentUserId(req),
         action: AuditAction.REJECT,
         entityType: 'document',
         entityId: id,
@@ -607,7 +677,7 @@ export async function registerRoutes(
   });
 
   app.put(api.notifications.markAllRead.path, async (req, res) => {
-    const count = await storage.markAllNotificationsRead(DEMO_USER_ID);
+    const count = await storage.markAllNotificationsRead(getCurrentUserId(req));
     res.json({ count });
   });
 
@@ -673,7 +743,7 @@ export async function registerRoutes(
 
       // Audit log
       await storage.createAuditLog({
-        userId: DEMO_USER_ID,
+        userId: getCurrentUserId(req),
         action: AuditAction.CREATE,
         entityType: 'employee',
         entityId: employee.id,
@@ -717,7 +787,7 @@ export async function registerRoutes(
 
       // Audit log
       await storage.createAuditLog({
-        userId: DEMO_USER_ID,
+        userId: getCurrentUserId(req),
         action: AuditAction.UPDATE,
         entityType: 'employee',
         entityId: id,
@@ -752,7 +822,7 @@ export async function registerRoutes(
 
     // Audit log
     await storage.createAuditLog({
-      userId: DEMO_USER_ID,
+      userId: getCurrentUserId(req),
       action: AuditAction.DELETE,
       entityType: 'employee',
       entityId: id,
@@ -813,13 +883,13 @@ export async function registerRoutes(
         dueDate: input.dueDate ? new Date(input.dueDate) : null,
         priority: input.priority || 'medium',
         notes: input.notes || null,
-        assignedByUserId: DEMO_USER_ID,
+        assignedByUserId: getCurrentUserId(req),
         status: 'pending',
       });
 
       // Audit log
       await storage.createAuditLog({
-        userId: DEMO_USER_ID,
+        userId: getCurrentUserId(req),
         action: AuditAction.ASSIGN_TASK,
         entityType: 'employee_task',
         entityId: task.id,
@@ -860,7 +930,7 @@ export async function registerRoutes(
 
       // Audit log
       await storage.createAuditLog({
-        userId: DEMO_USER_ID,
+        userId: getCurrentUserId(req),
         action: AuditAction.UPDATE,
         entityType: 'employee_task',
         entityId: id,
@@ -895,7 +965,7 @@ export async function registerRoutes(
 
     // Audit log
     await storage.createAuditLog({
-      userId: DEMO_USER_ID,
+      userId: getCurrentUserId(req),
       action: AuditAction.DELETE,
       entityType: 'employee_task',
       entityId: id,
@@ -920,7 +990,7 @@ export async function registerRoutes(
 
     // Audit log
     await storage.createAuditLog({
-      userId: DEMO_USER_ID,
+      userId: getCurrentUserId(req),
       action: AuditAction.COMPLETE_TASK,
       entityType: 'employee_task',
       entityId: id,

@@ -13,11 +13,16 @@ import {
   DocumentStatus, InductionStatus, TaskStatus,
 } from "@shared/schema";
 import { eq, desc, and, lt, gt, or, sql } from "drizzle-orm";
-import crypto from "crypto";
+import bcrypt from "bcrypt";
 
-// Simple password hashing (use bcrypt in production)
-function hashPassword(password: string): string {
-  return crypto.createHash('sha256').update(password).digest('hex');
+const SALT_ROUNDS = 10;
+
+async function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, SALT_ROUNDS);
+}
+
+export async function verifyPassword(password: string, hash: string): Promise<boolean> {
+  return bcrypt.compare(password, hash);
 }
 
 export interface IStorage {
@@ -131,9 +136,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createUser(insertUser: InsertUser): Promise<Omit<User, 'passwordHash'>> {
+    const hashedPassword = await hashPassword(insertUser.passwordHash);
     const [user] = await db.insert(users).values({
       ...insertUser,
-      passwordHash: hashPassword(insertUser.passwordHash),
+      passwordHash: hashedPassword,
     }).returning();
     const { passwordHash, ...userWithoutPassword } = user;
     return userWithoutPassword;
@@ -142,7 +148,7 @@ export class DatabaseStorage implements IStorage {
   async updateUser(id: number, updates: Partial<InsertUser>): Promise<Omit<User, 'passwordHash'>> {
     const updateData: Partial<InsertUser> = { ...updates };
     if (updates.passwordHash) {
-      updateData.passwordHash = hashPassword(updates.passwordHash);
+      updateData.passwordHash = await hashPassword(updates.passwordHash);
     }
     const [user] = await db.update(users)
       .set(updateData)
