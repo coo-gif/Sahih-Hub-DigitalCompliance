@@ -1226,7 +1226,7 @@ export default function Documents() {
                 <img 
                   src={sahihLogoPath} 
                   alt="Sahih Certifications" 
-                  className="h-16 object-contain"
+                  className="h-48 object-contain"
                 />
                 <div className="text-right">
                   <div className="font-bold text-lg">{formData.title || 'Untitled Document'}</div>
