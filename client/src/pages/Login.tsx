@@ -119,21 +119,46 @@ export default function Login({ onLogin }: LoginProps) {
       {/* Left Panel - Branding */}
       <div className="hidden lg:flex lg:w-1/2 relative z-10 flex-col justify-center items-center px-12 text-white">
         <div className="max-w-md space-y-8">
-          {/* Logo with star glow effect */}
+          {/* Logo in moon shape with glow */}
           <div className="flex justify-center mb-8">
             <div 
-              className="rounded-2xl p-8 border border-amber-400/30"
+              className="relative rounded-full w-72 h-72 flex items-center justify-center"
               style={{
-                background: 'radial-gradient(ellipse at center, rgba(191, 149, 63, 0.15) 0%, transparent 70%)',
-                boxShadow: '0 0 60px 20px rgba(191, 149, 63, 0.2), 0 0 100px 40px rgba(191, 149, 63, 0.1)',
+                background: 'radial-gradient(circle at 30% 30%, #FCF6BA 0%, #e8d68a 20%, #BF953F 50%, #8A6E2F 80%, #5d4a1f 100%)',
+                boxShadow: '0 0 80px 30px rgba(252, 246, 186, 0.4), 0 0 120px 50px rgba(191, 149, 63, 0.3), inset -20px -20px 40px rgba(0,0,0,0.3), inset 10px 10px 20px rgba(255,255,255,0.2)',
               }}
             >
+              {/* Moon crater effects */}
+              <div 
+                className="absolute w-8 h-8 rounded-full opacity-20"
+                style={{ 
+                  top: '20%', 
+                  left: '60%',
+                  background: 'radial-gradient(circle, rgba(0,0,0,0.3) 0%, transparent 70%)',
+                }}
+              />
+              <div 
+                className="absolute w-5 h-5 rounded-full opacity-15"
+                style={{ 
+                  top: '60%', 
+                  left: '25%',
+                  background: 'radial-gradient(circle, rgba(0,0,0,0.3) 0%, transparent 70%)',
+                }}
+              />
+              <div 
+                className="absolute w-6 h-6 rounded-full opacity-15"
+                style={{ 
+                  top: '70%', 
+                  left: '65%',
+                  background: 'radial-gradient(circle, rgba(0,0,0,0.3) 0%, transparent 70%)',
+                }}
+              />
               <img 
                 src={sahihLogoPath} 
                 alt="Sahih Certifications" 
-                className="h-60 object-contain"
+                className="h-48 object-contain relative z-10"
                 style={{
-                  filter: 'brightness(1.2) drop-shadow(0 0 20px rgba(255, 215, 0, 0.6)) drop-shadow(0 0 40px rgba(255, 215, 0, 0.4))',
+                  filter: 'brightness(1.3) contrast(1.1) drop-shadow(0 0 15px rgba(255, 255, 255, 0.8))',
                 }}
                 data-testid="img-login-logo"
               />
