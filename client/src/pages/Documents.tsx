@@ -1222,7 +1222,7 @@ export default function Documents() {
               }}
               data-testid="preview-document-content"
             >
-              <div className="flex items-start justify-between mb-6 pb-4 border-b-2 border-black">
+              <div className="flex items-start justify-between mb-6 pb-4 border-b-2 border-black -mt-4 -ml-4">
                 <img 
                   src={sahihLogoPath} 
                   alt="Sahih Certifications" 
