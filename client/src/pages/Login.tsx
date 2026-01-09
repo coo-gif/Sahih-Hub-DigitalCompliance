@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,46 +9,88 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Shield, LogIn, Award, CheckCircle, Globe, Building2, Star } from "lucide-react";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
 
-interface LoginProps {
-  onLogin: () => void;
+declare global {
+  interface Window {
+    jQuery: any;
+    S: any;
+  }
 }
 
-interface NasaApod {
-  title: string;
-  url: string;
-  hdurl?: string;
-  explanation: string;
-  date: string;
-  media_type: string;
+interface LoginProps {
+  onLogin: () => void;
 }
 
 export default function Login({ onLogin }: LoginProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [backgroundImage, setBackgroundImage] = useState<string | null>(null);
-  const [imageCredit, setImageCredit] = useState<string>("");
+  const skyMapRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const [, setLocation] = useLocation();
 
   useEffect(() => {
-    const fetchNasaApod = async () => {
-      try {
-        const response = await fetch(
-          'https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY'
-        );
-        const data: NasaApod = await response.json();
-        
-        if (data.media_type === 'image') {
-          setBackgroundImage(data.hdurl || data.url);
-          setImageCredit(data.title);
-        }
-      } catch (error) {
-        console.error('Failed to fetch NASA APOD:', error);
+    // Load VirtualSky library
+    const loadVirtualSky = async () => {
+      // Load jQuery first (required by VirtualSky)
+      if (!window.jQuery) {
+        const jqueryScript = document.createElement('script');
+        jqueryScript.src = 'https://code.jquery.com/jquery-3.6.0.min.js';
+        jqueryScript.async = true;
+        document.head.appendChild(jqueryScript);
+        await new Promise(resolve => jqueryScript.onload = resolve);
       }
+
+      // Load VirtualSky
+      const vsScript = document.createElement('script');
+      vsScript.src = 'https://virtualsky.lco.global/embed/virtualsky.js';
+      vsScript.async = true;
+      document.head.appendChild(vsScript);
+      
+      vsScript.onload = () => {
+        if (skyMapRef.current && (window as any).S) {
+          // Doha, Qatar coordinates
+          const dohaLat = 25.2854;
+          const dohaLon = 51.5310;
+          
+          new (window as any).S.VirtualSky({
+            id: skyMapRef.current.id,
+            projection: 'stereo',
+            latitude: dohaLat,
+            longitude: dohaLon,
+            clock: new Date(),
+            az: 180, // Looking south
+            showstars: true,
+            showstarlabels: false,
+            showconstellations: true,
+            showconstellationlabels: false,
+            showplanets: true,
+            showplanetlabels: true,
+            showgalaxy: true,
+            showdate: false,
+            showposition: false,
+            keyboard: false,
+            mouse: false,
+            cardinalpoints: false,
+            gridlines_eq: false,
+            gridlines_az: false,
+            gradient: true,
+            negative: false,
+            magnitude: 5,
+            scalestars: 1.2,
+            live: true,
+            fontsize: '12px',
+            fontfamily: 'system-ui',
+            ground: false,
+            groundcolour: 'rgba(0,0,0,0)',
+            skycolour: 'rgba(5,5,20,1)',
+            ecliptic: false,
+            meridian: false,
+          });
+        }
+      };
     };
 
-    fetchNasaApod();
+    loadVirtualSky();
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -82,18 +124,21 @@ export default function Login({ onLogin }: LoginProps) {
   };
 
   return (
-    <div 
-      className="min-h-screen flex relative"
-      style={{
-        backgroundImage: backgroundImage ? `url(${backgroundImage})` : undefined,
-        backgroundColor: '#0a0a1a',
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundAttachment: 'fixed',
-      }}
-    >
-      {/* Subtle dark overlay for text readability */}
-      <div className="absolute inset-0 bg-gradient-to-br from-slate-950/60 via-slate-900/40 to-slate-950/50"></div>
+    <div className="min-h-screen flex relative overflow-hidden">
+      {/* VirtualSky Background - Real Qatar Night Sky */}
+      <div 
+        id="qatar-sky"
+        ref={skyMapRef}
+        className="absolute inset-0 z-0"
+        style={{ 
+          width: '100%', 
+          height: '100%',
+          background: 'linear-gradient(to bottom, #050514 0%, #0a0a1f 50%, #0f0f2a 100%)',
+        }}
+      />
+      
+      {/* Subtle overlay for text readability */}
+      <div className="absolute inset-0 z-[1] bg-gradient-to-br from-slate-950/40 via-transparent to-slate-950/40"></div>
 
       {/* Left Panel - Branding */}
       <div className="hidden lg:flex lg:w-1/2 relative z-10 flex-col justify-center items-center px-12 text-white">
@@ -147,6 +192,9 @@ export default function Login({ onLogin }: LoginProps) {
             >
               <Globe className="w-4 h-4" />
               <span>Doha, Qatar</span>
+              <span className="mx-2">•</span>
+              <Star className="w-4 h-4" />
+              <span>Live Night Sky</span>
             </div>
           </div>
 
@@ -235,15 +283,13 @@ export default function Login({ onLogin }: LoginProps) {
           </div>
         </div>
 
-        {/* Image Credit */}
-        {imageCredit && (
-          <div className="absolute bottom-4 left-4 right-4 text-center">
-            <p className="text-xs flex items-center justify-center gap-1" style={{ color: 'rgba(196, 184, 150, 0.6)' }}>
-              <Star className="w-3 h-3" />
-              Today's Sky: {imageCredit} - NASA APOD
-            </p>
-          </div>
-        )}
+        {/* Sky Credit */}
+        <div className="absolute bottom-4 left-4 right-4 text-center">
+          <p className="text-xs flex items-center justify-center gap-1" style={{ color: 'rgba(196, 184, 150, 0.6)' }}>
+            <Star className="w-3 h-3" />
+            Real-time Qatar Night Sky • VirtualSky
+          </p>
+        </div>
       </div>
 
       {/* Right Panel - Login Form blended with night sky */}
