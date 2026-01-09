@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,19 +6,50 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Shield, LogIn, Award, CheckCircle, Globe, Building2 } from "lucide-react";
+import { Shield, LogIn, Award, CheckCircle, Globe, Building2, Star } from "lucide-react";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
 
 interface LoginProps {
   onLogin: () => void;
 }
 
+interface NasaApod {
+  title: string;
+  url: string;
+  hdurl?: string;
+  explanation: string;
+  date: string;
+  media_type: string;
+}
+
 export default function Login({ onLogin }: LoginProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [backgroundImage, setBackgroundImage] = useState<string | null>(null);
+  const [imageCredit, setImageCredit] = useState<string>("");
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    const fetchNasaApod = async () => {
+      try {
+        const response = await fetch(
+          'https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY'
+        );
+        const data: NasaApod = await response.json();
+        
+        if (data.media_type === 'image') {
+          setBackgroundImage(data.hdurl || data.url);
+          setImageCredit(data.title);
+        }
+      } catch (error) {
+        console.error('Failed to fetch NASA APOD:', error);
+      }
+    };
+
+    fetchNasaApod();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,62 +83,42 @@ export default function Login({ onLogin }: LoginProps) {
 
   return (
     <div className="min-h-screen flex">
-      {/* Left Panel - Hero Section with Sparkling Gold */}
+      {/* Left Panel - Qatar Night Sky with NASA APOD */}
       <div 
-        className="hidden lg:flex lg:w-1/2 relative overflow-hidden"
+        className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-slate-900"
         style={{
-          background: `
-            radial-gradient(ellipse at 30% 20%, #FEDB37 0%, #FDB931 8%, #9f7928 30%, #8A6E2F 40%, transparent 70%),
-            radial-gradient(ellipse at 80% 80%, #FFFFFF 0%, #FFFFAC 8%, #D1B464 25%, #5d4a1f 50%, #5d4a1f 100%)
-          `
+          backgroundImage: backgroundImage ? `url(${backgroundImage})` : undefined,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
         }}
       >
-        {/* Animated Shimmer Overlay */}
-        <div 
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            background: `linear-gradient(
-              110deg,
-              transparent 20%,
-              rgba(255, 255, 255, 0.4) 40%,
-              rgba(255, 255, 255, 0.6) 50%,
-              rgba(255, 255, 255, 0.4) 60%,
-              transparent 80%
-            )`,
-            animation: 'shimmer 3s infinite linear',
-            backgroundSize: '200% 100%',
-          }}
-        />
+        {/* Dark overlay for readability */}
+        <div className="absolute inset-0 bg-gradient-to-br from-slate-900/70 via-slate-900/50 to-transparent"></div>
         
-        {/* Sparkle particles */}
+        {/* Animated stars overlay */}
         <div className="absolute inset-0 overflow-hidden">
-          <div className="absolute w-2 h-2 bg-white rounded-full animate-pulse" style={{ top: '15%', left: '20%', boxShadow: '0 0 10px 2px rgba(255,255,255,0.8)' }}></div>
-          <div className="absolute w-1 h-1 bg-white rounded-full animate-pulse" style={{ top: '25%', left: '70%', animationDelay: '0.5s', boxShadow: '0 0 8px 2px rgba(255,255,255,0.6)' }}></div>
-          <div className="absolute w-2 h-2 bg-white rounded-full animate-pulse" style={{ top: '60%', left: '15%', animationDelay: '1s', boxShadow: '0 0 10px 2px rgba(255,255,255,0.8)' }}></div>
-          <div className="absolute w-1 h-1 bg-white rounded-full animate-pulse" style={{ top: '75%', left: '80%', animationDelay: '1.5s', boxShadow: '0 0 8px 2px rgba(255,255,255,0.6)' }}></div>
-          <div className="absolute w-2 h-2 bg-white rounded-full animate-pulse" style={{ top: '40%', left: '85%', animationDelay: '2s', boxShadow: '0 0 10px 2px rgba(255,255,255,0.8)' }}></div>
-          <div className="absolute w-1 h-1 bg-white rounded-full animate-pulse" style={{ top: '85%', left: '40%', animationDelay: '0.3s', boxShadow: '0 0 8px 2px rgba(255,255,255,0.6)' }}></div>
-          <div className="absolute w-2 h-2 bg-white rounded-full animate-pulse" style={{ top: '10%', left: '50%', animationDelay: '0.7s', boxShadow: '0 0 10px 2px rgba(255,255,255,0.8)' }}></div>
-          <div className="absolute w-1 h-1 bg-white rounded-full animate-pulse" style={{ top: '50%', left: '30%', animationDelay: '1.2s', boxShadow: '0 0 8px 2px rgba(255,255,255,0.6)' }}></div>
-        </div>
-
-        {/* Geometric Pattern Overlay - Islamic Art Inspired */}
-        <div className="absolute inset-0 opacity-5">
-          <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-            <pattern id="geometric" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
-              <path d="M10 0L20 10L10 20L0 10Z" fill="none" stroke="white" strokeWidth="0.5"/>
-              <circle cx="10" cy="10" r="3" fill="none" stroke="white" strokeWidth="0.3"/>
-            </pattern>
-            <rect width="100%" height="100%" fill="url(#geometric)"/>
-          </svg>
+          {[...Array(20)].map((_, i) => (
+            <div
+              key={i}
+              className="absolute w-1 h-1 bg-white rounded-full animate-pulse"
+              style={{
+                top: `${Math.random() * 100}%`,
+                left: `${Math.random() * 100}%`,
+                animationDelay: `${Math.random() * 3}s`,
+                animationDuration: `${2 + Math.random() * 2}s`,
+                boxShadow: '0 0 6px 1px rgba(255,255,255,0.6)',
+                opacity: 0.6 + Math.random() * 0.4,
+              }}
+            />
+          ))}
         </div>
         
         {/* Content */}
-        <div className="relative z-10 flex flex-col justify-center items-center w-full px-12 text-white drop-shadow-lg">
+        <div className="relative z-10 flex flex-col justify-center items-center w-full px-12 text-white">
           <div className="max-w-md space-y-8">
             {/* Logo - 3x Size */}
             <div className="flex justify-center mb-8">
-              <div className="bg-white/20 backdrop-blur-md rounded-2xl p-6 border border-white/30 shadow-2xl">
+              <div className="bg-black/30 backdrop-blur-md rounded-2xl p-6 border border-white/20 shadow-2xl">
                 <img 
                   src={sahihLogoPath} 
                   alt="Sahih Certifications" 
@@ -120,13 +131,11 @@ export default function Login({ onLogin }: LoginProps) {
             <div className="text-center space-y-4">
               <h1 
                 className="text-4xl font-bold tracking-tight"
-                style={{
-                  textShadow: '0 2px 4px rgba(0,0,0,0.3)'
-                }}
+                style={{ textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}
               >
                 Sahih - Hub
               </h1>
-              <p className="text-xl text-white/90 font-light" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
+              <p className="text-xl text-white/90 font-light" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.5)' }}>
                 Digital Compliance Interface
               </p>
               <div className="flex items-center justify-center gap-2 text-white/80 text-sm">
@@ -137,46 +146,48 @@ export default function Login({ onLogin }: LoginProps) {
 
             {/* Features */}
             <div className="space-y-4 pt-8">
-              <div className="flex items-start gap-4 bg-white/15 backdrop-blur-md rounded-xl p-4 border border-white/20 shadow-lg">
-                <div className="p-2 bg-white/25 rounded-lg">
+              <div className="flex items-start gap-4 bg-black/30 backdrop-blur-md rounded-xl p-4 border border-white/10 shadow-lg">
+                <div className="p-2 bg-white/20 rounded-lg">
                   <Shield className="w-6 h-6" />
                 </div>
                 <div>
                   <h3 className="font-semibold">ISO 17021 Compliant</h3>
-                  <p className="text-sm text-white/80">UKAS surveillance-ready QMS platform</p>
+                  <p className="text-sm text-white/70">UKAS surveillance-ready QMS platform</p>
                 </div>
               </div>
               
-              <div className="flex items-start gap-4 bg-white/15 backdrop-blur-md rounded-xl p-4 border border-white/20 shadow-lg">
-                <div className="p-2 bg-white/25 rounded-lg">
+              <div className="flex items-start gap-4 bg-black/30 backdrop-blur-md rounded-xl p-4 border border-white/10 shadow-lg">
+                <div className="p-2 bg-white/20 rounded-lg">
                   <Award className="w-6 h-6" />
                 </div>
                 <div>
                   <h3 className="font-semibold">Accredited Excellence</h3>
-                  <p className="text-sm text-white/80">International standards certification</p>
+                  <p className="text-sm text-white/70">International standards certification</p>
                 </div>
               </div>
               
-              <div className="flex items-start gap-4 bg-white/15 backdrop-blur-md rounded-xl p-4 border border-white/20 shadow-lg">
-                <div className="p-2 bg-white/25 rounded-lg">
+              <div className="flex items-start gap-4 bg-black/30 backdrop-blur-md rounded-xl p-4 border border-white/10 shadow-lg">
+                <div className="p-2 bg-white/20 rounded-lg">
                   <Building2 className="w-6 h-6" />
                 </div>
                 <div>
                   <h3 className="font-semibold">Enterprise Grade</h3>
-                  <p className="text-sm text-white/80">Secure document control & audit trails</p>
+                  <p className="text-sm text-white/70">Secure document control & audit trails</p>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* CSS Animation */}
-        <style>{`
-          @keyframes shimmer {
-            0% { background-position: 200% 0; }
-            100% { background-position: -200% 0; }
-          }
-        `}</style>
+        {/* Image Credit */}
+        {imageCredit && (
+          <div className="absolute bottom-4 left-4 right-4 text-center">
+            <p className="text-xs text-white/50 flex items-center justify-center gap-1">
+              <Star className="w-3 h-3" />
+              Today's Sky: {imageCredit} - NASA APOD
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Right Panel - Login Form */}
@@ -197,12 +208,9 @@ export default function Login({ onLogin }: LoginProps) {
             <CardContent className="p-8 space-y-6">
               <div className="text-center space-y-2">
                 <div 
-                  className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4"
-                  style={{
-                    background: 'linear-gradient(135deg, #BF953F 0%, #FCF6BA 25%, #B38728 50%, #FBF5B7 75%, #AA771C 100%)'
-                  }}
+                  className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4 bg-gradient-to-br from-indigo-500 to-purple-600"
                 >
-                  <Shield className="w-8 h-8 text-amber-900" />
+                  <Shield className="w-8 h-8 text-white" />
                 </div>
                 <h2 className="text-2xl font-bold text-slate-800 dark:text-white">
                   Welcome Back
@@ -224,7 +232,7 @@ export default function Login({ onLogin }: LoginProps) {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     disabled={isLoading}
-                    className="h-12 border-slate-200 dark:border-slate-700 focus:border-amber-500 focus:ring-amber-500/20"
+                    className="h-12 border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:ring-indigo-500/20"
                     data-testid="input-email"
                   />
                 </div>
@@ -234,7 +242,7 @@ export default function Login({ onLogin }: LoginProps) {
                     <Label htmlFor="password" className="text-slate-700 dark:text-slate-300 font-medium">
                       Password
                     </Label>
-                    <button type="button" className="text-sm text-amber-600 hover:text-amber-700 font-medium">
+                    <button type="button" className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">
                       Forgot password?
                     </button>
                   </div>
@@ -245,24 +253,20 @@ export default function Login({ onLogin }: LoginProps) {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     disabled={isLoading}
-                    className="h-12 border-slate-200 dark:border-slate-700 focus:border-amber-500 focus:ring-amber-500/20"
+                    className="h-12 border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:ring-indigo-500/20"
                     data-testid="input-password"
                   />
                 </div>
 
                 <Button 
                   type="submit" 
-                  className="w-full h-12 text-base font-semibold text-amber-900 shadow-lg transition-all duration-300 hover:scale-[1.02]" 
-                  style={{
-                    background: 'linear-gradient(135deg, #BF953F 0%, #FCF6BA 25%, #B38728 50%, #FBF5B7 75%, #AA771C 100%)',
-                    boxShadow: '0 4px 15px rgba(191, 149, 63, 0.4)'
-                  }}
+                  className="w-full h-12 text-base font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-lg shadow-indigo-500/25 transition-all duration-300" 
                   disabled={isLoading}
                   data-testid="button-login"
                 >
                   {isLoading ? (
                     <span className="flex items-center gap-2">
-                      <div className="w-5 h-5 border-2 border-amber-900/30 border-t-amber-900 rounded-full animate-spin"></div>
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                       Signing in...
                     </span>
                   ) : (
