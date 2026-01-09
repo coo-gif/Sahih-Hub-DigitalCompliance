@@ -553,7 +553,7 @@ export default function Documents() {
             <DialogTitle>Create New Document</DialogTitle>
             <DialogDescription>Add a new document to the Document Control System</DialogDescription>
           </DialogHeader>
-          <ScrollArea className="flex-1 pr-4">
+          <ScrollArea className="flex-1 min-h-0 pr-4">
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -744,7 +744,7 @@ export default function Documents() {
             <DialogTitle>Edit Document</DialogTitle>
             <DialogDescription>Update document details</DialogDescription>
           </DialogHeader>
-          <ScrollArea className="flex-1 pr-4">
+          <ScrollArea className="flex-1 min-h-0 pr-4">
           <div className="space-y-4">
             <div>
               <Label htmlFor="edit-title">Title</Label>
