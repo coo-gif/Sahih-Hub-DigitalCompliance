@@ -24,7 +24,6 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
-import sahihLogoPath from "@assets/sahih_logo-1.png";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -54,15 +53,15 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-slate-900 text-white">
-      <div className="p-4 border-b border-slate-700">
-        <div className="flex flex-col items-center gap-2">
-          <img 
-            src={sahihLogoPath} 
-            alt="Sahih Certifications" 
-            className="h-12 object-contain brightness-0 invert"
-            data-testid="img-sidebar-logo"
-          />
-          <p className="text-xs text-slate-400 text-center">QMS Dashboard</p>
+      <div className="p-6 border-b border-slate-700">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded bg-primary flex items-center justify-center">
+            <span className="font-bold text-white">S</span>
+          </div>
+          <div>
+            <span className="font-bold text-lg">Sahih Certifications</span>
+            <p className="text-xs text-slate-400">QMS Dashboard</p>
+          </div>
         </div>
       </div>
       
@@ -107,7 +106,7 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
       {/* Main Content */}
       <main className="flex-1 lg:pl-64 flex flex-col min-h-screen">
         {/* Header */}
-        <header className="h-20 bg-white border-b sticky top-0 z-40 px-4 lg:px-6 flex items-center gap-4">
+        <header className="h-14 bg-white border-b sticky top-0 z-40 px-4 lg:px-6 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 lg:hidden">
             <Sheet>
               <SheetTrigger asChild>
@@ -119,19 +118,14 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
                 <SidebarContent />
               </SheetContent>
             </Sheet>
+            <span className="font-bold">Sahih Certifications</span>
           </div>
 
-          {/* Centered Logo - 3x larger */}
-          <div className="flex-1 flex justify-center">
-            <img 
-              src={sahihLogoPath} 
-              alt="Sahih Certifications" 
-              className="h-16 object-contain"
-              data-testid="img-header-logo"
-            />
+          <div className="hidden lg:block text-sm text-slate-500">
+            Quality Management System
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 ml-auto">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="relative" data-testid="button-notifications">
