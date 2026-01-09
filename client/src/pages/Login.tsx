@@ -92,29 +92,8 @@ export default function Login({ onLogin }: LoginProps) {
         backgroundAttachment: 'fixed',
       }}
     >
-      {/* Full screen dark overlay for consistency */}
-      <div className="absolute inset-0 bg-gradient-to-br from-slate-950/80 via-slate-900/60 to-slate-950/70"></div>
-      
-      {/* Animated stars overlay across entire screen */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        {[...Array(30)].map((_, i) => (
-          <div
-            key={i}
-            className="absolute rounded-full animate-pulse"
-            style={{
-              width: `${1 + Math.random() * 2}px`,
-              height: `${1 + Math.random() * 2}px`,
-              backgroundColor: '#fff',
-              top: `${Math.random() * 100}%`,
-              left: `${Math.random() * 100}%`,
-              animationDelay: `${Math.random() * 3}s`,
-              animationDuration: `${2 + Math.random() * 2}s`,
-              boxShadow: '0 0 8px 2px rgba(255,255,255,0.7)',
-              opacity: 0.5 + Math.random() * 0.5,
-            }}
-          />
-        ))}
-      </div>
+      {/* Subtle dark overlay for text readability */}
+      <div className="absolute inset-0 bg-gradient-to-br from-slate-950/60 via-slate-900/40 to-slate-950/50"></div>
 
       {/* Left Panel - Branding */}
       <div className="hidden lg:flex lg:w-1/2 relative z-10 flex-col justify-center items-center px-12 text-white">
