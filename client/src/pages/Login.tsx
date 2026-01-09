@@ -53,7 +53,7 @@ export default function Login({ onLogin }: LoginProps) {
   return (
     <div className="min-h-screen flex">
       {/* Left Panel - Hero Section with Qatar Elements */}
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-[#8D1B3D]/70 via-[#6B1530]/70 to-[#4A0F22]/70">
+      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-[#D4A853] via-[#B8923E] to-[#8B6914]">
         {/* Geometric Pattern Overlay - Islamic Art Inspired */}
         <div className="absolute inset-0 opacity-10">
           <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
@@ -151,7 +151,7 @@ export default function Login({ onLogin }: LoginProps) {
           <Card className="border-0 shadow-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm">
             <CardContent className="p-8 space-y-6">
               <div className="text-center space-y-2">
-                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-[#8D1B3D] to-[#6B1530] mb-4">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-[#D4A853] to-[#8B6914] mb-4">
                   <Shield className="w-8 h-8 text-white" />
                 </div>
                 <h2 className="text-2xl font-bold text-slate-800 dark:text-white">
@@ -174,7 +174,7 @@ export default function Login({ onLogin }: LoginProps) {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     disabled={isLoading}
-                    className="h-12 border-slate-200 dark:border-slate-700 focus:border-[#8D1B3D] focus:ring-[#8D1B3D]/20"
+                    className="h-12 border-slate-200 dark:border-slate-700 focus:border-[#D4A853] focus:ring-[#D4A853]/20"
                     data-testid="input-email"
                   />
                 </div>
@@ -184,7 +184,7 @@ export default function Login({ onLogin }: LoginProps) {
                     <Label htmlFor="password" className="text-slate-700 dark:text-slate-300 font-medium">
                       Password
                     </Label>
-                    <button type="button" className="text-sm text-[#8D1B3D] hover:text-[#6B1530] font-medium">
+                    <button type="button" className="text-sm text-[#D4A853] hover:text-[#8B6914] font-medium">
                       Forgot password?
                     </button>
                   </div>
@@ -195,14 +195,14 @@ export default function Login({ onLogin }: LoginProps) {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     disabled={isLoading}
-                    className="h-12 border-slate-200 dark:border-slate-700 focus:border-[#8D1B3D] focus:ring-[#8D1B3D]/20"
+                    className="h-12 border-slate-200 dark:border-slate-700 focus:border-[#D4A853] focus:ring-[#D4A853]/20"
                     data-testid="input-password"
                   />
                 </div>
 
                 <Button 
                   type="submit" 
-                  className="w-full h-12 text-base font-semibold bg-gradient-to-r from-[#8D1B3D] to-[#6B1530] hover:from-[#7A1735] hover:to-[#5A0F1E] shadow-lg shadow-[#8D1B3D]/25 transition-all duration-300" 
+                  className="w-full h-12 text-base font-semibold bg-gradient-to-r from-[#D4A853] to-[#8B6914] hover:from-[#C49A48] hover:to-[#7A5C10] shadow-lg shadow-[#D4A853]/25 transition-all duration-300" 
                   disabled={isLoading}
                   data-testid="button-login"
                 >
