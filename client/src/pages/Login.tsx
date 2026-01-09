@@ -360,7 +360,7 @@ export default function Login({ onLogin }: LoginProps) {
                   <Input
                     id="email"
                     type="email"
-                    placeholder="your.email@sahihcert.qa"
+                    placeholder="name@SAHIHCERTIFY.COM"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     disabled={isLoading}
