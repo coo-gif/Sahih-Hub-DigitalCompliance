@@ -52,10 +52,47 @@ export default function Login({ onLogin }: LoginProps) {
 
   return (
     <div className="min-h-screen flex">
-      {/* Left Panel - Hero Section with Qatar Elements */}
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-[#C9A227] via-[#A67C00] to-[#705900]">
+      {/* Left Panel - Hero Section with Sparkling Gold */}
+      <div 
+        className="hidden lg:flex lg:w-1/2 relative overflow-hidden"
+        style={{
+          background: `
+            radial-gradient(ellipse at 30% 20%, #FEDB37 0%, #FDB931 8%, #9f7928 30%, #8A6E2F 40%, transparent 70%),
+            radial-gradient(ellipse at 80% 80%, #FFFFFF 0%, #FFFFAC 8%, #D1B464 25%, #5d4a1f 50%, #5d4a1f 100%)
+          `
+        }}
+      >
+        {/* Animated Shimmer Overlay */}
+        <div 
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background: `linear-gradient(
+              110deg,
+              transparent 20%,
+              rgba(255, 255, 255, 0.4) 40%,
+              rgba(255, 255, 255, 0.6) 50%,
+              rgba(255, 255, 255, 0.4) 60%,
+              transparent 80%
+            )`,
+            animation: 'shimmer 3s infinite linear',
+            backgroundSize: '200% 100%',
+          }}
+        />
+        
+        {/* Sparkle particles */}
+        <div className="absolute inset-0 overflow-hidden">
+          <div className="absolute w-2 h-2 bg-white rounded-full animate-pulse" style={{ top: '15%', left: '20%', boxShadow: '0 0 10px 2px rgba(255,255,255,0.8)' }}></div>
+          <div className="absolute w-1 h-1 bg-white rounded-full animate-pulse" style={{ top: '25%', left: '70%', animationDelay: '0.5s', boxShadow: '0 0 8px 2px rgba(255,255,255,0.6)' }}></div>
+          <div className="absolute w-2 h-2 bg-white rounded-full animate-pulse" style={{ top: '60%', left: '15%', animationDelay: '1s', boxShadow: '0 0 10px 2px rgba(255,255,255,0.8)' }}></div>
+          <div className="absolute w-1 h-1 bg-white rounded-full animate-pulse" style={{ top: '75%', left: '80%', animationDelay: '1.5s', boxShadow: '0 0 8px 2px rgba(255,255,255,0.6)' }}></div>
+          <div className="absolute w-2 h-2 bg-white rounded-full animate-pulse" style={{ top: '40%', left: '85%', animationDelay: '2s', boxShadow: '0 0 10px 2px rgba(255,255,255,0.8)' }}></div>
+          <div className="absolute w-1 h-1 bg-white rounded-full animate-pulse" style={{ top: '85%', left: '40%', animationDelay: '0.3s', boxShadow: '0 0 8px 2px rgba(255,255,255,0.6)' }}></div>
+          <div className="absolute w-2 h-2 bg-white rounded-full animate-pulse" style={{ top: '10%', left: '50%', animationDelay: '0.7s', boxShadow: '0 0 10px 2px rgba(255,255,255,0.8)' }}></div>
+          <div className="absolute w-1 h-1 bg-white rounded-full animate-pulse" style={{ top: '50%', left: '30%', animationDelay: '1.2s', boxShadow: '0 0 8px 2px rgba(255,255,255,0.6)' }}></div>
+        </div>
+
         {/* Geometric Pattern Overlay - Islamic Art Inspired */}
-        <div className="absolute inset-0 opacity-10">
+        <div className="absolute inset-0 opacity-5">
           <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
             <pattern id="geometric" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
               <path d="M10 0L20 10L10 20L0 10Z" fill="none" stroke="white" strokeWidth="0.5"/>
@@ -65,17 +102,12 @@ export default function Login({ onLogin }: LoginProps) {
           </svg>
         </div>
         
-        {/* Decorative Circles */}
-        <div className="absolute -top-20 -right-20 w-80 h-80 rounded-full bg-white/5 blur-sm"></div>
-        <div className="absolute -bottom-32 -left-32 w-96 h-96 rounded-full bg-white/5 blur-sm"></div>
-        <div className="absolute top-1/2 right-10 w-40 h-40 rounded-full bg-white/5"></div>
-        
         {/* Content */}
-        <div className="relative z-10 flex flex-col justify-center items-center w-full px-12 text-white">
+        <div className="relative z-10 flex flex-col justify-center items-center w-full px-12 text-white drop-shadow-lg">
           <div className="max-w-md space-y-8">
             {/* Logo - 3x Size */}
             <div className="flex justify-center mb-8">
-              <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20">
+              <div className="bg-white/20 backdrop-blur-md rounded-2xl p-6 border border-white/30 shadow-2xl">
                 <img 
                   src={sahihLogoPath} 
                   alt="Sahih Certifications" 
@@ -86,13 +118,18 @@ export default function Login({ onLogin }: LoginProps) {
             </div>
             
             <div className="text-center space-y-4">
-              <h1 className="text-4xl font-bold tracking-tight">
+              <h1 
+                className="text-4xl font-bold tracking-tight"
+                style={{
+                  textShadow: '0 2px 4px rgba(0,0,0,0.3)'
+                }}
+              >
                 Sahih - Hub
               </h1>
-              <p className="text-xl text-white/80 font-light">
+              <p className="text-xl text-white/90 font-light" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
                 Digital Compliance Interface
               </p>
-              <div className="flex items-center justify-center gap-2 text-white/60 text-sm">
+              <div className="flex items-center justify-center gap-2 text-white/80 text-sm">
                 <Globe className="w-4 h-4" />
                 <span>Doha, Qatar</span>
               </div>
@@ -100,38 +137,46 @@ export default function Login({ onLogin }: LoginProps) {
 
             {/* Features */}
             <div className="space-y-4 pt-8">
-              <div className="flex items-start gap-4 bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/10">
-                <div className="p-2 bg-white/20 rounded-lg">
+              <div className="flex items-start gap-4 bg-white/15 backdrop-blur-md rounded-xl p-4 border border-white/20 shadow-lg">
+                <div className="p-2 bg-white/25 rounded-lg">
                   <Shield className="w-6 h-6" />
                 </div>
                 <div>
                   <h3 className="font-semibold">ISO 17021 Compliant</h3>
-                  <p className="text-sm text-white/70">UKAS surveillance-ready QMS platform</p>
+                  <p className="text-sm text-white/80">UKAS surveillance-ready QMS platform</p>
                 </div>
               </div>
               
-              <div className="flex items-start gap-4 bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/10">
-                <div className="p-2 bg-white/20 rounded-lg">
+              <div className="flex items-start gap-4 bg-white/15 backdrop-blur-md rounded-xl p-4 border border-white/20 shadow-lg">
+                <div className="p-2 bg-white/25 rounded-lg">
                   <Award className="w-6 h-6" />
                 </div>
                 <div>
                   <h3 className="font-semibold">Accredited Excellence</h3>
-                  <p className="text-sm text-white/70">International standards certification</p>
+                  <p className="text-sm text-white/80">International standards certification</p>
                 </div>
               </div>
               
-              <div className="flex items-start gap-4 bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/10">
-                <div className="p-2 bg-white/20 rounded-lg">
+              <div className="flex items-start gap-4 bg-white/15 backdrop-blur-md rounded-xl p-4 border border-white/20 shadow-lg">
+                <div className="p-2 bg-white/25 rounded-lg">
                   <Building2 className="w-6 h-6" />
                 </div>
                 <div>
                   <h3 className="font-semibold">Enterprise Grade</h3>
-                  <p className="text-sm text-white/70">Secure document control & audit trails</p>
+                  <p className="text-sm text-white/80">Secure document control & audit trails</p>
                 </div>
               </div>
             </div>
           </div>
         </div>
+
+        {/* CSS Animation */}
+        <style>{`
+          @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+          }
+        `}</style>
       </div>
 
       {/* Right Panel - Login Form */}
@@ -151,8 +196,13 @@ export default function Login({ onLogin }: LoginProps) {
           <Card className="border-0 shadow-2xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm">
             <CardContent className="p-8 space-y-6">
               <div className="text-center space-y-2">
-                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-[#C9A227] to-[#705900] mb-4">
-                  <Shield className="w-8 h-8 text-white" />
+                <div 
+                  className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4"
+                  style={{
+                    background: 'linear-gradient(135deg, #BF953F 0%, #FCF6BA 25%, #B38728 50%, #FBF5B7 75%, #AA771C 100%)'
+                  }}
+                >
+                  <Shield className="w-8 h-8 text-amber-900" />
                 </div>
                 <h2 className="text-2xl font-bold text-slate-800 dark:text-white">
                   Welcome Back
@@ -174,7 +224,7 @@ export default function Login({ onLogin }: LoginProps) {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     disabled={isLoading}
-                    className="h-12 border-slate-200 dark:border-slate-700 focus:border-[#C9A227] focus:ring-[#C9A227]/20"
+                    className="h-12 border-slate-200 dark:border-slate-700 focus:border-amber-500 focus:ring-amber-500/20"
                     data-testid="input-email"
                   />
                 </div>
@@ -184,7 +234,7 @@ export default function Login({ onLogin }: LoginProps) {
                     <Label htmlFor="password" className="text-slate-700 dark:text-slate-300 font-medium">
                       Password
                     </Label>
-                    <button type="button" className="text-sm text-[#C9A227] hover:text-[#705900] font-medium">
+                    <button type="button" className="text-sm text-amber-600 hover:text-amber-700 font-medium">
                       Forgot password?
                     </button>
                   </div>
@@ -195,20 +245,24 @@ export default function Login({ onLogin }: LoginProps) {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     disabled={isLoading}
-                    className="h-12 border-slate-200 dark:border-slate-700 focus:border-[#C9A227] focus:ring-[#C9A227]/20"
+                    className="h-12 border-slate-200 dark:border-slate-700 focus:border-amber-500 focus:ring-amber-500/20"
                     data-testid="input-password"
                   />
                 </div>
 
                 <Button 
                   type="submit" 
-                  className="w-full h-12 text-base font-semibold bg-gradient-to-r from-[#C9A227] to-[#705900] hover:from-[#B8931F] hover:to-[#5A4700] shadow-lg shadow-[#C9A227]/25 transition-all duration-300" 
+                  className="w-full h-12 text-base font-semibold text-amber-900 shadow-lg transition-all duration-300 hover:scale-[1.02]" 
+                  style={{
+                    background: 'linear-gradient(135deg, #BF953F 0%, #FCF6BA 25%, #B38728 50%, #FBF5B7 75%, #AA771C 100%)',
+                    boxShadow: '0 4px 15px rgba(191, 149, 63, 0.4)'
+                  }}
                   disabled={isLoading}
                   data-testid="button-login"
                 >
                   {isLoading ? (
                     <span className="flex items-center gap-2">
-                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                      <div className="w-5 h-5 border-2 border-amber-900/30 border-t-amber-900 rounded-full animate-spin"></div>
                       Signing in...
                     </span>
                   ) : (
