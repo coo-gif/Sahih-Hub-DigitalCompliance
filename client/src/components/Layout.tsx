@@ -207,8 +207,8 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
                       {user.name.charAt(0).toUpperCase()}
                     </div>
                     <div className="hidden sm:block text-left">
-                      <p className="text-xs font-medium leading-none">{user.name.split(' ')[0]}</p>
-                      <p className="text-[10px] text-muted-foreground">{user.role.replace('_', ' ')}</p>
+                      <p className="text-sm font-semibold leading-none">{user.name}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{user.role.replace('_', ' ')}</p>
                     </div>
                   </Button>
                 </DropdownMenuTrigger>
