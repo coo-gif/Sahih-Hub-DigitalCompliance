@@ -120,11 +120,11 @@ export default function Dashboard() {
   const getTaskIcon = (taskType: string) => {
     switch (taskType) {
       case 'prepare':
-        return <FilePen className="w-4 h-4 text-blue-600" />;
+        return <FilePen className="w-4 h-4 text-[#7A0C1A]" />;
       case 'review':
-        return <FileCheck className="w-4 h-4 text-amber-600" />;
+        return <FileCheck className="w-4 h-4 text-[#C78A5F]" />;
       case 'approve':
-        return <FileSignature className="w-4 h-4 text-green-600" />;
+        return <FileSignature className="w-4 h-4 text-[#6B8F71]" />;
       default:
         return <FileText className="w-4 h-4" />;
     }
@@ -133,11 +133,11 @@ export default function Dashboard() {
   const getTaskBadgeColor = (taskType: string) => {
     switch (taskType) {
       case 'prepare':
-        return 'bg-blue-100 text-blue-800';
+        return 'bg-[#F3E3D0] text-[#7A0C1A]';
       case 'review':
-        return 'bg-amber-100 text-amber-800';
+        return 'bg-[#E3C39B] text-[#520812]';
       case 'approve':
-        return 'bg-green-100 text-green-800';
+        return 'bg-[#d4e5d6] text-[#6B8F71]';
       default:
         return '';
     }
@@ -246,15 +246,15 @@ export default function Dashboard() {
       <div 
         className="relative overflow-hidden rounded-2xl p-6 lg:p-8 shadow-xl"
         style={{
-          background: 'linear-gradient(135deg, #A80000 0%, #8B0000 40%, #6B0000 70%, #4A0000 100%)',
+          background: 'linear-gradient(135deg, #7A0C1A 0%, #520812 100%)',
         }}
         data-testid="hero-section"
       >
         {/* Desert sand accent overlays */}
         <div className="absolute inset-0">
-          <div className="absolute top-0 right-0 w-96 h-96 bg-[#F5E6D3] rounded-full blur-3xl opacity-20 -translate-y-1/2 translate-x-1/2"></div>
-          <div className="absolute bottom-0 left-0 w-80 h-80 bg-[#E8C8A0] rounded-full blur-3xl opacity-25 translate-y-1/2 -translate-x-1/2"></div>
-          <div className="absolute top-1/2 left-1/2 w-64 h-64 bg-[#D4A574] rounded-full blur-3xl opacity-15 -translate-x-1/2 -translate-y-1/2"></div>
+          <div className="absolute top-0 right-0 w-96 h-96 bg-[#F3E3D0] rounded-full blur-3xl opacity-25 -translate-y-1/2 translate-x-1/2"></div>
+          <div className="absolute bottom-0 left-0 w-80 h-80 bg-[#E3C39B] rounded-full blur-3xl opacity-30 translate-y-1/2 -translate-x-1/2"></div>
+          <div className="absolute top-1/2 left-1/2 w-64 h-64 bg-[#C78A5F] rounded-full blur-3xl opacity-20 -translate-x-1/2 -translate-y-1/2"></div>
         </div>
         
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
@@ -265,7 +265,7 @@ export default function Dashboard() {
                 <h1 className="text-2xl lg:text-3xl font-bold text-white drop-shadow-lg" data-testid="text-greeting">
                   {timeInfo.greeting}!
                 </h1>
-                <p className="text-[#F5E6D3] text-sm font-medium">
+                <p className="text-[#F3E3D0] text-sm font-medium">
                   {format(currentTime, "EEEE, MMMM d, yyyy")} • {format(currentTime, "h:mm a")}
                 </p>
               </div>
@@ -275,24 +275,24 @@ export default function Dashboard() {
               <p className="text-white italic text-lg drop-shadow-md" data-testid="text-quote">
                 "{dailyQuote.quote}"
               </p>
-              <p className="text-[#E8C8A0] text-sm mt-1 font-medium">— {dailyQuote.author}</p>
+              <p className="text-[#E3C39B] text-sm mt-1 font-medium">— {dailyQuote.author}</p>
             </div>
           </div>
 
           <div className="flex flex-wrap gap-3">
             <div 
-              className="rounded-xl px-4 py-3 flex items-center gap-3 border border-[#D4A574]/30 shadow-lg"
+              className="rounded-xl px-4 py-3 flex items-center gap-3 border border-[#C78A5F]/40 shadow-lg"
               style={{ 
-                background: 'linear-gradient(135deg, rgba(245,230,211,0.15) 0%, rgba(212,165,116,0.1) 100%)',
+                background: 'linear-gradient(135deg, rgba(243,227,208,0.2) 0%, rgba(199,138,95,0.15) 100%)',
                 backdropFilter: 'blur(10px)',
                 animation: 'float 3s ease-in-out infinite' 
               }}
             >
-              <div className="p-2 rounded-lg bg-[#E8C8A0]/30">
-                <Target className="w-5 h-5 text-[#F5E6D3]" />
+              <div className="p-2 rounded-lg bg-[#E3C39B]/40">
+                <Target className="w-5 h-5 text-[#F3E3D0]" />
               </div>
               <div>
-                <p className="text-[#E8C8A0] text-xs font-medium">Today's Focus</p>
+                <p className="text-[#E3C39B] text-xs font-medium">Today's Focus</p>
                 <p className="text-white font-semibold" data-testid="text-focus">
                   {(myTasks?.length || 0) > 0 ? `${myTasks?.length} Tasks Pending` : 'All Clear!'}
                 </p>
@@ -300,18 +300,18 @@ export default function Dashboard() {
             </div>
             
             <div 
-              className="rounded-xl px-4 py-3 flex items-center gap-3 border border-[#D4A574]/30 shadow-lg"
+              className="rounded-xl px-4 py-3 flex items-center gap-3 border border-[#C78A5F]/40 shadow-lg"
               style={{ 
-                background: 'linear-gradient(135deg, rgba(245,230,211,0.15) 0%, rgba(212,165,116,0.1) 100%)',
+                background: 'linear-gradient(135deg, rgba(243,227,208,0.2) 0%, rgba(199,138,95,0.15) 100%)',
                 backdropFilter: 'blur(10px)',
                 animation: 'float 3s ease-in-out infinite 0.5s' 
               }}
             >
-              <div className="p-2 rounded-lg bg-[#E8C8A0]/30">
-                <Shield className="w-5 h-5 text-[#F5E6D3]" />
+              <div className="p-2 rounded-lg bg-[#E3C39B]/40">
+                <Shield className="w-5 h-5 text-[#F3E3D0]" />
               </div>
               <div>
-                <p className="text-[#E8C8A0] text-xs font-medium">Compliance Score</p>
+                <p className="text-[#E3C39B] text-xs font-medium">Compliance Score</p>
                 <p className="text-white font-semibold" data-testid="text-score">{complianceScore}%</p>
               </div>
             </div>
@@ -362,26 +362,26 @@ export default function Dashboard() {
       </Tabs>
 
       {/* My Tasks Section - Primary Focus for Individual Performance */}
-      <Card data-testid="card-my-tasks" className="overflow-hidden shadow-lg border-2 border-[#8B0000]/20">
+      <Card data-testid="card-my-tasks" className="overflow-hidden shadow-lg border-2 border-[#C78A5F]/30">
         <div 
           className="px-6 py-4"
           style={{
-            background: 'linear-gradient(135deg, #A80000 0%, #8B0000 50%, #6B0000 100%)',
+            background: 'linear-gradient(135deg, #7A0C1A 0%, #520812 100%)',
           }}
         >
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-3">
-              <div className="p-3 rounded-xl bg-[#F5E6D3]/20 border border-[#D4A574]/30">
-                <ClipboardList className="w-6 h-6 text-[#F5E6D3]" />
+              <div className="p-3 rounded-xl bg-[#F3E3D0]/20 border border-[#C78A5F]/40">
+                <ClipboardList className="w-6 h-6 text-[#F3E3D0]" />
               </div>
               <div>
                 <h2 className="text-xl font-bold text-white">My Tasks</h2>
-                <p className="text-[#E8C8A0] text-sm">Documents assigned to you for action</p>
+                <p className="text-[#E3C39B] text-sm">Documents assigned to you for action</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
               <Badge 
-                className="text-sm px-4 py-2 bg-[#F5E6D3] text-[#8B0000] border-0 font-bold shadow-md" 
+                className="text-sm px-4 py-2 bg-[#F3E3D0] text-[#7A0C1A] border-0 font-bold shadow-md" 
                 data-testid="badge-task-count"
               >
                 <Sparkles className="w-4 h-4 mr-1.5" />
@@ -390,11 +390,11 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
-        <CardContent className="p-6 bg-gradient-to-b from-[#FDF8F3] to-white dark:from-[#1a1412] dark:to-background">
+        <CardContent className="p-6 bg-gradient-to-b from-[#F3E3D0]/30 to-white dark:from-[#2B1E1B] dark:to-background">
           <div className="space-y-3">
             {tasksLoading ? (
               Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="p-4 rounded-xl border-2 border-[#E8D4BE] bg-white dark:bg-card">
+                <div key={i} className="p-4 rounded-xl border-2 border-[#E3C39B] bg-white dark:bg-card">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-3 flex-1">
                       <Skeleton className="h-12 w-12 rounded-xl" />
@@ -411,14 +411,14 @@ export default function Dashboard() {
               myTasks.map((task, idx) => (
                 <div 
                   key={`${task.documentId}-${task.taskType}`} 
-                  className="p-4 rounded-xl border-2 border-[#E8D4BE] hover:border-[#8B0000] hover:shadow-xl cursor-pointer transition-all group bg-white dark:bg-card"
+                  className="p-4 rounded-xl border-2 border-[#E3C39B] hover:border-[#7A0C1A] hover:shadow-xl cursor-pointer transition-all group bg-white dark:bg-card"
                   style={{ animation: `slideIn 0.3s ease-out ${idx * 0.1}s backwards` }}
                   onClick={() => handleOpenTask(task)}
                   data-testid={`task-${task.documentId}-${task.taskType}`}
                 >
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
-                      <div className="p-3 rounded-xl bg-gradient-to-br from-[#F5E6D3] to-[#E8D4BE] group-hover:from-[#8B0000]/10 group-hover:to-[#A80000]/10 transition-all">
+                      <div className="p-3 rounded-xl bg-gradient-to-br from-[#F3E3D0] to-[#E3C39B] group-hover:from-[#7A0C1A]/10 group-hover:to-[#A0333A]/10 transition-all">
                         {getTaskIcon(task.taskType)}
                       </div>
                       <div>
@@ -433,7 +433,7 @@ export default function Dashboard() {
                     </div>
                     <Button 
                       size="default" 
-                      className="bg-[#8B0000] hover:bg-[#A80000] text-white shadow-md group-hover:shadow-lg transition-all" 
+                      className="bg-[#7A0C1A] hover:bg-[#A0333A] text-white shadow-md group-hover:shadow-lg transition-all" 
                       data-testid={`button-open-task-${task.documentId}`}
                     >
                       Open Task
@@ -624,9 +624,9 @@ export default function Dashboard() {
                 />
                 <defs>
                   <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#A80000" />
-                    <stop offset="50%" stopColor="#8B0000" />
-                    <stop offset="100%" stopColor="#D4A574" />
+                    <stop offset="0%" stopColor="#7A0C1A" />
+                    <stop offset="60%" stopColor="#A0333A" />
+                    <stop offset="100%" stopColor="#C78A5F" />
                   </linearGradient>
                 </defs>
               </svg>
@@ -661,49 +661,49 @@ export default function Dashboard() {
           <CardContent>
             <div className="grid grid-cols-2 gap-4">
               <div 
-                className="p-4 rounded-xl bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20 cursor-pointer hover-elevate transition-all"
+                className="p-4 rounded-xl bg-gradient-to-br from-[#F3E3D0] to-[#E3C39B]/40 dark:from-[#2B1E1B] dark:to-[#1a1412] cursor-pointer hover-elevate transition-all border border-[#C78A5F]/30"
                 onClick={() => navigate("/users")}
               >
                 <div className="flex items-center gap-2 mb-2">
-                  <Users className="w-4 h-4 text-blue-600" />
+                  <Users className="w-4 h-4 text-[#7A0C1A]" />
                   <span className="text-sm font-medium">Active Users</span>
                 </div>
-                <p className="text-2xl font-bold" data-testid="text-total-users">{stats?.totalUsers || 0}</p>
+                <p className="text-2xl font-bold text-[#520812]" data-testid="text-total-users">{stats?.totalUsers || 0}</p>
                 <p className="text-xs text-muted-foreground">{stats?.pendingInductions || 0} pending induction</p>
               </div>
               
               <div 
-                className="p-4 rounded-xl bg-gradient-to-br from-green-50 to-green-100/50 dark:from-green-950/30 dark:to-green-900/20 cursor-pointer hover-elevate transition-all"
+                className="p-4 rounded-xl bg-gradient-to-br from-[#F3E3D0] to-[#E3C39B]/40 dark:from-[#2B1E1B] dark:to-[#1a1412] cursor-pointer hover-elevate transition-all border border-[#C78A5F]/30"
                 onClick={() => navigate("/documents")}
               >
                 <div className="flex items-center gap-2 mb-2">
-                  <CheckCircle2 className="w-4 h-4 text-green-600" />
+                  <CheckCircle2 className="w-4 h-4 text-[#6B8F71]" />
                   <span className="text-sm font-medium">Approved</span>
                 </div>
-                <p className="text-2xl font-bold text-green-600">{stats?.approvedDocuments || 0}</p>
+                <p className="text-2xl font-bold text-[#6B8F71]">{stats?.approvedDocuments || 0}</p>
                 <p className="text-xs text-muted-foreground">Documents approved</p>
               </div>
               
               <div 
-                className="p-4 rounded-xl bg-gradient-to-br from-[#FDF8F3] to-[#F5E6D3]/50 dark:from-[#2a1f1a] dark:to-[#1a1412] cursor-pointer hover-elevate transition-all border border-[#E8D4BE]/50"
+                className="p-4 rounded-xl bg-gradient-to-br from-[#F3E3D0] to-[#E3C39B]/40 dark:from-[#2B1E1B] dark:to-[#1a1412] cursor-pointer hover-elevate transition-all border border-[#C78A5F]/30"
                 onClick={() => navigate("/documents")}
               >
                 <div className="flex items-center gap-2 mb-2">
-                  <Award className="w-4 h-4 text-[#8B0000]" />
+                  <Award className="w-4 h-4 text-[#7A0C1A]" />
                   <span className="text-sm font-medium">Success Rate</span>
                 </div>
-                <p className="text-2xl font-bold text-[#8B0000]">{complianceScore}%</p>
+                <p className="text-2xl font-bold text-[#7A0C1A]">{complianceScore}%</p>
                 <p className="text-xs text-muted-foreground">Document approval rate</p>
               </div>
               
               <div 
-                className="p-4 rounded-xl bg-gradient-to-br from-amber-50 to-amber-100/50 dark:from-amber-950/30 dark:to-amber-900/20 cursor-pointer hover-elevate transition-all"
+                className="p-4 rounded-xl bg-gradient-to-br from-[#F3E3D0] to-[#E3C39B]/40 dark:from-[#2B1E1B] dark:to-[#1a1412] cursor-pointer hover-elevate transition-all border border-[#C78A5F]/30"
               >
                 <div className="flex items-center gap-2 mb-2">
-                  <Zap className="w-4 h-4 text-amber-600" />
+                  <Zap className="w-4 h-4 text-[#C78A5F]" />
                   <span className="text-sm font-medium">Active Tasks</span>
                 </div>
-                <p className="text-2xl font-bold text-amber-600">{myTasks?.length || 0}</p>
+                <p className="text-2xl font-bold text-[#C78A5F]">{myTasks?.length || 0}</p>
                 <p className="text-xs text-muted-foreground">Pending your action</p>
               </div>
             </div>

@@ -55,9 +55,9 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">
-      <div className="p-5 border-b border-sidebar-border bg-gradient-to-br from-[#F5E6D3] to-[#E8D4BE]">
+      <div className="p-5 border-b border-[#C78A5F]/30 bg-gradient-to-br from-[#F3E3D0] to-[#E3C39B]">
         <div className="flex items-center gap-3">
-          <div className="bg-white rounded-xl p-3 shadow-lg border-2 border-[#8B0000]/20">
+          <div className="bg-white rounded-xl p-3 shadow-lg border-2 border-[#7A0C1A]/20">
             <img 
               src={sahihLogoPath} 
               alt="Sahih Certifications" 
@@ -65,8 +65,8 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
             />
           </div>
           <div>
-            <span className="font-bold text-lg tracking-tight text-[#8B0000]">Sahih-Hub</span>
-            <p className="text-[10px] text-[#5c3d2e] uppercase tracking-widest font-medium">Digital Compliance</p>
+            <span className="font-bold text-lg tracking-tight text-[#7A0C1A]">Sahih-Hub</span>
+            <p className="text-[10px] text-[#520812] uppercase tracking-widest font-medium">Digital Compliance</p>
           </div>
         </div>
       </div>
