@@ -467,13 +467,14 @@ export default function Documents() {
         </CardContent>
       </Card>
 
-      {/* Mobile Document Cards - shown on small screens */}
-      <div className="md:hidden space-y-3" data-testid="mobile-documents-list">
+      {/* Document Cards - responsive grid layout for all devices */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" data-testid="documents-card-list">
         {isLoading ? (
-          Array.from({ length: 3 }).map((_, i) => (
+          Array.from({ length: 6 }).map((_, i) => (
             <Card key={i} className="p-4">
               <Skeleton className="h-6 w-3/4 mb-2" />
-              <Skeleton className="h-4 w-1/2" />
+              <Skeleton className="h-4 w-1/2 mb-3" />
+              <Skeleton className="h-4 w-1/3" />
             </Card>
           ))
         ) : documents && documents.length > 0 ? (
@@ -564,146 +565,11 @@ export default function Documents() {
             </Card>
           ))
         ) : (
-          <Card className="p-8 text-center text-muted-foreground">
+          <Card className="p-8 text-center text-muted-foreground col-span-full">
             No documents found
           </Card>
         )}
       </div>
-
-      {/* Desktop Documents Table - hidden on mobile */}
-      <Card data-testid="card-documents-table" className="hidden md:block">
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Code</TableHead>
-                <TableHead>Title</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Edition/Rev</TableHead>
-                <TableHead>Next Review</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <TableRow key={i}>
-                    <TableCell><Skeleton className="h-4 w-16" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-32" /></TableCell>
-                    <TableCell><Skeleton className="h-5 w-12" /></TableCell>
-                    <TableCell><Skeleton className="h-5 w-16" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-8" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                    <TableCell><Skeleton className="h-8 w-8 ml-auto" /></TableCell>
-                  </TableRow>
-                ))
-              ) : documents && documents.length > 0 ? (
-                documents.map((doc) => (
-                  <TableRow key={doc.id} data-testid={`row-document-${doc.id}`}>
-                    <TableCell className="font-mono font-medium" data-testid={`text-code-${doc.id}`}>{doc.documentCode}</TableCell>
-                    <TableCell data-testid={`text-title-${doc.id}`}>
-                      <button 
-                        onClick={() => openViewDialog(doc)}
-                        className="text-left hover:text-[#7A0C1A] hover:underline cursor-pointer transition-colors font-medium py-2"
-                        data-testid={`button-title-${doc.id}`}
-                      >
-                        {doc.title}
-                      </button>
-                    </TableCell>
-                    <TableCell>
-                      <Badge className={categoryColors[doc.category] || ""} variant="secondary" data-testid={`badge-category-${doc.id}`}>
-                        {doc.category.toUpperCase()}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge className={statusColors[doc.status] || ""} variant="secondary" data-testid={`badge-status-${doc.id}`}>
-                        {doc.status.replace('_', ' ')}
-                      </Badge>
-                    </TableCell>
-                    <TableCell data-testid={`text-version-${doc.id}`}>
-                      Ed.{doc.editionNumber || 1} Rev.{doc.revisionNumber || 0}
-                    </TableCell>
-                    <TableCell data-testid={`text-review-date-${doc.id}`}>
-                      {doc.nextReviewDate 
-                        ? format(new Date(doc.nextReviewDate), "MMM d, yyyy")
-                        : "-"
-                      }
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" data-testid={`button-actions-${doc.id}`}>
-                            <MoreHorizontal className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openViewDialog(doc)} data-testid={`menu-view-${doc.id}`}>
-                            <Eye className="w-4 h-4 mr-2" /> View Document
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => navigate(`/documents/${doc.id}/edit`)} data-testid={`menu-edit-${doc.id}`}>
-                            <Pencil className="w-4 h-4 mr-2" /> Edit
-                          </DropdownMenuItem>
-                          
-                          {doc.status === "draft" && (
-                            <DropdownMenuItem onClick={() => openReviewDialog(doc)} data-testid={`menu-submit-${doc.id}`}>
-                              <Send className="w-4 h-4 mr-2" /> Submit for Review
-                            </DropdownMenuItem>
-                          )}
-                          
-                          {(doc.status === "in_review" || doc.status === "pending_approval") && (
-                            <>
-                              <DropdownMenuItem onClick={() => handleApprove(doc)} data-testid={`menu-approve-${doc.id}`}>
-                                <CheckCircle className="w-4 h-4 mr-2" /> Approve
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => openRejectDialog(doc)} data-testid={`menu-reject-${doc.id}`}>
-                                <XCircle className="w-4 h-4 mr-2" /> Reject
-                              </DropdownMenuItem>
-                            </>
-                          )}
-                          
-                          <DropdownMenuSeparator />
-                          
-                          {doc.finalPdfUrl ? (
-                            <DropdownMenuItem onClick={() => handleViewPdf(doc)} data-testid={`menu-view-pdf-${doc.id}`}>
-                              <FileDown className="w-4 h-4 mr-2" /> View Final Draft
-                            </DropdownMenuItem>
-                          ) : (
-                            <DropdownMenuItem onClick={() => handleGeneratePdf(doc)} data-testid={`menu-generate-pdf-${doc.id}`}>
-                              <FileDown className="w-4 h-4 mr-2" /> Generate PDF
-                            </DropdownMenuItem>
-                          )}
-                          
-                          {doc.downloadRequiresApproval && (
-                            <DropdownMenuItem onClick={() => handleRequestDownload(doc)} data-testid={`menu-request-download-${doc.id}`}>
-                              <Download className="w-4 h-4 mr-2" /> Request Download
-                            </DropdownMenuItem>
-                          )}
-                          
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem 
-                            onClick={() => openDeleteDialog(doc)}
-                            className="text-red-600"
-                            data-testid={`menu-delete-${doc.id}`}
-                          >
-                            <Trash2 className="w-4 h-4 mr-2" /> Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground" data-testid="text-no-documents">
-                    No documents found
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
 
       {/* Create Document Dialog */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
