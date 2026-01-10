@@ -261,12 +261,8 @@
   }
 }
 
-/* Touch-friendly tap targets */
+/* Touch-friendly tap targets - only for primary action buttons */
 @media (max-width: 1023px) {
-  button, a, [role="button"] {
-    min-height: 44px;
-  }
-  
   .touch-action-manipulation {
     touch-action: manipulation;
   }
