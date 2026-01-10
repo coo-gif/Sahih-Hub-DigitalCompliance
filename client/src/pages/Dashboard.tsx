@@ -244,15 +244,17 @@ export default function Dashboard() {
 
       {/* Hero Section with Dynamic Greeting */}
       <div 
-        className="relative overflow-hidden rounded-2xl p-6 lg:p-8"
+        className="relative overflow-hidden rounded-2xl p-6 lg:p-8 shadow-xl"
         style={{
-          background: 'linear-gradient(135deg, #8B0000 0%, #5c0000 50%, #3a0000 100%)',
+          background: 'linear-gradient(135deg, #A80000 0%, #8B0000 40%, #6B0000 70%, #4A0000 100%)',
         }}
         data-testid="hero-section"
       >
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-0 right-0 w-96 h-96 bg-white rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
-          <div className="absolute bottom-0 left-0 w-64 h-64 bg-amber-300 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2"></div>
+        {/* Desert sand accent overlays */}
+        <div className="absolute inset-0">
+          <div className="absolute top-0 right-0 w-96 h-96 bg-[#F5E6D3] rounded-full blur-3xl opacity-20 -translate-y-1/2 translate-x-1/2"></div>
+          <div className="absolute bottom-0 left-0 w-80 h-80 bg-[#E8C8A0] rounded-full blur-3xl opacity-25 translate-y-1/2 -translate-x-1/2"></div>
+          <div className="absolute top-1/2 left-1/2 w-64 h-64 bg-[#D4A574] rounded-full blur-3xl opacity-15 -translate-x-1/2 -translate-y-1/2"></div>
         </div>
         
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
@@ -260,33 +262,37 @@ export default function Dashboard() {
             <div className="flex items-center gap-3">
               {timeInfo.icon}
               <div>
-                <h1 className="text-2xl lg:text-3xl font-bold text-white" data-testid="text-greeting">
+                <h1 className="text-2xl lg:text-3xl font-bold text-white drop-shadow-lg" data-testid="text-greeting">
                   {timeInfo.greeting}!
                 </h1>
-                <p className="text-white/70 text-sm">
+                <p className="text-[#F5E6D3] text-sm font-medium">
                   {format(currentTime, "EEEE, MMMM d, yyyy")} • {format(currentTime, "h:mm a")}
                 </p>
               </div>
             </div>
             
             <div className="max-w-lg">
-              <p className="text-white/90 italic text-lg" data-testid="text-quote">
+              <p className="text-white italic text-lg drop-shadow-md" data-testid="text-quote">
                 "{dailyQuote.quote}"
               </p>
-              <p className="text-amber-300/80 text-sm mt-1">— {dailyQuote.author}</p>
+              <p className="text-[#E8C8A0] text-sm mt-1 font-medium">— {dailyQuote.author}</p>
             </div>
           </div>
 
           <div className="flex flex-wrap gap-3">
             <div 
-              className="glass-card rounded-xl px-4 py-3 flex items-center gap-3"
-              style={{ animation: 'float 3s ease-in-out infinite' }}
+              className="rounded-xl px-4 py-3 flex items-center gap-3 border border-[#D4A574]/30 shadow-lg"
+              style={{ 
+                background: 'linear-gradient(135deg, rgba(245,230,211,0.15) 0%, rgba(212,165,116,0.1) 100%)',
+                backdropFilter: 'blur(10px)',
+                animation: 'float 3s ease-in-out infinite' 
+              }}
             >
-              <div className="p-2 rounded-lg bg-white/20">
-                <Target className="w-5 h-5 text-white" />
+              <div className="p-2 rounded-lg bg-[#E8C8A0]/30">
+                <Target className="w-5 h-5 text-[#F5E6D3]" />
               </div>
               <div>
-                <p className="text-white/70 text-xs">Today's Focus</p>
+                <p className="text-[#E8C8A0] text-xs font-medium">Today's Focus</p>
                 <p className="text-white font-semibold" data-testid="text-focus">
                   {(myTasks?.length || 0) > 0 ? `${myTasks?.length} Tasks Pending` : 'All Clear!'}
                 </p>
@@ -294,14 +300,18 @@ export default function Dashboard() {
             </div>
             
             <div 
-              className="glass-card rounded-xl px-4 py-3 flex items-center gap-3"
-              style={{ animation: 'float 3s ease-in-out infinite 0.5s' }}
+              className="rounded-xl px-4 py-3 flex items-center gap-3 border border-[#D4A574]/30 shadow-lg"
+              style={{ 
+                background: 'linear-gradient(135deg, rgba(245,230,211,0.15) 0%, rgba(212,165,116,0.1) 100%)',
+                backdropFilter: 'blur(10px)',
+                animation: 'float 3s ease-in-out infinite 0.5s' 
+              }}
             >
-              <div className="p-2 rounded-lg bg-white/20">
-                <Shield className="w-5 h-5 text-white" />
+              <div className="p-2 rounded-lg bg-[#E8C8A0]/30">
+                <Shield className="w-5 h-5 text-[#F5E6D3]" />
               </div>
               <div>
-                <p className="text-white/70 text-xs">Compliance Score</p>
+                <p className="text-[#E8C8A0] text-xs font-medium">Compliance Score</p>
                 <p className="text-white font-semibold" data-testid="text-score">{complianceScore}%</p>
               </div>
             </div>
@@ -521,8 +531,9 @@ export default function Dashboard() {
                 />
                 <defs>
                   <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#8B0000" />
-                    <stop offset="100%" stopColor="#DC2626" />
+                    <stop offset="0%" stopColor="#A80000" />
+                    <stop offset="50%" stopColor="#8B0000" />
+                    <stop offset="100%" stopColor="#D4A574" />
                   </linearGradient>
                 </defs>
               </svg>

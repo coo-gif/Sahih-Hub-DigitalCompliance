@@ -55,16 +55,18 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">
-      <div className="p-5 border-b border-sidebar-border">
+      <div className="p-5 border-b border-sidebar-border bg-gradient-to-br from-[#F5E6D3] to-[#E8D4BE]">
         <div className="flex items-center gap-3">
-          <img 
-            src={sahihLogoPath} 
-            alt="Sahih Certifications" 
-            className="h-32 w-32 object-contain rounded-md bg-white p-2"
-          />
+          <div className="bg-white rounded-xl p-3 shadow-lg border-2 border-[#8B0000]/20">
+            <img 
+              src={sahihLogoPath} 
+              alt="Sahih Certifications" 
+              className="h-20 w-20 object-contain"
+            />
+          </div>
           <div>
-            <span className="font-bold text-base tracking-tight">Sahih-Hub</span>
-            <p className="text-[10px] text-sidebar-foreground/70 uppercase tracking-widest">Digital Compliance</p>
+            <span className="font-bold text-lg tracking-tight text-[#8B0000]">Sahih-Hub</span>
+            <p className="text-[10px] text-[#5c3d2e] uppercase tracking-widest font-medium">Digital Compliance</p>
           </div>
         </div>
       </div>
