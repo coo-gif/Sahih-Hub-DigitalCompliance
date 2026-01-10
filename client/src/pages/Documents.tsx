@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useDocuments, useCreateDocument, useUpdateDocument, useDeleteDocument, useSubmitForReview, useApproveDocument, useRejectDocument } from "@/hooks/use-documents";
 import { useUsers } from "@/hooks/use-users";
+import { useAuth } from "@/hooks/use-auth";
+import { useCompleteTask } from "@/hooks/use-tasks";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -96,6 +98,7 @@ export default function Documents() {
   
   const { data: documents, isLoading, isError } = useDocuments(filters);
   const { data: users } = useUsers();
+  const { data: currentUser } = useAuth();
   const { toast } = useToast();
   
   const createMutation = useCreateDocument();
@@ -104,6 +107,19 @@ export default function Documents() {
   const submitForReviewMutation = useSubmitForReview();
   const approveMutation = useApproveDocument();
   const rejectMutation = useRejectDocument();
+  const completeTaskMutation = useCompleteTask();
+  
+  const handleSignTask = async (documentId: number, taskType: 'prepare' | 'review' | 'approve') => {
+    try {
+      await completeTaskMutation.mutateAsync({ documentId, taskType });
+      const taskLabels = { prepare: 'Prepared', review: 'Reviewed', approve: 'Approved' };
+      toast({ title: `Document ${taskLabels[taskType]}`, description: "Your signature has been recorded and notifications sent." });
+      setShowViewDialog(false);
+      setSelectedDocument(null);
+    } catch (error: any) {
+      toast({ title: "Error signing document", description: error.message, variant: "destructive" });
+    }
+  };
   
   const [formData, setFormData] = useState({
     documentCode: "",
@@ -1135,7 +1151,7 @@ export default function Documents() {
                     <div className="border rounded-md p-3 bg-white dark:bg-slate-900" data-testid="signature-block-prepared">
                       <div className="text-xs text-muted-foreground mb-1">Prepared By</div>
                       <div className="h-12 flex items-center justify-center border-b border-dashed mb-2">
-                        {selectedDocument.preparedById && users?.find(u => u.id === selectedDocument.preparedById)?.signatureDataUrl ? (
+                        {selectedDocument.preparedBySignedAt && selectedDocument.preparedById && users?.find(u => u.id === selectedDocument.preparedById)?.signatureDataUrl ? (
                           <img 
                             src={users.find(u => u.id === selectedDocument.preparedById)?.signatureDataUrl || ''} 
                             alt="Signature" 
@@ -1155,6 +1171,21 @@ export default function Documents() {
                         <div className="text-xs text-muted-foreground">
                           {format(new Date(selectedDocument.preparedBySignedAt), "MMM d, yyyy")}
                         </div>
+                      )}
+                      {currentUser && 
+                       selectedDocument.preparedById === currentUser.id && 
+                       selectedDocument.status === 'draft' && 
+                       !selectedDocument.preparedBySignedAt && (
+                        <Button 
+                          size="sm" 
+                          className="w-full mt-2"
+                          onClick={() => handleSignTask(selectedDocument.id, 'prepare')}
+                          disabled={completeTaskMutation.isPending}
+                          data-testid="button-sign-prepare"
+                        >
+                          <CheckCircle className="w-4 h-4 mr-1" />
+                          {completeTaskMutation.isPending ? 'Signing...' : 'Sign as Preparer'}
+                        </Button>
                       )}
                     </div>
                   )}
@@ -1177,12 +1208,29 @@ export default function Documents() {
                       <div className="text-sm font-medium">
                         {selectedDocument.reviewedById 
                           ? users?.find(u => u.id === selectedDocument.reviewedById)?.name || 'Unknown'
+                          : selectedDocument.reviewerId
+                          ? users?.find(u => u.id === selectedDocument.reviewerId)?.name || 'Assigned'
                           : '---'}
                       </div>
                       {selectedDocument.reviewedBySignedAt && (
                         <div className="text-xs text-muted-foreground">
                           {format(new Date(selectedDocument.reviewedBySignedAt), "MMM d, yyyy")}
                         </div>
+                      )}
+                      {currentUser && 
+                       selectedDocument.reviewerId === currentUser.id && 
+                       selectedDocument.status === 'in_review' && 
+                       !selectedDocument.reviewedBySignedAt && (
+                        <Button 
+                          size="sm" 
+                          className="w-full mt-2"
+                          onClick={() => handleSignTask(selectedDocument.id, 'review')}
+                          disabled={completeTaskMutation.isPending}
+                          data-testid="button-sign-review"
+                        >
+                          <CheckCircle className="w-4 h-4 mr-1" />
+                          {completeTaskMutation.isPending ? 'Signing...' : 'Sign & Complete Review'}
+                        </Button>
                       )}
                     </div>
                   )}
@@ -1205,12 +1253,29 @@ export default function Documents() {
                       <div className="text-sm font-medium">
                         {selectedDocument.approvedById 
                           ? users?.find(u => u.id === selectedDocument.approvedById)?.name || 'Unknown'
+                          : selectedDocument.approverId
+                          ? users?.find(u => u.id === selectedDocument.approverId)?.name || 'Assigned'
                           : '---'}
                       </div>
                       {selectedDocument.approvedBySignedAt && (
                         <div className="text-xs text-muted-foreground">
                           {format(new Date(selectedDocument.approvedBySignedAt), "MMM d, yyyy")}
                         </div>
+                      )}
+                      {currentUser && 
+                       selectedDocument.approverId === currentUser.id && 
+                       selectedDocument.status === 'pending_approval' && 
+                       !selectedDocument.approvedBySignedAt && (
+                        <Button 
+                          size="sm" 
+                          className="w-full mt-2"
+                          onClick={() => handleSignTask(selectedDocument.id, 'approve')}
+                          disabled={completeTaskMutation.isPending}
+                          data-testid="button-sign-approve"
+                        >
+                          <CheckCircle className="w-4 h-4 mr-1" />
+                          {completeTaskMutation.isPending ? 'Signing...' : 'Sign & Approve'}
+                        </Button>
                       )}
                     </div>
                   )}
