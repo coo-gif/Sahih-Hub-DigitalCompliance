@@ -499,7 +499,15 @@ export default function Documents() {
                 documents.map((doc) => (
                   <TableRow key={doc.id} data-testid={`row-document-${doc.id}`}>
                     <TableCell className="font-mono font-medium" data-testid={`text-code-${doc.id}`}>{doc.documentCode}</TableCell>
-                    <TableCell data-testid={`text-title-${doc.id}`}>{doc.title}</TableCell>
+                    <TableCell data-testid={`text-title-${doc.id}`}>
+                      <button 
+                        onClick={() => openViewDialog(doc)}
+                        className="text-left hover:text-[#7A0C1A] hover:underline cursor-pointer transition-colors font-medium"
+                        data-testid={`button-title-${doc.id}`}
+                      >
+                        {doc.title}
+                      </button>
+                    </TableCell>
                     <TableCell>
                       <Badge className={categoryColors[doc.category] || ""} variant="secondary" data-testid={`badge-category-${doc.id}`}>
                         {doc.category.toUpperCase()}
