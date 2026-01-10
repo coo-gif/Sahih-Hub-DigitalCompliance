@@ -1353,6 +1353,57 @@ export default function Documents() {
                   </div>
                 </div>
               )}
+
+              {/* Action Buttons */}
+              <Separator className="my-4" />
+              <div className="flex flex-wrap items-center justify-end gap-3" data-testid="view-dialog-actions">
+                {selectedDocument.status === "draft" && (
+                  <Button 
+                    onClick={() => {
+                      setShowViewDialog(false);
+                      openReviewDialog(selectedDocument);
+                    }}
+                    className="bg-[#7A0C1A] hover:bg-[#520812]"
+                    data-testid="button-view-submit-review"
+                  >
+                    <Send className="w-4 h-4 mr-2" />
+                    Submit for Review
+                  </Button>
+                )}
+                
+                {(selectedDocument.status === "in_review" || selectedDocument.status === "pending_approval") && (
+                  <>
+                    <Button 
+                      variant="outline"
+                      onClick={() => {
+                        setShowViewDialog(false);
+                        openRejectDialog(selectedDocument);
+                      }}
+                      data-testid="button-view-reject"
+                    >
+                      <XCircle className="w-4 h-4 mr-2" />
+                      Reject
+                    </Button>
+                    <Button 
+                      onClick={() => handleApprove(selectedDocument)}
+                      className="bg-[#6B8F71] hover:bg-[#5a7a5f]"
+                      data-testid="button-view-approve"
+                    >
+                      <CheckCircle className="w-4 h-4 mr-2" />
+                      Approve
+                    </Button>
+                  </>
+                )}
+                
+                <Button 
+                  variant="outline"
+                  onClick={() => navigate(`/documents/${selectedDocument.id}/edit`)}
+                  data-testid="button-view-edit"
+                >
+                  <Pencil className="w-4 h-4 mr-2" />
+                  Edit
+                </Button>
+              </div>
             </>
           )}
         </DialogContent>
