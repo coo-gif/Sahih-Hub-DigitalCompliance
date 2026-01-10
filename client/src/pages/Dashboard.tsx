@@ -361,6 +361,99 @@ export default function Dashboard() {
         </TabsList>
       </Tabs>
 
+      {/* My Tasks Section - Primary Focus for Individual Performance */}
+      <Card data-testid="card-my-tasks" className="overflow-hidden shadow-lg border-2 border-[#8B0000]/20">
+        <div 
+          className="px-6 py-4"
+          style={{
+            background: 'linear-gradient(135deg, #A80000 0%, #8B0000 50%, #6B0000 100%)',
+          }}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-xl bg-[#F5E6D3]/20 border border-[#D4A574]/30">
+                <ClipboardList className="w-6 h-6 text-[#F5E6D3]" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-white">My Tasks</h2>
+                <p className="text-[#E8C8A0] text-sm">Documents assigned to you for action</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge 
+                className="text-sm px-4 py-2 bg-[#F5E6D3] text-[#8B0000] border-0 font-bold shadow-md" 
+                data-testid="badge-task-count"
+              >
+                <Sparkles className="w-4 h-4 mr-1.5" />
+                {myTasks?.length || 0} pending
+              </Badge>
+            </div>
+          </div>
+        </div>
+        <CardContent className="p-6 bg-gradient-to-b from-[#FDF8F3] to-white dark:from-[#1a1412] dark:to-background">
+          <div className="space-y-3">
+            {tasksLoading ? (
+              Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="p-4 rounded-xl border-2 border-[#E8D4BE] bg-white dark:bg-card">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-3 flex-1">
+                      <Skeleton className="h-12 w-12 rounded-xl" />
+                      <div className="flex-1">
+                        <Skeleton className="h-5 w-32 mb-2" />
+                        <Skeleton className="h-4 w-48" />
+                      </div>
+                    </div>
+                    <Skeleton className="h-10 w-24" />
+                  </div>
+                </div>
+              ))
+            ) : myTasks && myTasks.length > 0 ? (
+              myTasks.map((task, idx) => (
+                <div 
+                  key={`${task.documentId}-${task.taskType}`} 
+                  className="p-4 rounded-xl border-2 border-[#E8D4BE] hover:border-[#8B0000] hover:shadow-xl cursor-pointer transition-all group bg-white dark:bg-card"
+                  style={{ animation: `slideIn 0.3s ease-out ${idx * 0.1}s backwards` }}
+                  onClick={() => handleOpenTask(task)}
+                  data-testid={`task-${task.documentId}-${task.taskType}`}
+                >
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-4">
+                      <div className="p-3 rounded-xl bg-gradient-to-br from-[#F5E6D3] to-[#E8D4BE] group-hover:from-[#8B0000]/10 group-hover:to-[#A80000]/10 transition-all">
+                        {getTaskIcon(task.taskType)}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-bold text-lg" data-testid={`text-task-code-${task.documentId}`}>{task.documentCode}</p>
+                          <Badge className={`${getTaskBadgeColor(task.taskType)} font-semibold`} data-testid={`badge-task-type-${task.documentId}`}>
+                            {task.taskType.charAt(0).toUpperCase() + task.taskType.slice(1)}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground" data-testid={`text-task-title-${task.documentId}`}>{task.title}</p>
+                      </div>
+                    </div>
+                    <Button 
+                      size="default" 
+                      className="bg-[#8B0000] hover:bg-[#A80000] text-white shadow-md group-hover:shadow-lg transition-all" 
+                      data-testid={`button-open-task-${task.documentId}`}
+                    >
+                      Open Task
+                    </Button>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-center py-12" data-testid="text-no-tasks">
+                <div className="w-24 h-24 rounded-full bg-gradient-to-br from-green-100 to-green-50 dark:from-green-900/30 dark:to-green-950/20 mx-auto mb-4 flex items-center justify-center shadow-lg">
+                  <CheckCircle2 className="w-12 h-12 text-green-500" />
+                </div>
+                <p className="font-bold text-xl text-green-700 dark:text-green-400">All Caught Up!</p>
+                <p className="text-muted-foreground mt-1">No pending tasks. Great work!</p>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Modern Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Card 
@@ -789,85 +882,6 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
-
-      {/* My Tasks Section */}
-      <Card data-testid="card-my-tasks">
-        <CardHeader>
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-primary/10">
-                <ClipboardList className="w-5 h-5 text-primary" />
-              </div>
-              <div>
-                <CardTitle>My Tasks</CardTitle>
-                <CardDescription>Documents assigned to you for action</CardDescription>
-              </div>
-            </div>
-            <Badge variant="secondary" className="text-sm px-3 py-1" data-testid="badge-task-count">
-              <Sparkles className="w-3 h-3 mr-1" />
-              {myTasks?.length || 0} pending
-            </Badge>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {tasksLoading ? (
-              Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="p-4 rounded-lg border">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-3 flex-1">
-                      <Skeleton className="h-10 w-10 rounded-xl" />
-                      <div className="flex-1">
-                        <Skeleton className="h-4 w-32 mb-2" />
-                        <Skeleton className="h-3 w-48" />
-                      </div>
-                    </div>
-                    <Skeleton className="h-9 w-20" />
-                  </div>
-                </div>
-              ))
-            ) : myTasks && myTasks.length > 0 ? (
-              myTasks.map((task, idx) => (
-                <div 
-                  key={`${task.documentId}-${task.taskType}`} 
-                  className="p-4 rounded-xl border hover:border-primary/50 hover:shadow-lg cursor-pointer transition-all group"
-                  style={{ animation: `slideIn 0.3s ease-out ${idx * 0.1}s backwards` }}
-                  onClick={() => handleOpenTask(task)}
-                  data-testid={`task-${task.documentId}-${task.taskType}`}
-                >
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2.5 rounded-xl bg-muted group-hover:bg-primary/10 transition-colors">
-                        {getTaskIcon(task.taskType)}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-medium" data-testid={`text-task-code-${task.documentId}`}>{task.documentCode}</p>
-                          <Badge className={getTaskBadgeColor(task.taskType)} data-testid={`badge-task-type-${task.documentId}`}>
-                            {task.taskType.charAt(0).toUpperCase() + task.taskType.slice(1)}
-                          </Badge>
-                        </div>
-                        <p className="text-sm text-muted-foreground" data-testid={`text-task-title-${task.documentId}`}>{task.title}</p>
-                      </div>
-                    </div>
-                    <Button size="sm" className="group-hover:bg-primary group-hover:text-primary-foreground transition-colors" data-testid={`button-open-task-${task.documentId}`}>
-                      Open
-                    </Button>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="text-center py-12 text-muted-foreground" data-testid="text-no-tasks">
-                <div className="w-20 h-20 rounded-full bg-green-100 dark:bg-green-900/30 mx-auto mb-4 flex items-center justify-center">
-                  <CheckCircle2 className="w-10 h-10 text-green-500" />
-                </div>
-                <p className="font-medium text-lg">No pending tasks</p>
-                <p className="text-sm">You're all caught up! Great work!</p>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Task Completion Dialog */}
       <Dialog open={showTaskDialog} onOpenChange={setShowTaskDialog}>
