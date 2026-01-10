@@ -184,7 +184,11 @@ export default function Dashboard() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card data-testid="card-total-documents">
+        <Card 
+          data-testid="card-total-documents"
+          className="cursor-pointer hover-elevate transition-all"
+          onClick={() => navigate("/documents")}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
             <CardTitle className="text-sm font-medium">Total Documents</CardTitle>
             <FileText className="h-4 w-4 text-muted-foreground" />
@@ -206,7 +210,11 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card data-testid="card-pending-approvals">
+        <Card 
+          data-testid="card-pending-approvals"
+          className="cursor-pointer hover-elevate transition-all"
+          onClick={() => navigate("/documents")}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
             <CardTitle className="text-sm font-medium">Pending Approvals</CardTitle>
             <Clock className="h-4 w-4 text-amber-500" />
@@ -228,7 +236,14 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card data-testid="card-expiring-soon">
+        <Card 
+          data-testid="card-expiring-soon"
+          className="cursor-pointer hover-elevate transition-all"
+          onClick={() => {
+            const complianceSection = document.getElementById('compliance-section');
+            complianceSection?.scrollIntoView({ behavior: 'smooth' });
+          }}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
             <CardTitle className="text-sm font-medium">Expiring Soon</CardTitle>
             <AlertTriangle className="h-4 w-4 text-yellow-500" />
@@ -250,7 +265,14 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card data-testid="card-non-compliant">
+        <Card 
+          data-testid="card-non-compliant"
+          className="cursor-pointer hover-elevate transition-all"
+          onClick={() => {
+            const complianceSection = document.getElementById('compliance-section');
+            complianceSection?.scrollIntoView({ behavior: 'smooth' });
+          }}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
             <CardTitle className="text-sm font-medium">Non-Compliant</CardTitle>
             <AlertCircle className="h-4 w-4 text-red-500" />
@@ -275,7 +297,11 @@ export default function Dashboard() {
 
       {/* Secondary Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Card data-testid="card-users">
+        <Card 
+          data-testid="card-users"
+          className="cursor-pointer hover-elevate transition-all"
+          onClick={() => navigate("/users")}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
             <CardTitle className="text-sm font-medium">Users</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
@@ -297,7 +323,11 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card data-testid="card-compliance-rate">
+        <Card 
+          data-testid="card-compliance-rate"
+          className="cursor-pointer hover-elevate transition-all"
+          onClick={() => navigate("/documents")}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
             <CardTitle className="text-sm font-medium">Compliance Rate</CardTitle>
             <CheckCircle2 className="h-4 w-4 text-green-500" />
