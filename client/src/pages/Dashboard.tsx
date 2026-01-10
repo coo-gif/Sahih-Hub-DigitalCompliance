@@ -41,8 +41,8 @@ export default function Dashboard() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900" data-testid="text-page-title">Dashboard</h1>
-          <p className="text-slate-500" data-testid="text-page-description">Compliance Health Overview</p>
+          <h1 className="text-2xl font-bold text-foreground" data-testid="text-page-title">Dashboard</h1>
+          <p className="text-muted-foreground" data-testid="text-page-description">Compliance Health Overview</p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <Link href="/documents">
@@ -255,7 +255,7 @@ export default function Dashboard() {
                         )}
                         <div>
                           <p className="font-medium text-sm" data-testid={`text-alert-code-${alert.id}`}>{alert.documentCode}</p>
-                          <p className="text-xs text-slate-600" data-testid={`text-alert-title-${alert.id}`}>{alert.title}</p>
+                          <p className="text-xs text-muted-foreground" data-testid={`text-alert-title-${alert.id}`}>{alert.title}</p>
                         </div>
                       </div>
                       <Badge 
@@ -271,7 +271,7 @@ export default function Dashboard() {
                   </div>
                 ))
               ) : (
-                <div className="text-center py-8 text-slate-500" data-testid="text-no-alerts">
+                <div className="text-center py-8 text-muted-foreground" data-testid="text-no-alerts">
                   <CheckCircle2 className="w-12 h-12 mx-auto mb-2 text-green-500" />
                   <p>All documents are compliant</p>
                 </div>
@@ -311,7 +311,7 @@ export default function Dashboard() {
                 activity.slice(0, 5).map((log) => (
                   <div 
                     key={log.id} 
-                    className="flex items-center gap-3 p-2 rounded hover:bg-slate-50"
+                    className="flex items-center gap-3 p-2 rounded hover:bg-muted"
                     data-testid={`activity-${log.id}`}
                   >
                     <div className="w-2 h-2 rounded-full bg-primary" />
@@ -319,14 +319,14 @@ export default function Dashboard() {
                       <p className="text-sm font-medium truncate" data-testid={`text-activity-action-${log.id}`}>
                         {log.action.replace('_', ' ')} on {log.entityType}
                       </p>
-                      <p className="text-xs text-slate-500" data-testid={`text-activity-time-${log.id}`}>
+                      <p className="text-xs text-muted-foreground" data-testid={`text-activity-time-${log.id}`}>
                         {log.createdAt ? format(new Date(log.createdAt), 'MMM d, h:mm a') : ''}
                       </p>
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="text-center py-8 text-slate-500" data-testid="text-no-activity">
+                <div className="text-center py-8 text-muted-foreground" data-testid="text-no-activity">
                   No recent activity
                 </div>
               )}

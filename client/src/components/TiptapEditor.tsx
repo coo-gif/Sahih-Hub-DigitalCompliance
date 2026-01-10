@@ -73,8 +73,13 @@ export default function TiptapEditor({ content, onChange, onPreview }: TiptapEdi
     extensions: [
       StarterKit.configure({
         heading: false,
+        // Disable extensions we'll configure separately
       }),
-      Underline,
+      Underline.configure({
+        HTMLAttributes: {
+          class: 'underline',
+        },
+      }),
       Link.configure({
         openOnClick: false,
         HTMLAttributes: {

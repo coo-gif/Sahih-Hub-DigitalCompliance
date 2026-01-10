@@ -20,10 +20,12 @@ import {
   CheckCheck,
   UserCog,
   LogOut,
-  User
+  User,
+  Shield
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
+import sahihLogoPath from "@assets/sahih_logo-1.png";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -52,44 +54,49 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
   const unreadCount = notifications?.filter(n => !n.isRead).length || 0;
 
   const SidebarContent = () => (
-    <div className="flex flex-col h-full bg-slate-900 text-white">
-      <div className="p-6 border-b border-slate-700">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded bg-primary flex items-center justify-center">
-            <span className="font-bold text-white">S</span>
-          </div>
+    <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">
+      <div className="p-5 border-b border-sidebar-border">
+        <div className="flex items-center gap-3">
+          <img 
+            src={sahihLogoPath} 
+            alt="Sahih Certifications" 
+            className="h-10 w-10 object-contain rounded-md bg-white p-1"
+          />
           <div>
-            <span className="font-bold text-lg">Sahih Certifications</span>
-            <p className="text-xs text-slate-400">QMS Dashboard</p>
+            <span className="font-bold text-base tracking-tight">Sahih-Hub</span>
+            <p className="text-[10px] text-sidebar-foreground/70 uppercase tracking-widest">Digital Compliance</p>
           </div>
         </div>
       </div>
       
-      <nav className="p-4 space-y-1 flex-1">
+      <nav className="p-3 space-y-1 flex-1">
         {navItems.map((item) => {
           const isActive = location === item.href;
           return (
             <Link key={item.href} href={item.href}>
               <div
                 className={cn(
-                  "flex items-center gap-3 px-4 py-3 rounded-lg cursor-pointer transition-colors",
+                  "flex items-center gap-3 px-4 py-2.5 rounded-lg cursor-pointer transition-all duration-200",
                   isActive 
-                    ? "bg-primary text-primary-foreground" 
-                    : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                    ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium shadow-sm" 
+                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 )}
                 data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
               >
                 <item.icon className="w-5 h-5" />
-                <span>{item.label}</span>
+                <span className="text-sm">{item.label}</span>
               </div>
             </Link>
           );
         })}
       </nav>
 
-      <div className="p-4 border-t border-slate-700">
-        <div className="text-xs text-slate-400 text-center">
-          ISO 17021 Compliant<br />
+      <div className="p-4 border-t border-sidebar-border">
+        <div className="flex items-center justify-center gap-2 text-[10px] text-sidebar-foreground/60">
+          <Shield className="w-3 h-3" />
+          <span>ISO 17021 Compliant</span>
+        </div>
+        <div className="text-[10px] text-sidebar-foreground/40 text-center mt-1">
           Doha, Qatar
         </div>
       </div>
@@ -97,16 +104,16 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
   );
 
   return (
-    <div className="min-h-screen flex bg-slate-50">
+    <div className="min-h-screen flex bg-background">
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:block w-64 fixed inset-y-0 z-50">
+      <aside className="hidden lg:block w-64 fixed inset-y-0 z-50 shadow-xl">
         <SidebarContent />
       </aside>
 
       {/* Main Content */}
       <main className="flex-1 lg:pl-64 flex flex-col min-h-screen">
         {/* Header */}
-        <header className="h-14 bg-white border-b sticky top-0 z-40 px-4 lg:px-6 flex items-center justify-between gap-4">
+        <header className="h-16 bg-card border-b border-border sticky top-0 z-40 px-4 lg:px-6 flex items-center justify-between gap-4 shadow-sm">
           <div className="flex items-center gap-3 lg:hidden">
             <Sheet>
               <SheetTrigger asChild>
@@ -118,22 +125,28 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
                 <SidebarContent />
               </SheetContent>
             </Sheet>
-            <span className="font-bold">Sahih Certifications</span>
+            <div className="flex items-center gap-2">
+              <img src={sahihLogoPath} alt="Logo" className="h-8 w-8 object-contain" />
+              <span className="font-bold text-primary">Sahih-Hub</span>
+            </div>
           </div>
 
-          <div className="hidden lg:block text-sm text-slate-500">
-            Quality Management System
+          <div className="hidden lg:flex items-center gap-3">
+            <div className="h-8 w-1 bg-primary rounded-full"></div>
+            <div>
+              <span className="text-sm font-semibold text-foreground">Quality Management System</span>
+              <p className="text-xs text-muted-foreground">Document Control & Compliance</p>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2 ml-auto">
+          <div className="flex items-center gap-3 ml-auto">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="relative" data-testid="button-notifications">
-                  <Bell className="w-5 h-5" />
+                <Button variant="outline" size="icon" className="relative" data-testid="button-notifications">
+                  <Bell className="w-4 h-4" />
                   {unreadCount > 0 && (
                     <Badge 
-                      className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs"
-                      variant="destructive"
+                      className="absolute -top-1.5 -right-1.5 h-5 w-5 flex items-center justify-center p-0 text-[10px] bg-primary"
                     >
                       {unreadCount > 9 ? '9+' : unreadCount}
                     </Badge>
@@ -142,7 +155,7 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-80">
                 <div className="flex items-center justify-between px-3 py-2 border-b">
-                  <span className="font-semibold">Notifications</span>
+                  <span className="font-semibold text-sm">Notifications</span>
                   {unreadCount > 0 && (
                     <Button 
                       variant="ghost" 
@@ -162,12 +175,12 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
                         key={notification.id} 
                         className={cn(
                           "flex flex-col items-start py-3 cursor-pointer",
-                          !notification.isRead && "bg-blue-50"
+                          !notification.isRead && "bg-accent"
                         )}
                       >
                         <span className="font-medium text-sm">{notification.title}</span>
-                        <span className="text-xs text-slate-500 line-clamp-2">{notification.message}</span>
-                        <span className="text-xs text-slate-400 mt-1">
+                        <span className="text-xs text-muted-foreground line-clamp-2">{notification.message}</span>
+                        <span className="text-xs text-muted-foreground/60 mt-1">
                           {notification.createdAt 
                             ? format(new Date(notification.createdAt), "MMM d, h:mm a")
                             : ""
@@ -176,7 +189,7 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
                       </DropdownMenuItem>
                     ))
                   ) : (
-                    <div className="py-8 text-center text-slate-500 text-sm">
+                    <div className="py-8 text-center text-muted-foreground text-sm">
                       No notifications
                     </div>
                   )}
@@ -187,15 +200,21 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
             {user && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" data-testid="button-user-menu">
-                    <User className="w-5 h-5" />
+                  <Button variant="outline" className="gap-2 px-3" data-testid="button-user-menu">
+                    <div className="w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-semibold">
+                      {user.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="hidden sm:block text-left">
+                      <p className="text-xs font-medium leading-none">{user.name.split(' ')[0]}</p>
+                      <p className="text-[10px] text-muted-foreground">{user.role.replace('_', ' ')}</p>
+                    </div>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
-                  <div className="px-3 py-2 border-b">
-                    <p className="font-medium text-sm">{user.name}</p>
-                    <p className="text-xs text-slate-500">{user.email}</p>
-                    <Badge variant="secondary" className="mt-1 text-xs">
+                  <div className="px-3 py-3 border-b bg-accent/50">
+                    <p className="font-semibold text-sm">{user.name}</p>
+                    <p className="text-xs text-muted-foreground">{user.email}</p>
+                    <Badge className="mt-2 text-[10px] bg-primary">
                       {user.role.replace('_', ' ').toUpperCase()}
                     </Badge>
                   </div>

@@ -55,7 +55,7 @@ const roleColors: Record<string, string> = {
   admin: "bg-red-100 text-red-700",
   quality_manager: "bg-purple-100 text-purple-700",
   department_head: "bg-blue-100 text-blue-700",
-  staff: "bg-slate-100 text-slate-700",
+  staff: "bg-muted text-slate-700",
   auditor: "bg-teal-100 text-teal-700",
 };
 
@@ -247,8 +247,8 @@ export default function Users() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900" data-testid="text-page-title">User Management</h1>
-          <p className="text-slate-500" data-testid="text-page-description">Role-Based Access Control (RBAC)</p>
+          <h1 className="text-2xl font-bold text-foreground" data-testid="text-page-title">User Management</h1>
+          <p className="text-muted-foreground" data-testid="text-page-description">Role-Based Access Control (RBAC)</p>
         </div>
         <Button onClick={() => setShowCreateDialog(true)} data-testid="button-create-user">
           <Plus className="w-4 h-4 mr-2" />
@@ -313,7 +313,7 @@ export default function Users() {
                         variant="secondary"
                         className={user.isActive 
                           ? "bg-green-100 text-green-700" 
-                          : "bg-slate-100 text-slate-700"
+                          : "bg-muted text-slate-700"
                         }
                         data-testid={`badge-status-${user.id}`}
                       >
@@ -375,7 +375,7 @@ export default function Users() {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-slate-500" data-testid="text-no-users">
+                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground" data-testid="text-no-users">
                     No users found
                   </TableCell>
                 </TableRow>
@@ -562,7 +562,7 @@ export default function Users() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="border rounded-md p-4 min-h-32 flex items-center justify-center bg-slate-50 dark:bg-slate-900">
+            <div className="border rounded-md p-4 min-h-32 flex items-center justify-center bg-muted dark:bg-slate-900">
               {signaturePreview ? (
                 <div className="relative w-full">
                   <img 

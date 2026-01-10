@@ -60,7 +60,7 @@ import type { Document } from "@shared/schema";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
 
 const statusColors: Record<string, string> = {
-  draft: "bg-slate-100 text-slate-700",
+  draft: "bg-muted text-slate-700",
   in_review: "bg-blue-100 text-blue-700",
   pending_approval: "bg-amber-100 text-amber-700",
   approved: "bg-green-100 text-green-700",
@@ -371,8 +371,8 @@ export default function Documents() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900" data-testid="text-page-title">Document Control</h1>
-          <p className="text-slate-500" data-testid="text-page-description">Master List Matrix - ISO 17021 Compliant</p>
+          <h1 className="text-2xl font-bold text-foreground" data-testid="text-page-title">Document Control</h1>
+          <p className="text-muted-foreground" data-testid="text-page-description">Master List Matrix - ISO 17021 Compliant</p>
         </div>
         <Button onClick={() => setShowCreateDialog(true)} data-testid="button-create-document">
           <Plus className="w-4 h-4 mr-2" />
@@ -536,7 +536,7 @@ export default function Documents() {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-slate-500" data-testid="text-no-documents">
+                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground" data-testid="text-no-documents">
                     No documents found
                   </TableCell>
                 </TableRow>
@@ -1024,10 +1024,10 @@ export default function Documents() {
                         </Badge>
                         <Badge variant="outline">Ed.{selectedDocument.editionNumber || 1} Rev.{selectedDocument.revisionNumber || 0}</Badge>
                       </div>
-                      <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100" data-testid="text-view-title">
+                      <h2 className="text-xl font-bold text-foreground dark:text-slate-100" data-testid="text-view-title">
                         {selectedDocument.title}
                       </h2>
-                      <p className="text-sm text-slate-500 font-mono" data-testid="text-view-code">
+                      <p className="text-sm text-muted-foreground font-mono" data-testid="text-view-code">
                         {selectedDocument.documentCode}
                       </p>
                     </div>
@@ -1037,17 +1037,17 @@ export default function Documents() {
                   </Button>
                 </div>
                 {selectedDocument.description && (
-                  <p className="text-slate-600 dark:text-slate-400 mt-3" data-testid="text-view-description">
+                  <p className="text-muted-foreground dark:text-muted-foreground/60 mt-3" data-testid="text-view-description">
                     {selectedDocument.description}
                   </p>
                 )}
               </div>
               
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm mb-4 p-3 bg-slate-50 rounded-md dark:bg-slate-800">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm mb-4 p-3 bg-muted rounded-md dark:bg-slate-800">
                 <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-slate-400" />
+                  <Calendar className="w-4 h-4 text-muted-foreground/60" />
                   <div>
-                    <div className="text-slate-500 text-xs">Created</div>
+                    <div className="text-muted-foreground text-xs">Created</div>
                     <div className="font-medium">
                       {selectedDocument.createdAt 
                         ? format(new Date(selectedDocument.createdAt), "MMM d, yyyy")
@@ -1057,9 +1057,9 @@ export default function Documents() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-slate-400" />
+                  <Clock className="w-4 h-4 text-muted-foreground/60" />
                   <div>
-                    <div className="text-slate-500 text-xs">Next Review</div>
+                    <div className="text-muted-foreground text-xs">Next Review</div>
                     <div className="font-medium">
                       {selectedDocument.nextReviewDate 
                         ? format(new Date(selectedDocument.nextReviewDate), "MMM d, yyyy")
@@ -1069,9 +1069,9 @@ export default function Documents() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-slate-400" />
+                  <FileText className="w-4 h-4 text-muted-foreground/60" />
                   <div>
-                    <div className="text-slate-500 text-xs">Edition/Revision</div>
+                    <div className="text-muted-foreground text-xs">Edition/Revision</div>
                     <div className="font-medium">Ed.{selectedDocument.editionNumber || 1} Rev.{selectedDocument.revisionNumber || 0}</div>
                   </div>
                 </div>
@@ -1079,7 +1079,7 @@ export default function Documents() {
                   <div className="flex items-center gap-2">
                     <CheckCircle className="w-4 h-4 text-green-500" />
                     <div>
-                      <div className="text-slate-500 text-xs">Approved</div>
+                      <div className="text-muted-foreground text-xs">Approved</div>
                       <div className="font-medium">
                         {format(new Date(selectedDocument.approvedBySignedAt), "MMM d, yyyy")}
                       </div>
@@ -1096,14 +1096,14 @@ export default function Documents() {
                   style={{ fontFamily: 'Roboto, sans-serif' }}
                   data-testid="text-view-content"
                   dangerouslySetInnerHTML={{ 
-                    __html: DOMPurify.sanitize(selectedDocument.content || '<p class="text-slate-400 italic">No content available</p>') 
+                    __html: DOMPurify.sanitize(selectedDocument.content || '<p class="text-muted-foreground/60 italic">No content available</p>') 
                   }}
                 />
               </ScrollArea>
 
               {/* Signature Block */}
               <Separator className="my-4" />
-              <div className="bg-slate-50 dark:bg-slate-800 rounded-md p-4" data-testid="section-signatures">
+              <div className="bg-muted dark:bg-slate-800 rounded-md p-4" data-testid="section-signatures">
                 <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
                   <PenTool className="w-4 h-4" />
                   Document Signatures
@@ -1111,7 +1111,7 @@ export default function Documents() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   {selectedDocument.requiresPreparedBy && (
                     <div className="border rounded-md p-3 bg-white dark:bg-slate-900" data-testid="signature-block-prepared">
-                      <div className="text-xs text-slate-500 mb-1">Prepared By</div>
+                      <div className="text-xs text-muted-foreground mb-1">Prepared By</div>
                       <div className="h-12 flex items-center justify-center border-b border-dashed mb-2">
                         {selectedDocument.preparedById && users?.find(u => u.id === selectedDocument.preparedById)?.signatureDataUrl ? (
                           <img 
@@ -1121,7 +1121,7 @@ export default function Documents() {
                             data-testid="img-signature-prepared"
                           />
                         ) : (
-                          <span className="text-xs text-slate-400 italic">Pending signature</span>
+                          <span className="text-xs text-muted-foreground/60 italic">Pending signature</span>
                         )}
                       </div>
                       <div className="text-sm font-medium">
@@ -1130,7 +1130,7 @@ export default function Documents() {
                           : '---'}
                       </div>
                       {selectedDocument.preparedBySignedAt && (
-                        <div className="text-xs text-slate-500">
+                        <div className="text-xs text-muted-foreground">
                           {format(new Date(selectedDocument.preparedBySignedAt), "MMM d, yyyy")}
                         </div>
                       )}
@@ -1139,7 +1139,7 @@ export default function Documents() {
                   
                   {selectedDocument.requiresReviewedBy && (
                     <div className="border rounded-md p-3 bg-white dark:bg-slate-900" data-testid="signature-block-reviewed">
-                      <div className="text-xs text-slate-500 mb-1">Reviewed By</div>
+                      <div className="text-xs text-muted-foreground mb-1">Reviewed By</div>
                       <div className="h-12 flex items-center justify-center border-b border-dashed mb-2">
                         {selectedDocument.reviewedById && users?.find(u => u.id === selectedDocument.reviewedById)?.signatureDataUrl ? (
                           <img 
@@ -1149,7 +1149,7 @@ export default function Documents() {
                             data-testid="img-signature-reviewed"
                           />
                         ) : (
-                          <span className="text-xs text-slate-400 italic">Pending signature</span>
+                          <span className="text-xs text-muted-foreground/60 italic">Pending signature</span>
                         )}
                       </div>
                       <div className="text-sm font-medium">
@@ -1158,7 +1158,7 @@ export default function Documents() {
                           : '---'}
                       </div>
                       {selectedDocument.reviewedBySignedAt && (
-                        <div className="text-xs text-slate-500">
+                        <div className="text-xs text-muted-foreground">
                           {format(new Date(selectedDocument.reviewedBySignedAt), "MMM d, yyyy")}
                         </div>
                       )}
@@ -1167,7 +1167,7 @@ export default function Documents() {
                   
                   {selectedDocument.requiresApprovedBy && (
                     <div className="border rounded-md p-3 bg-white dark:bg-slate-900" data-testid="signature-block-approved">
-                      <div className="text-xs text-slate-500 mb-1">Approved By</div>
+                      <div className="text-xs text-muted-foreground mb-1">Approved By</div>
                       <div className="h-12 flex items-center justify-center border-b border-dashed mb-2">
                         {selectedDocument.approvedById && users?.find(u => u.id === selectedDocument.approvedById)?.signatureDataUrl ? (
                           <img 
@@ -1177,7 +1177,7 @@ export default function Documents() {
                             data-testid="img-signature-approved"
                           />
                         ) : (
-                          <span className="text-xs text-slate-400 italic">Pending signature</span>
+                          <span className="text-xs text-muted-foreground/60 italic">Pending signature</span>
                         )}
                       </div>
                       <div className="text-sm font-medium">
@@ -1186,7 +1186,7 @@ export default function Documents() {
                           : '---'}
                       </div>
                       {selectedDocument.approvedBySignedAt && (
-                        <div className="text-xs text-slate-500">
+                        <div className="text-xs text-muted-foreground">
                           {format(new Date(selectedDocument.approvedBySignedAt), "MMM d, yyyy")}
                         </div>
                       )}
@@ -1313,7 +1313,7 @@ export default function Documents() {
             {isGeneratingPdf ? (
               <div className="flex flex-col items-center justify-center h-full gap-4" data-testid="pdf-generating">
                 <Loader2 className="w-12 h-12 animate-spin text-primary" />
-                <p className="text-slate-500">Generating PDF... This may take a moment.</p>
+                <p className="text-muted-foreground">Generating PDF... This may take a moment.</p>
               </div>
             ) : pdfUrl ? (
               <iframe 
@@ -1325,7 +1325,7 @@ export default function Documents() {
             ) : (
               <div className="flex flex-col items-center justify-center h-full gap-4" data-testid="pdf-not-available">
                 <FileDown className="w-12 h-12 text-slate-300" />
-                <p className="text-slate-500">No PDF available. Click Generate to create one.</p>
+                <p className="text-muted-foreground">No PDF available. Click Generate to create one.</p>
                 <Button onClick={() => selectedDocument && handleGeneratePdf(selectedDocument)} data-testid="button-generate-pdf">
                   Generate PDF
                 </Button>

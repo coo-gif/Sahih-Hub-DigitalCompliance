@@ -21,7 +21,7 @@ const actionColors: Record<string, string> = {
   approve: "bg-emerald-100 text-emerald-700",
   reject: "bg-rose-100 text-rose-700",
   publish: "bg-purple-100 text-purple-700",
-  archive: "bg-slate-100 text-slate-700",
+  archive: "bg-muted text-slate-700",
 };
 
 export default function AuditLog() {
@@ -41,8 +41,8 @@ export default function AuditLog() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900" data-testid="text-page-title">Audit Log</h1>
-          <p className="text-slate-500" data-testid="text-page-description">ISO 17021 Compliance Trail - All Actions Recorded</p>
+          <h1 className="text-2xl font-bold text-foreground" data-testid="text-page-title">Audit Log</h1>
+          <p className="text-muted-foreground" data-testid="text-page-description">ISO 17021 Compliance Trail - All Actions Recorded</p>
         </div>
       </div>
 
@@ -91,7 +91,7 @@ export default function AuditLog() {
                     </TableCell>
                     <TableCell>
                       <Badge 
-                        className={actionColors[log.action] || "bg-slate-100 text-slate-700"} 
+                        className={actionColors[log.action] || "bg-muted text-slate-700"} 
                         variant="secondary"
                         data-testid={`badge-action-${log.id}`}
                       >
@@ -103,7 +103,7 @@ export default function AuditLog() {
                     <TableCell data-testid={`text-user-id-${log.id}`}>{log.userId}</TableCell>
                     <TableCell className="max-w-xs truncate" data-testid={`text-details-${log.id}`}>
                       {log.newValue ? (
-                        <span className="text-xs text-slate-500 font-mono">
+                        <span className="text-xs text-muted-foreground font-mono">
                           {log.newValue.substring(0, 50)}...
                         </span>
                       ) : (
@@ -114,7 +114,7 @@ export default function AuditLog() {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-slate-500" data-testid="text-no-logs">
+                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground" data-testid="text-no-logs">
                     No audit logs found
                   </TableCell>
                 </TableRow>
