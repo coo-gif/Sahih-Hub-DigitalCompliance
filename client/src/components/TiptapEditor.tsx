@@ -8,7 +8,50 @@ import { TableRow } from '@tiptap/extension-table-row';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import TextAlign from '@tiptap/extension-text-align';
+import { Mark, mergeAttributes } from '@tiptap/core';
 import { useCallback, useEffect, useState } from 'react';
+
+const TextStyleMark = Mark.create({
+  name: 'textStyle',
+  addOptions() {
+    return {
+      HTMLAttributes: {},
+    };
+  },
+  parseHTML() {
+    return [
+      {
+        tag: 'span',
+        getAttrs: (element) => {
+          const hasStyles = (element as HTMLElement).hasAttribute('style');
+          if (!hasStyles) {
+            return false;
+          }
+          return {};
+        },
+      },
+    ];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ['span', mergeAttributes(this.options.HTMLAttributes, HTMLAttributes), 0];
+  },
+  addAttributes() {
+    return {
+      fontSize: {
+        default: null,
+        parseHTML: element => element.style.fontSize?.replace(/['"]+/g, ''),
+        renderHTML: attributes => {
+          if (!attributes.fontSize) {
+            return {};
+          }
+          return {
+            style: `font-size: ${attributes.fontSize}`,
+          };
+        },
+      },
+    };
+  },
+});
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -73,8 +116,8 @@ export default function TiptapEditor({ content, onChange, onPreview }: TiptapEdi
     extensions: [
       StarterKit.configure({
         heading: false,
-        // Disable extensions we'll configure separately
       }),
+      TextStyleMark,
       Underline.configure({
         HTMLAttributes: {
           class: 'underline',
