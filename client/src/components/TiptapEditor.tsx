@@ -187,8 +187,8 @@ export default function TiptapEditor({ content, onChange, onPreview }: TiptapEdi
   if (!editor) return null;
 
   return (
-    <div className="border rounded-md overflow-hidden">
-      <div className="bg-gray-50 border-b p-2 flex flex-wrap items-center gap-1">
+    <div className="border rounded-md flex flex-col">
+      <div className="bg-gray-50 border-b p-2 flex flex-wrap items-center gap-1 flex-shrink-0">
         <Button
           type="button"
           size="icon"
@@ -449,7 +449,9 @@ export default function TiptapEditor({ content, onChange, onPreview }: TiptapEdi
         )}
       </div>
 
-      <EditorContent editor={editor} />
+      <div className="max-h-[50vh] overflow-y-auto">
+        <EditorContent editor={editor} />
+      </div>
 
       <Dialog open={showLinkDialog} onOpenChange={setShowLinkDialog}>
         <DialogContent>
