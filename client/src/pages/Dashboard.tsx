@@ -20,6 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -36,9 +37,11 @@ import {
   ClipboardList,
   FileCheck,
   FilePen,
-  FileSignature
+  FileSignature,
+  LayoutDashboard,
+  Activity
 } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import { useState } from "react";
 import type { MyTask } from "@/hooks/use-tasks";
@@ -125,27 +128,58 @@ export default function Dashboard() {
     );
   }
 
+  const [location, navigate] = useLocation();
+  const [activeTab, setActiveTab] = useState("dashboard");
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground" data-testid="text-page-title">Dashboard</h1>
-          <p className="text-muted-foreground" data-testid="text-page-description">Compliance Health Overview</p>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          <Link href="/documents">
-            <Button data-testid="button-new-document">
-              <Plus className="w-4 h-4 mr-2" />
-              New Document
-            </Button>
-          </Link>
-          <Link href="/users">
-            <Button variant="outline" data-testid="button-manage-users">
-              <Users className="w-4 h-4 mr-2" />
-              Manage Users
-            </Button>
-          </Link>
-        </div>
+      <div className="flex flex-col gap-4">
+        <h1 className="text-2xl font-bold text-foreground" data-testid="text-page-title">Dashboard</h1>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:inline-flex" data-testid="tabs-dashboard-nav">
+            <TabsTrigger 
+              value="dashboard" 
+              onClick={() => {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className="flex items-center gap-2"
+              data-testid="tab-dashboard"
+            >
+              <LayoutDashboard className="w-4 h-4" />
+              <span className="hidden sm:inline">Dashboard</span>
+            </TabsTrigger>
+            <TabsTrigger 
+              value="compliance" 
+              onClick={() => {
+                const complianceSection = document.getElementById('compliance-section');
+                complianceSection?.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className="flex items-center gap-2"
+              data-testid="tab-compliance"
+            >
+              <Activity className="w-4 h-4" />
+              <span className="hidden sm:inline">Compliance Overview</span>
+            </TabsTrigger>
+            <TabsTrigger 
+              value="documents" 
+              onClick={() => navigate("/documents")}
+              className="flex items-center gap-2"
+              data-testid="tab-new-document"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">New Document</span>
+            </TabsTrigger>
+            <TabsTrigger 
+              value="users" 
+              onClick={() => navigate("/users")}
+              className="flex items-center gap-2"
+              data-testid="tab-manage-users"
+            >
+              <Users className="w-4 h-4" />
+              <span className="hidden sm:inline">Manage Users</span>
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
       {/* Stats Cards */}
@@ -290,7 +324,7 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div id="compliance-section" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Compliance Alerts */}
         <Card data-testid="card-compliance-alerts">
           <CardHeader>
