@@ -1042,21 +1042,21 @@ export default function Documents() {
 
       {/* Document Viewer Dialog */}
       <Dialog open={showViewDialog} onOpenChange={setShowViewDialog}>
-        <DialogContent className="max-w-4xl max-h-[90vh]" data-testid="dialog-view-document">
+        <DialogContent className="max-w-4xl h-[95vh] flex flex-col p-0" data-testid="dialog-view-document">
           {selectedDocument && (
             <>
-              {/* Document Header with Company Logo */}
-              <div className="border-b pb-4 mb-4">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="flex items-start gap-4">
+              {/* Fixed Header */}
+              <div className="border-b p-4 sm:p-6 flex-shrink-0">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
                     <img 
                       src={sahihLogoPath} 
                       alt="Sahih Certifications" 
-                      className="h-16 object-contain"
+                      className="h-12 sm:h-16 object-contain"
                       data-testid="img-company-logo"
                     />
                     <div>
-                      <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
                         <Badge className={categoryColors[selectedDocument.category] || ""} variant="secondary">
                           {selectedDocument.category.toUpperCase()}
                         </Badge>
@@ -1065,85 +1065,87 @@ export default function Documents() {
                         </Badge>
                         <Badge variant="outline">Ed.{selectedDocument.editionNumber || 1} Rev.{selectedDocument.revisionNumber || 0}</Badge>
                       </div>
-                      <h2 className="text-xl font-bold text-foreground dark:text-slate-100" data-testid="text-view-title">
+                      <h2 className="text-lg sm:text-xl font-bold text-foreground dark:text-slate-100" data-testid="text-view-title">
                         {selectedDocument.title}
                       </h2>
-                      <p className="text-sm text-muted-foreground font-mono" data-testid="text-view-code">
+                      <p className="text-xs sm:text-sm text-muted-foreground font-mono" data-testid="text-view-code">
                         {selectedDocument.documentCode}
                       </p>
                     </div>
                   </div>
-                  <Button variant="outline" onClick={() => setShowViewDialog(false)} data-testid="button-close-viewer">
+                  <Button variant="outline" size="sm" onClick={() => setShowViewDialog(false)} data-testid="button-close-viewer">
                     Close
                   </Button>
                 </div>
-                {selectedDocument.description && (
-                  <p className="text-muted-foreground dark:text-muted-foreground/60 mt-3" data-testid="text-view-description">
-                    {selectedDocument.description}
-                  </p>
-                )}
               </div>
               
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm mb-4 p-3 bg-muted rounded-md dark:bg-slate-800">
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-muted-foreground/60" />
-                  <div>
-                    <div className="text-muted-foreground text-xs">Created</div>
-                    <div className="font-medium">
-                      {selectedDocument.createdAt 
-                        ? format(new Date(selectedDocument.createdAt), "MMM d, yyyy")
-                        : "-"
-                      }
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-muted-foreground/60" />
-                  <div>
-                    <div className="text-muted-foreground text-xs">Next Review</div>
-                    <div className="font-medium">
-                      {selectedDocument.nextReviewDate 
-                        ? format(new Date(selectedDocument.nextReviewDate), "MMM d, yyyy")
-                        : "-"
-                      }
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-muted-foreground/60" />
-                  <div>
-                    <div className="text-muted-foreground text-xs">Edition/Revision</div>
-                    <div className="font-medium">Ed.{selectedDocument.editionNumber || 1} Rev.{selectedDocument.revisionNumber || 0}</div>
-                  </div>
-                </div>
-                {selectedDocument.approvedBySignedAt && (
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-green-500" />
-                    <div>
-                      <div className="text-muted-foreground text-xs">Approved</div>
-                      <div className="font-medium">
-                        {format(new Date(selectedDocument.approvedBySignedAt), "MMM d, yyyy")}
+              {/* Scrollable Content Area */}
+              <ScrollArea className="flex-1 px-4 sm:px-6">
+                <div className="py-4">
+                  {selectedDocument.description && (
+                    <p className="text-muted-foreground dark:text-muted-foreground/60 mb-4" data-testid="text-view-description">
+                      {selectedDocument.description}
+                    </p>
+                  )}
+              
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-4 p-3 bg-muted rounded-md dark:bg-slate-800">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-muted-foreground/60" />
+                      <div>
+                        <div className="text-muted-foreground text-xs">Created</div>
+                        <div className="font-medium">
+                          {selectedDocument.createdAt 
+                            ? format(new Date(selectedDocument.createdAt), "MMM d, yyyy")
+                            : "-"
+                          }
+                        </div>
                       </div>
                     </div>
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-muted-foreground/60" />
+                      <div>
+                        <div className="text-muted-foreground text-xs">Next Review</div>
+                        <div className="font-medium">
+                          {selectedDocument.nextReviewDate 
+                            ? format(new Date(selectedDocument.nextReviewDate), "MMM d, yyyy")
+                            : "-"
+                          }
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-muted-foreground/60" />
+                      <div>
+                        <div className="text-muted-foreground text-xs">Edition/Revision</div>
+                        <div className="font-medium">Ed.{selectedDocument.editionNumber || 1} Rev.{selectedDocument.revisionNumber || 0}</div>
+                      </div>
+                    </div>
+                    {selectedDocument.approvedBySignedAt && (
+                      <div className="flex items-center gap-2">
+                        <CheckCircle className="w-4 h-4 text-green-500" />
+                        <div>
+                          <div className="text-muted-foreground text-xs">Approved</div>
+                          <div className="font-medium">
+                            {format(new Date(selectedDocument.approvedBySignedAt), "MMM d, yyyy")}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
 
-              <Separator className="my-4" />
+                  <Separator className="my-4" />
               
-              <ScrollArea className="h-[350px] pr-4">
-                <div 
-                  className="prose prose-slate max-w-none dark:prose-invert document-content"
-                  style={{ fontFamily: 'Roboto, sans-serif' }}
-                  data-testid="text-view-content"
-                  dangerouslySetInnerHTML={{ 
-                    __html: DOMPurify.sanitize(selectedDocument.content || '<p class="text-muted-foreground/60 italic">No content available</p>') 
-                  }}
-                />
-              </ScrollArea>
+                  <div 
+                    className="prose prose-slate max-w-none dark:prose-invert document-content"
+                    style={{ fontFamily: 'Roboto, sans-serif' }}
+                    data-testid="text-view-content"
+                    dangerouslySetInnerHTML={{ 
+                      __html: DOMPurify.sanitize(selectedDocument.content || '<p class="text-muted-foreground/60 italic">No content available</p>') 
+                    }}
+                  />
 
-              {/* Signature Block */}
-              <Separator className="my-4" />
+                  {/* Signature Block */}
+                  <Separator className="my-4" />
               <div className="bg-muted dark:bg-slate-800 rounded-md p-4" data-testid="section-signatures">
                 <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
                   <PenTool className="w-4 h-4" />
