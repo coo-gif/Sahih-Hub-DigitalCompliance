@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,89 +9,92 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Shield, LogIn, Award, CheckCircle, Globe, Building2, Star } from "lucide-react";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
 
-declare global {
-  interface Window {
-    jQuery: any;
-    S: any;
-  }
+interface StarData {
+  id: number;
+  x: number;
+  y: number;
+  size: number;
+  brightness: number;
+  twinkleSpeed: number;
+  twinkleDelay: number;
+  color: string;
 }
 
 interface LoginProps {
   onLogin: () => Promise<void>;
 }
 
+// Generate realistic star colors (based on stellar classification)
+const getStarColor = (): string => {
+  const colors = [
+    'rgba(255, 255, 255, 1)',      // White (most common)
+    'rgba(255, 255, 255, 1)',
+    'rgba(255, 255, 255, 1)',
+    'rgba(255, 244, 234, 1)',      // Warm white
+    'rgba(255, 244, 234, 1)',
+    'rgba(200, 220, 255, 1)',      // Blue-white (hot stars)
+    'rgba(255, 220, 180, 1)',      // Yellow-white
+    'rgba(255, 200, 150, 1)',      // Orange tint
+    'rgba(180, 200, 255, 1)',      // Blue tint
+  ];
+  return colors[Math.floor(Math.random() * colors.length)];
+};
+
 export default function Login({ onLogin }: LoginProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const skyMapRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const [, setLocation] = useLocation();
 
-  useEffect(() => {
-    // Load VirtualSky library
-    const loadVirtualSky = async () => {
-      // Load jQuery first (required by VirtualSky)
-      if (!window.jQuery) {
-        const jqueryScript = document.createElement('script');
-        jqueryScript.src = 'https://code.jquery.com/jquery-3.6.0.min.js';
-        jqueryScript.async = true;
-        document.head.appendChild(jqueryScript);
-        await new Promise(resolve => jqueryScript.onload = resolve);
-      }
-
-      // Load VirtualSky
-      const vsScript = document.createElement('script');
-      vsScript.src = 'https://virtualsky.lco.global/embed/virtualsky.js';
-      vsScript.async = true;
-      document.head.appendChild(vsScript);
-      
-      vsScript.onload = () => {
-        if (skyMapRef.current && (window as any).S) {
-          // Doha, Qatar coordinates
-          const dohaLat = 25.2854;
-          const dohaLon = 51.5310;
-          
-          new (window as any).S.VirtualSky({
-            id: skyMapRef.current.id,
-            projection: 'stereo',
-            latitude: dohaLat,
-            longitude: dohaLon,
-            clock: new Date(),
-            az: 180, // Looking south
-            showstars: true,
-            showstarlabels: false,
-            showconstellations: true,
-            showconstellationlabels: false,
-            showplanets: true,
-            showplanetlabels: true,
-            showgalaxy: true,
-            showdate: false,
-            showposition: false,
-            keyboard: false,
-            mouse: false,
-            cardinalpoints: false,
-            gridlines_eq: false,
-            gridlines_az: false,
-            gradient: true,
-            negative: false,
-            magnitude: 6, // Show more stars (fainter ones visible)
-            scalestars: 1.5, // Make stars larger/brighter
-            live: true, // Real-time sky movement
-            fontsize: '12px',
-            fontfamily: 'system-ui',
-            ground: false,
-            groundcolour: 'rgba(0,0,0,0)',
-            skycolour: 'rgba(5,5,20,1)',
-            ecliptic: false,
-            meridian: false,
-            fps: 30, // Smooth animation
-          });
-        }
-      };
-    };
-
-    loadVirtualSky();
+  // Generate stars - unique pattern each page load
+  const stars = useMemo(() => {
+    const starList: StarData[] = [];
+    
+    // Create layers of stars for depth effect
+    // Layer 1: Faint distant stars (many, small)
+    for (let i = 0; i < 200; i++) {
+      starList.push({
+        id: i,
+        x: Math.random() * 100,
+        y: Math.random() * 100,
+        size: Math.random() * 1 + 0.5, // 0.5-1.5px
+        brightness: Math.random() * 0.3 + 0.2, // 0.2-0.5
+        twinkleSpeed: Math.random() * 4 + 3, // 3-7s
+        twinkleDelay: Math.random() * 5,
+        color: 'rgba(255, 255, 255, 0.6)',
+      });
+    }
+    
+    // Layer 2: Medium stars
+    for (let i = 200; i < 280; i++) {
+      starList.push({
+        id: i,
+        x: Math.random() * 100,
+        y: Math.random() * 100,
+        size: Math.random() * 1.5 + 1, // 1-2.5px
+        brightness: Math.random() * 0.4 + 0.4, // 0.4-0.8
+        twinkleSpeed: Math.random() * 3 + 2, // 2-5s
+        twinkleDelay: Math.random() * 4,
+        color: getStarColor(),
+      });
+    }
+    
+    // Layer 3: Bright prominent stars (few, large)
+    for (let i = 280; i < 300; i++) {
+      starList.push({
+        id: i,
+        x: Math.random() * 100,
+        y: Math.random() * 100,
+        size: Math.random() * 2 + 2, // 2-4px
+        brightness: Math.random() * 0.3 + 0.7, // 0.7-1.0
+        twinkleSpeed: Math.random() * 2 + 1.5, // 1.5-3.5s
+        twinkleDelay: Math.random() * 3,
+        color: getStarColor(),
+      });
+    }
+    
+    return starList;
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -126,20 +129,68 @@ export default function Login({ onLogin }: LoginProps) {
 
   return (
     <div className="min-h-screen flex relative overflow-hidden">
-      {/* VirtualSky Background - Real Qatar Night Sky */}
+      {/* Night Sky Background */}
       <div 
-        id="qatar-sky"
-        ref={skyMapRef}
         className="absolute inset-0 z-0"
         style={{ 
-          width: '100%', 
-          height: '100%',
-          background: 'linear-gradient(to bottom, #050514 0%, #0a0a1f 50%, #0f0f2a 100%)',
+          background: 'linear-gradient(to bottom, #030308 0%, #050510 20%, #080815 40%, #0a0a1a 60%, #0c0c1f 80%, #0e0e24 100%)',
         }}
       />
       
+      {/* Twinkling Stars */}
+      <div className="absolute inset-0 z-[1] overflow-hidden">
+        <style>{`
+          @keyframes twinkle {
+            0%, 100% { 
+              opacity: var(--base-opacity);
+              transform: scale(1);
+            }
+            25% { 
+              opacity: calc(var(--base-opacity) * 0.4);
+              transform: scale(0.9);
+            }
+            50% { 
+              opacity: calc(var(--base-opacity) * 1.2);
+              transform: scale(1.1);
+            }
+            75% { 
+              opacity: calc(var(--base-opacity) * 0.6);
+              transform: scale(0.95);
+            }
+          }
+          @keyframes glow {
+            0%, 100% {
+              box-shadow: 0 0 2px currentColor, 0 0 4px currentColor;
+            }
+            50% {
+              box-shadow: 0 0 4px currentColor, 0 0 8px currentColor, 0 0 12px currentColor;
+            }
+          }
+        `}</style>
+        {stars.map((star) => (
+          <div
+            key={star.id}
+            className="absolute rounded-full"
+            style={{
+              left: `${star.x}%`,
+              top: `${star.y}%`,
+              width: `${star.size}px`,
+              height: `${star.size}px`,
+              backgroundColor: star.color,
+              '--base-opacity': star.brightness,
+              animation: star.size > 2.5 
+                ? `twinkle ${star.twinkleSpeed}s ease-in-out ${star.twinkleDelay}s infinite, glow ${star.twinkleSpeed * 1.5}s ease-in-out ${star.twinkleDelay}s infinite`
+                : `twinkle ${star.twinkleSpeed}s ease-in-out ${star.twinkleDelay}s infinite`,
+              boxShadow: star.size > 1.5 
+                ? `0 0 ${star.size}px ${star.color.replace('1)', '0.5)')}`
+                : 'none',
+            } as React.CSSProperties}
+          />
+        ))}
+      </div>
+      
       {/* Subtle overlay for text readability */}
-      <div className="absolute inset-0 z-[1] bg-gradient-to-br from-slate-950/30 via-transparent to-slate-950/30"></div>
+      <div className="absolute inset-0 z-[2] bg-gradient-to-br from-slate-950/20 via-transparent to-slate-950/20"></div>
 
       {/* Left Panel - Branding */}
       <div className="hidden lg:flex lg:w-1/2 relative z-10 flex-col justify-center items-center px-12 text-white">
