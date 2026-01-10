@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { useDocuments, useCreateDocument, useUpdateDocument, useDeleteDocument, useSubmitForReview, useApproveDocument, useRejectDocument } from "@/hooks/use-documents";
 import { useUsers } from "@/hooks/use-users";
 import { useAuth } from "@/hooks/use-auth";
@@ -78,6 +79,7 @@ const categoryColors: Record<string, string> = {
 };
 
 export default function Documents() {
+  const [, navigate] = useLocation();
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -420,7 +422,7 @@ export default function Documents() {
           <h1 className="text-2xl font-bold text-foreground" data-testid="text-page-title">Document Control</h1>
           <p className="text-muted-foreground" data-testid="text-page-description">Master List Matrix - ISO 17021 Compliant</p>
         </div>
-        <Button onClick={() => setShowCreateDialog(true)} data-testid="button-create-document">
+        <Button onClick={() => navigate("/documents/new")} data-testid="button-create-document">
           <Plus className="w-4 h-4 mr-2" />
           New Document
         </Button>
@@ -528,7 +530,7 @@ export default function Documents() {
                           <DropdownMenuItem onClick={() => openViewDialog(doc)} data-testid={`menu-view-${doc.id}`}>
                             <Eye className="w-4 h-4 mr-2" /> View Document
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openEditDialog(doc)} data-testid={`menu-edit-${doc.id}`}>
+                          <DropdownMenuItem onClick={() => navigate(`/documents/${doc.id}/edit`)} data-testid={`menu-edit-${doc.id}`}>
                             <Pencil className="w-4 h-4 mr-2" /> Edit
                           </DropdownMenuItem>
                           

@@ -6,6 +6,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Dashboard from "@/pages/Dashboard";
 import Documents from "@/pages/Documents";
+import NewDocument from "@/pages/NewDocument";
+import EditDocument from "@/pages/EditDocument";
 import Users from "@/pages/Users";
 import Employees from "@/pages/Employees";
 import AuditLog from "@/pages/AuditLog";
@@ -26,6 +28,8 @@ function AuthenticatedRouter({ user, onLogout }: { user: User; onLogout: () => v
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/documents" component={Documents} />
+        <Route path="/documents/new" component={NewDocument} />
+        <Route path="/documents/:id/edit" component={EditDocument} />
         <Route path="/users" component={Users} />
         <Route path="/employees" component={Employees} />
         <Route path="/audit-log" component={AuditLog} />
