@@ -340,6 +340,11 @@ export const downloadRequestsRelations = relations(downloadRequests, ({ one }) =
   decidedBy: one(users, { fields: [downloadRequests.decidedById], references: [users.id] }),
 }));
 
+export const documentFeedbackRelations = relations(documentFeedback, ({ one }) => ({
+  document: one(documents, { fields: [documentFeedback.documentId], references: [documents.id] }),
+  author: one(users, { fields: [documentFeedback.authorId], references: [users.id] }),
+}));
+
 // ============================================
 // INSERT SCHEMAS
 // ============================================
@@ -395,6 +400,12 @@ export const insertDownloadRequestSchema = createInsertSchema(downloadRequests).
   decidedAt: true,
 });
 
+export const insertDocumentFeedbackSchema = createInsertSchema(documentFeedback).omit({ 
+  id: true, 
+  createdAt: true,
+  addressedAt: true,
+});
+
 // ============================================
 // TYPES
 // ============================================
@@ -424,6 +435,9 @@ export type InsertEmployeeTask = z.infer<typeof insertEmployeeTaskSchema>;
 
 export type DownloadRequest = typeof downloadRequests.$inferSelect;
 export type InsertDownloadRequest = z.infer<typeof insertDownloadRequestSchema>;
+
+export type DocumentFeedback = typeof documentFeedback.$inferSelect;
+export type InsertDocumentFeedback = z.infer<typeof insertDocumentFeedbackSchema>;
 
 // ============================================
 // API REQUEST/RESPONSE TYPES
