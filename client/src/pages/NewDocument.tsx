@@ -311,7 +311,7 @@ export default function NewDocument() {
               <img 
                 src={sahihLogoPath} 
                 alt="Sahih Certifications" 
-                className="h-16 object-contain"
+                className="h-48 object-contain"
               />
               <div>
                 <h2 className="text-xl font-bold">{formData.title || "Untitled Document"}</h2>
