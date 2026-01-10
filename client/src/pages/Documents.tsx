@@ -1131,9 +1131,9 @@ export default function Documents() {
 
               <Separator className="my-4" />
               
-              <ScrollArea className="h-[350px] pr-4">
+              <ScrollArea className="h-[60vh] pr-4">
                 <div 
-                  className="prose prose-slate max-w-none dark:prose-invert document-content"
+                  className="prose prose-slate max-w-none dark:prose-invert document-content pb-10"
                   style={{ fontFamily: 'Roboto, sans-serif' }}
                   data-testid="text-view-content"
                   dangerouslySetInnerHTML={{ 
