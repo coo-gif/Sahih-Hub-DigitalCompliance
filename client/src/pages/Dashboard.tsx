@@ -73,9 +73,9 @@ const getTimeGreeting = (): { greeting: string; icon: JSX.Element; period: strin
   } else if (hour >= 12 && hour < 17) {
     return { greeting: "Good Afternoon", icon: <CloudSun className="w-6 h-6 text-orange-500" />, period: "afternoon" };
   } else if (hour >= 17 && hour < 21) {
-    return { greeting: "Good Evening", icon: <CloudSun className="w-6 h-6 text-purple-500" />, period: "evening" };
+    return { greeting: "Good Evening", icon: <CloudSun className="w-6 h-6 text-orange-400" />, period: "evening" };
   } else {
-    return { greeting: "Good Night", icon: <Moon className="w-6 h-6 text-indigo-400" />, period: "night" };
+    return { greeting: "Good Night", icon: <Moon className="w-6 h-6 text-amber-300" />, period: "night" };
   }
 };
 
@@ -685,14 +685,14 @@ export default function Dashboard() {
               </div>
               
               <div 
-                className="p-4 rounded-xl bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/30 dark:to-purple-900/20 cursor-pointer hover-elevate transition-all"
+                className="p-4 rounded-xl bg-gradient-to-br from-[#FDF8F3] to-[#F5E6D3]/50 dark:from-[#2a1f1a] dark:to-[#1a1412] cursor-pointer hover-elevate transition-all border border-[#E8D4BE]/50"
                 onClick={() => navigate("/documents")}
               >
                 <div className="flex items-center gap-2 mb-2">
-                  <Award className="w-4 h-4 text-purple-600" />
+                  <Award className="w-4 h-4 text-[#8B0000]" />
                   <span className="text-sm font-medium">Success Rate</span>
                 </div>
-                <p className="text-2xl font-bold text-purple-600">{complianceScore}%</p>
+                <p className="text-2xl font-bold text-[#8B0000]">{complianceScore}%</p>
                 <p className="text-xs text-muted-foreground">Document approval rate</p>
               </div>
               
