@@ -101,6 +101,18 @@ export interface IStorage {
   getDownloadRequest(id: number): Promise<DownloadRequest | undefined>;
   createDownloadRequest(request: InsertDownloadRequest): Promise<DownloadRequest>;
   updateDownloadRequest(id: number, request: Partial<InsertDownloadRequest>): Promise<DownloadRequest>;
+
+  // My Tasks (pending document workflow tasks for a user)
+  getMyTasks(userId: number): Promise<Array<{
+    id: number;
+    documentId: number;
+    documentCode: string;
+    title: string;
+    taskType: 'prepare' | 'review' | 'approve';
+    status: string;
+    createdAt: Date | null;
+    dueDate: Date | null;
+  }>>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -529,6 +541,88 @@ export class DatabaseStorage implements IStorage {
       .where(eq(downloadRequests.id, id))
       .returning();
     return updated;
+  }
+
+  // ============================================
+  // MY TASKS
+  // ============================================
+  async getMyTasks(userId: number): Promise<Array<{
+    id: number;
+    documentId: number;
+    documentCode: string;
+    title: string;
+    taskType: 'prepare' | 'review' | 'approve';
+    status: string;
+    createdAt: Date | null;
+    dueDate: Date | null;
+  }>> {
+    const tasks: Array<{
+      id: number;
+      documentId: number;
+      documentCode: string;
+      title: string;
+      taskType: 'prepare' | 'review' | 'approve';
+      status: string;
+      createdAt: Date | null;
+      dueDate: Date | null;
+    }> = [];
+
+    const allDocs = await db.select().from(documents);
+
+    for (const doc of allDocs) {
+      // Check if user needs to prepare this document (draft status, preparedById matches, not yet signed)
+      if (doc.requiresPreparedBy && 
+          doc.preparedById === userId && 
+          !doc.preparedBySignedAt && 
+          doc.status === DocumentStatus.DRAFT) {
+        tasks.push({
+          id: doc.id,
+          documentId: doc.id,
+          documentCode: doc.documentCode,
+          title: doc.title,
+          taskType: 'prepare',
+          status: doc.status,
+          createdAt: doc.createdAt,
+          dueDate: doc.nextReviewDate,
+        });
+      }
+
+      // Check if user needs to review this document (in_review status, reviewerId matches)
+      if (doc.requiresReviewedBy &&
+          doc.reviewerId === userId && 
+          !doc.reviewedBySignedAt && 
+          doc.status === DocumentStatus.IN_REVIEW) {
+        tasks.push({
+          id: doc.id,
+          documentId: doc.id,
+          documentCode: doc.documentCode,
+          title: doc.title,
+          taskType: 'review',
+          status: doc.status,
+          createdAt: doc.createdAt,
+          dueDate: doc.nextReviewDate,
+        });
+      }
+
+      // Check if user needs to approve this document (pending_approval status, approverId matches)
+      if (doc.requiresApprovedBy &&
+          doc.approverId === userId && 
+          !doc.approvedBySignedAt && 
+          doc.status === DocumentStatus.PENDING_APPROVAL) {
+        tasks.push({
+          id: doc.id,
+          documentId: doc.id,
+          documentCode: doc.documentCode,
+          title: doc.title,
+          taskType: 'approve',
+          status: doc.status,
+          createdAt: doc.createdAt,
+          dueDate: doc.nextReviewDate,
+        });
+      }
+    }
+
+    return tasks;
   }
 }
 

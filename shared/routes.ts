@@ -208,6 +208,9 @@ export const api = {
         requiresPreparedBy: z.boolean().optional(),
         requiresReviewedBy: z.boolean().optional(),
         requiresApprovedBy: z.boolean().optional(),
+        preparedById: z.number().optional(),
+        reviewedById: z.number().optional(),
+        approvedById: z.number().optional(),
       }),
       responses: {
         201: z.custom<typeof documents.$inferSelect>(),
@@ -226,6 +229,9 @@ export const api = {
         requiresPreparedBy: z.boolean().optional(),
         requiresReviewedBy: z.boolean().optional(),
         requiresApprovedBy: z.boolean().optional(),
+        preparedById: z.number().optional(),
+        reviewedById: z.number().optional(),
+        approvedById: z.number().optional(),
       }),
       responses: {
         200: z.custom<typeof documents.$inferSelect>(),
@@ -246,6 +252,7 @@ export const api = {
       path: '/api/documents/:id/submit-review',
       input: z.object({
         reviewerId: z.number(),
+        approverId: z.number().optional(),
         comments: z.string().optional(),
       }),
       responses: {
@@ -332,6 +339,39 @@ export const api = {
       path: '/api/audit-logs',
       responses: {
         200: z.array(z.custom<typeof auditLogs.$inferSelect>()),
+      },
+    },
+  },
+
+  // My Tasks (Document workflow tasks for current user)
+  myTasks: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/my-tasks',
+      responses: {
+        200: z.array(z.object({
+          id: z.number(),
+          documentId: z.number(),
+          documentCode: z.string(),
+          title: z.string(),
+          taskType: z.enum(['prepare', 'review', 'approve']),
+          status: z.string(),
+          createdAt: z.string().nullable(),
+          dueDate: z.string().nullable(),
+        })),
+      },
+    },
+    complete: {
+      method: 'POST' as const,
+      path: '/api/my-tasks/:documentId/complete',
+      input: z.object({
+        taskType: z.enum(['prepare', 'review', 'approve']),
+        comments: z.string().optional(),
+      }),
+      responses: {
+        200: z.custom<typeof documents.$inferSelect>(),
+        400: errorSchemas.validation,
+        404: errorSchemas.notFound,
       },
     },
   },

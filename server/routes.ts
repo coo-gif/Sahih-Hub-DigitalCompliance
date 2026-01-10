@@ -329,6 +329,9 @@ export async function registerRoutes(
         requiresPreparedBy: input.requiresPreparedBy ?? true,
         requiresReviewedBy: input.requiresReviewedBy ?? true,
         requiresApprovedBy: input.requiresApprovedBy ?? true,
+        preparedById: input.preparedById || null,
+        reviewerId: input.reviewedById || null,
+        approverId: input.approvedById || null,
       });
 
       // Audit log
@@ -388,6 +391,9 @@ export async function registerRoutes(
       if (input.requiresPreparedBy !== undefined) updateData.requiresPreparedBy = input.requiresPreparedBy;
       if (input.requiresReviewedBy !== undefined) updateData.requiresReviewedBy = input.requiresReviewedBy;
       if (input.requiresApprovedBy !== undefined) updateData.requiresApprovedBy = input.requiresApprovedBy;
+      if (input.preparedById !== undefined) updateData.preparedById = input.preparedById;
+      if (input.reviewedById !== undefined) updateData.reviewerId = input.reviewedById;
+      if (input.approvedById !== undefined) updateData.approverId = input.approvedById;
 
       const doc = await storage.updateDocument(id, updateData);
 
@@ -456,6 +462,7 @@ export async function registerRoutes(
       const updated = await storage.updateDocument(id, {
         status: DocumentStatus.IN_REVIEW,
         reviewerId: input.reviewerId,
+        ...(input.approverId && { approverId: input.approverId }),
       });
 
       // Workflow log
@@ -702,6 +709,130 @@ export async function registerRoutes(
   app.get(api.auditLogs.list.path, async (req, res) => {
     const logs = await storage.getAuditLogs(100);
     res.json(logs);
+  });
+
+  // ============================================
+  // MY TASKS ROUTES
+  // ============================================
+  app.get(api.myTasks.list.path, async (req, res) => {
+    const userId = getCurrentUserId(req);
+    const tasks = await storage.getMyTasks(userId);
+    res.json(tasks.map(t => ({
+      ...t,
+      createdAt: t.createdAt?.toISOString() || null,
+      dueDate: t.dueDate?.toISOString() || null,
+    })));
+  });
+
+  app.post(api.myTasks.complete.path, async (req, res) => {
+    try {
+      const input = api.myTasks.complete.input.parse(req.body);
+      const documentId = Number(req.params.documentId);
+      const userId = getCurrentUserId(req);
+
+      if (isNaN(documentId)) {
+        return res.status(400).json({ message: 'Invalid document ID' });
+      }
+
+      const doc = await storage.getDocument(documentId);
+      if (!doc) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+
+      let updates: any = {};
+
+      if (input.taskType === 'prepare') {
+        if (doc.preparedById !== userId) {
+          return res.status(403).json({ message: 'You are not assigned to prepare this document' });
+        }
+        updates = {
+          preparedBySignedAt: new Date(),
+        };
+      } else if (input.taskType === 'review') {
+        if (doc.reviewerId !== userId) {
+          return res.status(403).json({ message: 'You are not assigned to review this document' });
+        }
+        updates = {
+          reviewedById: userId,
+          reviewedBySignedAt: new Date(),
+          status: DocumentStatus.PENDING_APPROVAL,
+        };
+
+        // Notify quality managers for approval
+        const qms = await storage.getUsers();
+        for (const qm of qms.filter(u => u.role === UserRole.QUALITY_MANAGER || u.role === UserRole.ADMIN)) {
+          await storage.createNotification({
+            userId: qm.id,
+            title: 'Document Approval Required',
+            message: `Document "${doc.title}" (${doc.documentCode}) requires your final approval.`,
+            urgencyLevel: UrgencyLevel.HIGH,
+            relatedDocumentId: documentId,
+          });
+        }
+      } else if (input.taskType === 'approve') {
+        if (doc.approverId !== userId) {
+          return res.status(403).json({ message: 'You are not assigned to approve this document' });
+        }
+
+        // Increment revision number on approval
+        const newRevision = (doc.revisionNumber || 0) + 1;
+        const newVersionNumber = `Ed.${doc.editionNumber || 1} Rev.${newRevision}`;
+
+        updates = {
+          approvedById: userId,
+          approvedBySignedAt: new Date(),
+          approvedAt: new Date(),
+          status: DocumentStatus.APPROVED,
+          revisionNumber: newRevision,
+          versionNumber: newVersionNumber,
+        };
+
+        // Notify document creator
+        await storage.createNotification({
+          userId: doc.createdById,
+          title: 'Document Published',
+          message: `Your document "${doc.title}" (${doc.documentCode}) has been approved and published.`,
+          urgencyLevel: UrgencyLevel.LOW,
+          relatedDocumentId: documentId,
+        });
+      }
+
+      const updated = await storage.updateDocument(documentId, updates);
+
+      // Workflow log
+      await storage.createWorkflowLog({
+        documentId,
+        fromStatus: doc.status,
+        toStatus: updated.status,
+        actionById: userId,
+        comments: input.comments || `Task completed: ${input.taskType}`,
+      });
+
+      // Audit log
+      await storage.createAuditLog({
+        userId,
+        action: input.taskType === 'approve' ? AuditAction.APPROVE : AuditAction.UPDATE,
+        entityType: 'document',
+        entityId: documentId,
+        previousValue: JSON.stringify({ status: doc.status }),
+        newValue: JSON.stringify({ status: updated.status, taskType: input.taskType }),
+      });
+
+      res.json(updated);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join('.'),
+        });
+      }
+      throw err;
+    }
   });
 
   // ============================================

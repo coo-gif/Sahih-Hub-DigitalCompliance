@@ -1,4 +1,7 @@
 import { useDashboardStats, useComplianceAlerts, useRecentActivity } from "@/hooks/use-dashboard";
+import { useMyTasks, useCompleteTask } from "@/hooks/use-tasks";
+import { useDocument } from "@/hooks/use-documents";
+import { useUsers } from "@/hooks/use-users";
 import { 
   Card, 
   CardContent, 
@@ -10,6 +13,18 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { 
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { useToast } from "@/hooks/use-toast";
+import { 
   FileText, 
   Users, 
   CheckCircle2, 
@@ -17,15 +32,88 @@ import {
   AlertCircle,
   Clock,
   Plus,
-  ArrowRight
+  ArrowRight,
+  ClipboardList,
+  FileCheck,
+  FilePen,
+  FileSignature
 } from "lucide-react";
 import { Link } from "wouter";
 import { format } from "date-fns";
+import { useState } from "react";
+import type { MyTask } from "@/hooks/use-tasks";
 
 export default function Dashboard() {
   const { data: stats, isLoading: statsLoading, isError: statsError } = useDashboardStats();
   const { data: alerts, isLoading: alertsLoading } = useComplianceAlerts();
   const { data: activity, isLoading: activityLoading } = useRecentActivity();
+  const { data: myTasks, isLoading: tasksLoading } = useMyTasks();
+  const { data: allUsers } = useUsers();
+  const completeTaskMutation = useCompleteTask();
+  const { toast } = useToast();
+
+  const [selectedTask, setSelectedTask] = useState<MyTask | null>(null);
+  const [showTaskDialog, setShowTaskDialog] = useState(false);
+  const [taskComments, setTaskComments] = useState("");
+
+  const getTaskIcon = (taskType: string) => {
+    switch (taskType) {
+      case 'prepare':
+        return <FilePen className="w-4 h-4 text-blue-600" />;
+      case 'review':
+        return <FileCheck className="w-4 h-4 text-amber-600" />;
+      case 'approve':
+        return <FileSignature className="w-4 h-4 text-green-600" />;
+      default:
+        return <FileText className="w-4 h-4" />;
+    }
+  };
+
+  const getTaskBadgeColor = (taskType: string) => {
+    switch (taskType) {
+      case 'prepare':
+        return 'bg-blue-100 text-blue-800';
+      case 'review':
+        return 'bg-amber-100 text-amber-800';
+      case 'approve':
+        return 'bg-green-100 text-green-800';
+      default:
+        return '';
+    }
+  };
+
+  const handleOpenTask = (task: MyTask) => {
+    setSelectedTask(task);
+    setTaskComments("");
+    setShowTaskDialog(true);
+  };
+
+  const handleCompleteTask = async () => {
+    if (!selectedTask) return;
+    
+    try {
+      await completeTaskMutation.mutateAsync({
+        documentId: selectedTask.documentId,
+        taskType: selectedTask.taskType,
+        comments: taskComments || undefined,
+      });
+      
+      toast({
+        title: "Task Completed",
+        description: `Successfully completed ${selectedTask.taskType} task for ${selectedTask.documentCode}`,
+      });
+      
+      setShowTaskDialog(false);
+      setSelectedTask(null);
+      setTaskComments("");
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to complete task",
+        variant: "destructive",
+      });
+    }
+  };
 
   if (statsError) {
     return (
@@ -334,6 +422,159 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* My Tasks Section */}
+      <Card data-testid="card-my-tasks">
+        <CardHeader>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <ClipboardList className="w-5 h-5 text-primary" />
+              <div>
+                <CardTitle>My Tasks</CardTitle>
+                <CardDescription>Documents assigned to you for action</CardDescription>
+              </div>
+            </div>
+            <Badge variant="secondary" className="text-sm" data-testid="badge-task-count">
+              {myTasks?.length || 0} pending
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {tasksLoading ? (
+              Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="p-4 rounded-lg border">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-3 flex-1">
+                      <Skeleton className="h-8 w-8 rounded" />
+                      <div className="flex-1">
+                        <Skeleton className="h-4 w-32 mb-2" />
+                        <Skeleton className="h-3 w-48" />
+                      </div>
+                    </div>
+                    <Skeleton className="h-8 w-24" />
+                  </div>
+                </div>
+              ))
+            ) : myTasks && myTasks.length > 0 ? (
+              myTasks.map((task) => (
+                <div 
+                  key={`${task.documentId}-${task.taskType}`} 
+                  className="p-4 rounded-lg border hover:border-primary/50 hover-elevate cursor-pointer transition-all"
+                  onClick={() => handleOpenTask(task)}
+                  data-testid={`task-${task.documentId}-${task.taskType}`}
+                >
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-muted">
+                        {getTaskIcon(task.taskType)}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium" data-testid={`text-task-code-${task.documentId}`}>{task.documentCode}</p>
+                          <Badge className={getTaskBadgeColor(task.taskType)} data-testid={`badge-task-type-${task.documentId}`}>
+                            {task.taskType.charAt(0).toUpperCase() + task.taskType.slice(1)}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground" data-testid={`text-task-title-${task.documentId}`}>{task.title}</p>
+                      </div>
+                    </div>
+                    <Button size="sm" data-testid={`button-open-task-${task.documentId}`}>
+                      Open
+                    </Button>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-center py-12 text-muted-foreground" data-testid="text-no-tasks">
+                <CheckCircle2 className="w-12 h-12 mx-auto mb-3 text-green-500" />
+                <p className="font-medium">No pending tasks</p>
+                <p className="text-sm">You're all caught up!</p>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Task Completion Dialog */}
+      <Dialog open={showTaskDialog} onOpenChange={setShowTaskDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {selectedTask && getTaskIcon(selectedTask.taskType)}
+              Complete Task: {selectedTask?.taskType.charAt(0).toUpperCase()}{selectedTask?.taskType.slice(1)}
+            </DialogTitle>
+            <DialogDescription>
+              {selectedTask?.documentCode} - {selectedTask?.title}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="p-4 bg-muted rounded-lg">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Document Code:</span>
+                  <p className="font-medium">{selectedTask?.documentCode}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Status:</span>
+                  <p className="font-medium capitalize">{selectedTask?.status.replace('_', ' ')}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Task Type:</span>
+                  <Badge className={selectedTask ? getTaskBadgeColor(selectedTask.taskType) : ''}>
+                    {selectedTask?.taskType.charAt(0).toUpperCase()}{selectedTask?.taskType.slice(1)}
+                  </Badge>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Due Date:</span>
+                  <p className="font-medium">
+                    {selectedTask?.dueDate 
+                      ? format(new Date(selectedTask.dueDate), 'MMM d, yyyy')
+                      : 'Not set'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="task-comments">Comments (Optional)</Label>
+              <Textarea
+                id="task-comments"
+                placeholder={`Add any comments for this ${selectedTask?.taskType} action...`}
+                value={taskComments}
+                onChange={(e) => setTaskComments(e.target.value)}
+                rows={3}
+                data-testid="textarea-task-comments"
+              />
+            </div>
+
+            <div className="p-4 border rounded-lg bg-blue-50 dark:bg-blue-950">
+              <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                {selectedTask?.taskType === 'prepare' && 'By completing this task, you confirm that you have prepared this document.'}
+                {selectedTask?.taskType === 'review' && 'By completing this task, you confirm that you have reviewed this document and it is ready for approval.'}
+                {selectedTask?.taskType === 'approve' && 'By completing this task, you confirm that you approve this document for publication.'}
+              </p>
+              <p className="text-xs text-blue-600 dark:text-blue-300 mt-1">
+                Your name and signature will be recorded.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowTaskDialog(false)} data-testid="button-cancel-task">
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleCompleteTask}
+              disabled={completeTaskMutation.isPending}
+              data-testid="button-complete-task"
+            >
+              {completeTaskMutation.isPending ? 'Completing...' : `Complete ${selectedTask?.taskType.charAt(0).toUpperCase()}${selectedTask?.taskType.slice(1)}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

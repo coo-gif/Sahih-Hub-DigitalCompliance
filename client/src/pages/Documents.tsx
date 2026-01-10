@@ -120,6 +120,7 @@ export default function Documents() {
     approvedById: "",
   });
   const [reviewerId, setReviewerId] = useState<string>("");
+  const [approverIdForReview, setApproverIdForReview] = useState<string>("");
   const [reviewComments, setReviewComments] = useState("");
   const [rejectComments, setRejectComments] = useState("");
   
@@ -211,11 +212,16 @@ export default function Documents() {
     try {
       await submitForReviewMutation.mutateAsync({
         id: selectedDocument.id,
-        data: { reviewerId: parseInt(reviewerId), comments: reviewComments },
+        data: { 
+          reviewerId: parseInt(reviewerId), 
+          approverId: approverIdForReview ? parseInt(approverIdForReview) : undefined,
+          comments: reviewComments 
+        },
       });
       toast({ title: "Document submitted for review" });
       setShowReviewDialog(false);
       setSelectedDocument(null);
+      setApproverIdForReview("");
       resetForm();
     } catch (error: any) {
       toast({ title: "Error submitting for review", description: error.message, variant: "destructive" });
@@ -919,6 +925,22 @@ export default function Documents() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div>
+              <Label htmlFor="approver-for-review">Approver (optional)</Label>
+              <Select value={approverIdForReview} onValueChange={setApproverIdForReview}>
+                <SelectTrigger id="approver-for-review" data-testid="select-approver-for-review">
+                  <SelectValue placeholder="Select approver (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeUsers.map((user) => (
+                    <SelectItem key={user.id} value={String(user.id)} data-testid={`option-approver-for-review-${user.id}`}>
+                      {user.name} ({user.role.replace('_', ' ')})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">If selected, this user will see the approval task in their dashboard</p>
             </div>
             <div>
               <Label htmlFor="review-comments">Comments (optional)</Label>
