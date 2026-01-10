@@ -350,11 +350,17 @@ export async function registerRoutes(
       });
 
       res.status(201).json(doc);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({
           message: err.errors[0].message,
           field: err.errors[0].path.join('.'),
+        });
+      }
+      if (err?.code === '23505' && err?.constraint === 'documents_document_code_unique') {
+        return res.status(400).json({
+          message: 'A document with this code already exists. Please use a unique document code.',
+          field: 'documentCode',
         });
       }
       throw err;
