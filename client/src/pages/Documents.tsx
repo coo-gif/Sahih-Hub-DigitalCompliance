@@ -467,8 +467,111 @@ export default function Documents() {
         </CardContent>
       </Card>
 
-      {/* Documents Table */}
-      <Card data-testid="card-documents-table">
+      {/* Mobile Document Cards - shown on small screens */}
+      <div className="md:hidden space-y-3" data-testid="mobile-documents-list">
+        {isLoading ? (
+          Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i} className="p-4">
+              <Skeleton className="h-6 w-3/4 mb-2" />
+              <Skeleton className="h-4 w-1/2" />
+            </Card>
+          ))
+        ) : documents && documents.length > 0 ? (
+          documents.map((doc) => (
+            <Card key={doc.id} className="overflow-hidden" data-testid={`mobile-card-${doc.id}`}>
+              <button
+                onClick={() => openViewDialog(doc)}
+                className="w-full text-left p-4 hover:bg-muted/50 transition-colors active:bg-muted"
+                data-testid={`mobile-title-${doc.id}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-mono text-sm text-muted-foreground">{doc.documentCode}</span>
+                      <Badge className={categoryColors[doc.category] || ""} variant="secondary">
+                        {doc.category.toUpperCase()}
+                      </Badge>
+                    </div>
+                    <h3 className="font-semibold text-base truncate">{doc.title}</h3>
+                    <div className="flex items-center gap-3 mt-2 text-sm text-muted-foreground">
+                      <span>Ed.{doc.editionNumber || 1} Rev.{doc.revisionNumber || 0}</span>
+                      <Badge className={statusColors[doc.status] || ""} variant="secondary">
+                        {doc.status.replace('_', ' ')}
+                      </Badge>
+                    </div>
+                  </div>
+                  <Eye className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-1" />
+                </div>
+              </button>
+              <div className="border-t px-4 py-3 flex items-center justify-between bg-muted/30">
+                <span className="text-xs text-muted-foreground">
+                  {doc.nextReviewDate 
+                    ? `Review: ${format(new Date(doc.nextReviewDate), "MMM d, yyyy")}`
+                    : "No review date"
+                  }
+                </span>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-10 px-4" data-testid={`mobile-actions-${doc.id}`}>
+                      <MoreHorizontal className="w-4 h-4 mr-2" />
+                      Actions
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => openViewDialog(doc)}>
+                      <Eye className="w-4 h-4 mr-2" /> View Document
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => navigate(`/documents/${doc.id}/edit`)}>
+                      <Pencil className="w-4 h-4 mr-2" /> Edit
+                    </DropdownMenuItem>
+                    {doc.status === "draft" && (
+                      <DropdownMenuItem onClick={() => openReviewDialog(doc)}>
+                        <Send className="w-4 h-4 mr-2" /> Submit for Review
+                      </DropdownMenuItem>
+                    )}
+                    {(doc.status === "in_review" || doc.status === "pending_approval") && (
+                      <>
+                        <DropdownMenuItem onClick={() => handleApprove(doc)}>
+                          <CheckCircle className="w-4 h-4 mr-2" /> Approve
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openRejectDialog(doc)}>
+                          <XCircle className="w-4 h-4 mr-2" /> Reject
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                    <DropdownMenuSeparator />
+                    {doc.finalPdfUrl ? (
+                      <DropdownMenuItem onClick={() => handleViewPdf(doc)}>
+                        <FileDown className="w-4 h-4 mr-2" /> View Final Draft
+                      </DropdownMenuItem>
+                    ) : (
+                      <DropdownMenuItem onClick={() => handleGeneratePdf(doc)}>
+                        <FileDown className="w-4 h-4 mr-2" /> Generate PDF
+                      </DropdownMenuItem>
+                    )}
+                    {doc.downloadRequiresApproval && (
+                      <DropdownMenuItem onClick={() => handleRequestDownload(doc)}>
+                        <Download className="w-4 h-4 mr-2" /> Request Download
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => openDeleteDialog(doc)} className="text-red-600">
+                      <Trash2 className="w-4 h-4 mr-2" /> Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </Card>
+          ))
+        ) : (
+          <Card className="p-8 text-center text-muted-foreground">
+            No documents found
+          </Card>
+        )}
+      </div>
+
+      {/* Desktop Documents Table - hidden on mobile */}
+      <Card data-testid="card-documents-table" className="hidden md:block">
         <CardContent className="p-0">
           <Table>
             <TableHeader>
@@ -502,7 +605,7 @@ export default function Documents() {
                     <TableCell data-testid={`text-title-${doc.id}`}>
                       <button 
                         onClick={() => openViewDialog(doc)}
-                        className="text-left hover:text-[#7A0C1A] hover:underline cursor-pointer transition-colors font-medium"
+                        className="text-left hover:text-[#7A0C1A] hover:underline cursor-pointer transition-colors font-medium py-2"
                         data-testid={`button-title-${doc.id}`}
                       >
                         {doc.title}
