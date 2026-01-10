@@ -95,6 +95,18 @@ export const DownloadRequestStatus = {
   REJECTED: "rejected",
 } as const;
 
+export const FeedbackStatus = {
+  PENDING: "pending",
+  ADDRESSED: "addressed",
+  DISMISSED: "dismissed",
+} as const;
+
+export const FeedbackType = {
+  COMMENT: "comment",
+  CORRECTION: "correction",
+  SUGGESTION: "suggestion",
+} as const;
+
 // ============================================
 // USERS TABLE
 // ============================================
@@ -161,6 +173,21 @@ export const documentVersions = pgTable("document_versions", {
   pdfUrl: text("pdf_url"),
   approvedById: integer("approved_by_id"),
   archivedAt: timestamp("archived_at").defaultNow(),
+});
+
+// ============================================
+// DOCUMENT FEEDBACK (Review Comments & Corrections)
+// ============================================
+export const documentFeedback = pgTable("document_feedback", {
+  id: serial("id").primaryKey(),
+  documentId: integer("document_id").notNull(),
+  authorId: integer("author_id").notNull(), // Who wrote the feedback
+  feedbackType: text("feedback_type").notNull().default(FeedbackType.COMMENT),
+  content: text("content").notNull(),
+  status: text("status").notNull().default(FeedbackStatus.PENDING),
+  role: text("role").notNull(), // 'reviewer' or 'approver'
+  createdAt: timestamp("created_at").defaultNow(),
+  addressedAt: timestamp("addressed_at"),
 });
 
 // ============================================
