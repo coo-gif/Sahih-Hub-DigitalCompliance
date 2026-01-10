@@ -60,7 +60,7 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
           <img 
             src={sahihLogoPath} 
             alt="Sahih Certifications" 
-            className="h-10 w-10 object-contain rounded-md bg-white p-1"
+            className="h-32 w-32 object-contain rounded-md bg-white p-2"
           />
           <div>
             <span className="font-bold text-base tracking-tight">Sahih-Hub</span>
