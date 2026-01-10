@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,16 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Shield, LogIn, Award, CheckCircle, Globe, Building2, Star } from "lucide-react";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
+
+interface TwinklingStar {
+  id: number;
+  x: number;
+  y: number;
+  size: number;
+  delay: number;
+  duration: number;
+  opacity: number;
+}
 
 declare global {
   interface Window {
@@ -27,6 +37,25 @@ export default function Login({ onLogin }: LoginProps) {
   const skyMapRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+
+  // Generate random twinkling stars - unique each time page loads
+  const twinklingStars = useMemo(() => {
+    const stars: TwinklingStar[] = [];
+    const starCount = 150; // Number of twinkling stars
+    
+    for (let i = 0; i < starCount; i++) {
+      stars.push({
+        id: i,
+        x: Math.random() * 100,
+        y: Math.random() * 100,
+        size: Math.random() * 3 + 1, // 1-4px
+        delay: Math.random() * 5, // 0-5s delay
+        duration: Math.random() * 3 + 2, // 2-5s duration
+        opacity: Math.random() * 0.5 + 0.3, // 0.3-0.8 opacity
+      });
+    }
+    return stars;
+  }, []);
 
   useEffect(() => {
     // Load VirtualSky library
@@ -137,8 +166,46 @@ export default function Login({ onLogin }: LoginProps) {
         }}
       />
       
+      {/* Twinkling Stars Overlay */}
+      <div className="absolute inset-0 z-[1] overflow-hidden pointer-events-none">
+        <style>{`
+          @keyframes twinkle {
+            0%, 100% { opacity: 0.2; transform: scale(0.8); }
+            50% { opacity: 1; transform: scale(1.2); }
+          }
+          @keyframes shimmer {
+            0%, 100% { opacity: 0.3; filter: blur(0px); }
+            25% { opacity: 0.8; filter: blur(0.5px); }
+            50% { opacity: 1; filter: blur(0px); }
+            75% { opacity: 0.6; filter: blur(0.3px); }
+          }
+        `}</style>
+        {twinklingStars.map((star) => (
+          <div
+            key={star.id}
+            className="absolute rounded-full"
+            style={{
+              left: `${star.x}%`,
+              top: `${star.y}%`,
+              width: `${star.size}px`,
+              height: `${star.size}px`,
+              background: star.size > 2.5 
+                ? 'radial-gradient(circle, rgba(255,255,255,1) 0%, rgba(200,220,255,0.8) 40%, transparent 70%)'
+                : 'rgba(255, 255, 255, 0.9)',
+              boxShadow: star.size > 2 
+                ? `0 0 ${star.size * 2}px rgba(255,255,255,0.6), 0 0 ${star.size * 4}px rgba(200,220,255,0.3)`
+                : 'none',
+              animation: star.size > 2 
+                ? `shimmer ${star.duration}s ease-in-out ${star.delay}s infinite`
+                : `twinkle ${star.duration}s ease-in-out ${star.delay}s infinite`,
+              opacity: star.opacity,
+            }}
+          />
+        ))}
+      </div>
+      
       {/* Subtle overlay for text readability */}
-      <div className="absolute inset-0 z-[1] bg-gradient-to-br from-slate-950/40 via-transparent to-slate-950/40"></div>
+      <div className="absolute inset-0 z-[2] bg-gradient-to-br from-slate-950/40 via-transparent to-slate-950/40"></div>
 
       {/* Left Panel - Branding */}
       <div className="hidden lg:flex lg:w-1/2 relative z-10 flex-col justify-center items-center px-12 text-white">
