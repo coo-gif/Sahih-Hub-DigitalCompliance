@@ -785,12 +785,12 @@ export default function Documents() {
 
       {/* Edit Document Dialog */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col" data-testid="dialog-edit-document">
-          <DialogHeader>
+        <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col p-0" data-testid="dialog-edit-document">
+          <DialogHeader className="px-6 pt-6 pb-2 flex-shrink-0">
             <DialogTitle>Edit Document</DialogTitle>
             <DialogDescription>Update document details</DialogDescription>
           </DialogHeader>
-          <ScrollArea className="flex-1 pr-4">
+          <div className="flex-1 overflow-y-auto px-6 pb-4" style={{ maxHeight: 'calc(90vh - 160px)' }}>
           <div className="space-y-4">
             <div>
               <Label htmlFor="edit-title">Title</Label>
@@ -929,8 +929,8 @@ export default function Documents() {
               </div>
             </div>
           </div>
-          </ScrollArea>
-          <DialogFooter>
+          </div>
+          <DialogFooter className="px-6 py-4 border-t flex-shrink-0">
             <Button variant="outline" onClick={() => setShowEditDialog(false)} data-testid="button-cancel-edit">Cancel</Button>
             <Button 
               onClick={handleEdit} 
