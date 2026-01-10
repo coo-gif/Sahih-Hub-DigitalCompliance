@@ -8,50 +8,7 @@ import { TableRow } from '@tiptap/extension-table-row';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import TextAlign from '@tiptap/extension-text-align';
-import { Mark, mergeAttributes } from '@tiptap/core';
 import { useCallback, useEffect, useState } from 'react';
-
-const TextStyleMark = Mark.create({
-  name: 'textStyle',
-  addOptions() {
-    return {
-      HTMLAttributes: {},
-    };
-  },
-  parseHTML() {
-    return [
-      {
-        tag: 'span',
-        getAttrs: (element) => {
-          const hasStyles = (element as HTMLElement).hasAttribute('style');
-          if (!hasStyles) {
-            return false;
-          }
-          return {};
-        },
-      },
-    ];
-  },
-  renderHTML({ HTMLAttributes }) {
-    return ['span', mergeAttributes(this.options.HTMLAttributes, HTMLAttributes), 0];
-  },
-  addAttributes() {
-    return {
-      fontSize: {
-        default: null,
-        parseHTML: element => element.style.fontSize?.replace(/['"]+/g, ''),
-        renderHTML: attributes => {
-          if (!attributes.fontSize) {
-            return {};
-          }
-          return {
-            style: `font-size: ${attributes.fontSize}`,
-          };
-        },
-      },
-    };
-  },
-});
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -100,8 +57,6 @@ interface TiptapEditorProps {
   onPreview?: () => void;
 }
 
-const fontSizes = [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30];
-
 export default function TiptapEditor({ content, onChange, onPreview }: TiptapEditorProps) {
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [showImageDialog, setShowImageDialog] = useState(false);
@@ -117,7 +72,6 @@ export default function TiptapEditor({ content, onChange, onPreview }: TiptapEdi
       StarterKit.configure({
         heading: false,
       }),
-      TextStyleMark,
       Underline.configure({
         HTMLAttributes: {
           class: 'underline',
@@ -175,11 +129,6 @@ export default function TiptapEditor({ content, onChange, onPreview }: TiptapEdi
     }
   }, [content, editor]);
 
-  const setFontSize = useCallback((size: string) => {
-    if (!editor || !size) return;
-    const sizeNum = parseInt(size);
-    editor.chain().focus().setMark('textStyle', { fontSize: `${sizeNum}px` }).run();
-  }, [editor]);
 
   const addLink = useCallback(() => {
     if (!editor || !linkUrl) return;
@@ -380,21 +329,6 @@ export default function TiptapEditor({ content, onChange, onPreview }: TiptapEdi
         >
           <TableIcon className="w-4 h-4" />
         </Button>
-
-        <Separator orientation="vertical" className="h-6 mx-1" />
-
-        <Select onValueChange={setFontSize}>
-          <SelectTrigger className="w-20 h-8" data-testid="select-font-size">
-            <SelectValue placeholder="Size" />
-          </SelectTrigger>
-          <SelectContent>
-            {fontSizes.map((size) => (
-              <SelectItem key={size} value={size.toString()} data-testid={`option-font-size-${size}`}>
-                {size}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
 
         {editor.isActive('table') && (
           <>
