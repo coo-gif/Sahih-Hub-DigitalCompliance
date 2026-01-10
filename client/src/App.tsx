@@ -14,6 +14,8 @@ import AuditLog from "@/pages/AuditLog";
 import Login from "@/pages/Login";
 import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/Layout";
+import { MobileBottomNav } from "@/components/MobileBottomNav";
+import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
 
 interface User {
   id: number;
@@ -24,18 +26,24 @@ interface User {
 
 function AuthenticatedRouter({ user, onLogout }: { user: User; onLogout: () => void }) {
   return (
-    <Layout user={user} onLogout={onLogout}>
-      <Switch>
-        <Route path="/" component={Dashboard} />
-        <Route path="/documents" component={Documents} />
-        <Route path="/documents/new" component={NewDocument} />
-        <Route path="/documents/:id/edit" component={EditDocument} />
-        <Route path="/users" component={Users} />
-        <Route path="/employees" component={Employees} />
-        <Route path="/audit-log" component={AuditLog} />
-        <Route component={NotFound} />
-      </Switch>
-    </Layout>
+    <>
+      <Layout user={user} onLogout={onLogout}>
+        <div className="pb-16 lg:pb-0">
+          <Switch>
+            <Route path="/" component={Dashboard} />
+            <Route path="/documents" component={Documents} />
+            <Route path="/documents/new" component={NewDocument} />
+            <Route path="/documents/:id/edit" component={EditDocument} />
+            <Route path="/users" component={Users} />
+            <Route path="/employees" component={Employees} />
+            <Route path="/audit-log" component={AuditLog} />
+            <Route component={NotFound} />
+          </Switch>
+        </div>
+      </Layout>
+      <MobileBottomNav />
+      <PWAInstallPrompt />
+    </>
   );
 }
 

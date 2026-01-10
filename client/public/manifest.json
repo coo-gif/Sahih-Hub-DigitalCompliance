@@ -1,0 +1,28 @@
+{
+  "name": "Sahih-Hub Quality Management System",
+  "short_name": "Sahih-Hub",
+  "description": "ISO 17021 Compliant Quality Management System for Sahih Certifications",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F3E3D0",
+  "theme_color": "#7A0C1A",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "productivity"],
+  "screenshots": [],
+  "prefer_related_applications": false
+}

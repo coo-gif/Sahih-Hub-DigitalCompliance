@@ -253,3 +253,47 @@
   background: hsl(345 50% 30%);
   color: hsl(0 0% 95%);
 }
+
+/* Mobile-specific styles */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .safe-area-pb {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Touch-friendly tap targets */
+@media (max-width: 1023px) {
+  button, a, [role="button"] {
+    min-height: 44px;
+  }
+  
+  .touch-action-manipulation {
+    touch-action: manipulation;
+  }
+}
+
+/* Mobile smooth scrolling */
+html {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Hide scrollbar on mobile for cleaner look */
+@media (max-width: 1023px) {
+  ::-webkit-scrollbar {
+    display: none;
+  }
+  
+  * {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* PWA standalone mode adjustments */
+@media all and (display-mode: standalone) {
+  body {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
