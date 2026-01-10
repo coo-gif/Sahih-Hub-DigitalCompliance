@@ -1411,6 +1411,106 @@ export async function registerRoutes(
   });
 
   // ============================================
+  // DOCUMENT FEEDBACK (Review Comments & Corrections)
+  // ============================================
+  app.get('/api/documents/:id/feedback', requireAuth, async (req, res) => {
+    const id = Number(req.params.id);
+    const doc = await storage.getDocument(id);
+    
+    if (!doc) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+
+    const feedback = await storage.getDocumentFeedback(id);
+    res.json(feedback);
+  });
+
+  app.post('/api/documents/:id/feedback', requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { content, feedbackType, role } = req.body;
+      
+      if (!content) {
+        return res.status(400).json({ message: 'Content is required' });
+      }
+      
+      if (!role || !['reviewer', 'approver'].includes(role)) {
+        return res.status(400).json({ message: 'Role must be reviewer or approver' });
+      }
+
+      const doc = await storage.getDocument(id);
+      if (!doc) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+
+      const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
+      
+      // Verify the user has permission to provide feedback
+      if (role === 'reviewer' && doc.reviewerId !== userId) {
+        return res.status(403).json({ message: 'Only the assigned reviewer can add reviewer feedback' });
+      }
+      if (role === 'approver' && doc.approverId !== userId) {
+        return res.status(403).json({ message: 'Only the assigned approver can add approver feedback' });
+      }
+
+      const feedback = await storage.createDocumentFeedback({
+        documentId: id,
+        authorId: userId,
+        content,
+        feedbackType: feedbackType || 'comment',
+        role,
+        status: 'pending',
+      });
+
+      // Notify document author
+      await storage.createNotification({
+        userId: doc.createdById,
+        title: `Feedback on ${doc.documentCode}`,
+        message: `${user?.name || 'A reviewer'} has added ${feedbackType || 'a comment'}: "${content.substring(0, 100)}${content.length > 100 ? '...' : ''}"`,
+        urgencyLevel: feedbackType === 'correction' ? UrgencyLevel.HIGH : UrgencyLevel.MEDIUM,
+        relatedDocumentId: id,
+      });
+
+      // Audit log
+      await storage.createAuditLog({
+        userId,
+        action: AuditAction.CREATE,
+        entityType: 'document_feedback',
+        entityId: feedback.id,
+        newValue: JSON.stringify({ documentId: id, feedbackType, role }),
+      });
+
+      res.status(201).json(feedback);
+    } catch (err) {
+      console.error('Create feedback error:', err);
+      res.status(500).json({ message: 'Failed to create feedback' });
+    }
+  });
+
+  app.post('/api/feedback/:id/address', requireAuth, async (req, res) => {
+    const id = Number(req.params.id);
+    
+    const feedback = await storage.updateDocumentFeedback(id, {
+      status: 'addressed',
+    });
+    
+    if (!feedback) {
+      return res.status(404).json({ message: 'Feedback not found' });
+    }
+
+    await storage.createAuditLog({
+      userId: getCurrentUserId(req),
+      action: AuditAction.UPDATE,
+      entityType: 'document_feedback',
+      entityId: id,
+      newValue: JSON.stringify({ status: 'addressed' }),
+    });
+
+    res.json(feedback);
+  });
+
+  // ============================================
   // SEED DATABASE
   // ============================================
   await seedDatabase();

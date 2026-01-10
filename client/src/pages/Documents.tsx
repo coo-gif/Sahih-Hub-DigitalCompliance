@@ -3,6 +3,7 @@ import { useDocuments, useCreateDocument, useUpdateDocument, useDeleteDocument, 
 import { useUsers } from "@/hooks/use-users";
 import { useAuth } from "@/hooks/use-auth";
 import { useCompleteTask } from "@/hooks/use-tasks";
+import { useDocumentFeedback, useCreateFeedback } from "@/hooks/use-feedback";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -90,6 +91,8 @@ export default function Documents() {
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [feedbackContent, setFeedbackContent] = useState("");
+  const [feedbackType, setFeedbackType] = useState<'comment' | 'correction' | 'suggestion'>('comment');
   
   const filters = {
     status: statusFilter !== "all" ? statusFilter : undefined,
@@ -108,6 +111,8 @@ export default function Documents() {
   const approveMutation = useApproveDocument();
   const rejectMutation = useRejectDocument();
   const completeTaskMutation = useCompleteTask();
+  const createFeedbackMutation = useCreateFeedback();
+  const { data: documentFeedback, refetch: refetchFeedback } = useDocumentFeedback(selectedDocument?.id || null);
   
   const handleSignTask = async (documentId: number, taskType: 'prepare' | 'review' | 'approve') => {
     try {
@@ -118,6 +123,25 @@ export default function Documents() {
       setSelectedDocument(null);
     } catch (error: any) {
       toast({ title: "Error signing document", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const handleSubmitFeedback = async (role: 'reviewer' | 'approver') => {
+    if (!selectedDocument || !feedbackContent.trim()) return;
+    
+    try {
+      await createFeedbackMutation.mutateAsync({
+        documentId: selectedDocument.id,
+        content: feedbackContent,
+        feedbackType,
+        role,
+      });
+      toast({ title: "Feedback Submitted", description: "Your feedback has been sent to the document author." });
+      setFeedbackContent("");
+      setFeedbackType('comment');
+      refetchFeedback();
+    } catch (error: any) {
+      toast({ title: "Error submitting feedback", description: error.message, variant: "destructive" });
     }
   };
   
@@ -1281,6 +1305,75 @@ export default function Documents() {
                   )}
                 </div>
               </div>
+
+              {/* Feedback Section for Reviewers/Approvers */}
+              {currentUser && selectedDocument && (
+                (selectedDocument.reviewerId === currentUser.id && selectedDocument.status === 'in_review') ||
+                (selectedDocument.approverId === currentUser.id && selectedDocument.status === 'pending_approval')
+              ) && (
+                <div className="mt-4 p-4 border rounded-lg bg-amber-50 dark:bg-amber-950" data-testid="section-feedback">
+                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-600" />
+                    Add Comments or Corrections
+                  </h3>
+                  <div className="space-y-3">
+                    <div className="flex gap-2">
+                      <Select value={feedbackType} onValueChange={(v: 'comment' | 'correction' | 'suggestion') => setFeedbackType(v)}>
+                        <SelectTrigger className="w-40" data-testid="select-feedback-type">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="comment">Comment</SelectItem>
+                          <SelectItem value="correction">Correction</SelectItem>
+                          <SelectItem value="suggestion">Suggestion</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Textarea
+                      placeholder="Enter your feedback, comments, or suggested corrections for the document author..."
+                      value={feedbackContent}
+                      onChange={(e) => setFeedbackContent(e.target.value)}
+                      rows={3}
+                      data-testid="textarea-feedback"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={() => handleSubmitFeedback(
+                        selectedDocument.reviewerId === currentUser.id ? 'reviewer' : 'approver'
+                      )}
+                      disabled={!feedbackContent.trim() || createFeedbackMutation.isPending}
+                      data-testid="button-submit-feedback"
+                    >
+                      {createFeedbackMutation.isPending ? 'Submitting...' : 'Submit Feedback'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Show Existing Feedback */}
+              {documentFeedback && documentFeedback.length > 0 && (
+                <div className="mt-4 p-4 border rounded-lg" data-testid="section-existing-feedback">
+                  <h3 className="text-sm font-semibold mb-3">Feedback History</h3>
+                  <div className="space-y-2">
+                    {documentFeedback.map((fb) => (
+                      <div key={fb.id} className="p-2 bg-muted rounded text-sm" data-testid={`feedback-item-${fb.id}`}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <Badge variant={fb.feedbackType === 'correction' ? 'destructive' : 'secondary'}>
+                            {fb.feedbackType}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            by {users?.find(u => u.id === fb.authorId)?.name || 'Unknown'} ({fb.role})
+                          </span>
+                          {fb.status === 'addressed' && (
+                            <Badge variant="outline" className="text-green-600">Addressed</Badge>
+                          )}
+                        </div>
+                        <p className="text-muted-foreground">{fb.content}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </DialogContent>

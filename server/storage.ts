@@ -1,7 +1,7 @@
 import { db } from "./db";
 import {
   users, documents, documentVersions, workflowLogs, notifications, auditLogs,
-  employees, employeeTasks, downloadRequests,
+  employees, employeeTasks, downloadRequests, documentFeedback,
   type User, type InsertUser,
   type Document, type InsertDocument,
   type DocumentVersion, type InsertDocumentVersion,
@@ -11,7 +11,8 @@ import {
   type Employee, type InsertEmployee,
   type EmployeeTask, type InsertEmployeeTask,
   type DownloadRequest, type InsertDownloadRequest,
-  DocumentStatus, InductionStatus, TaskStatus,
+  type DocumentFeedback, type InsertDocumentFeedback,
+  DocumentStatus, InductionStatus, TaskStatus, FeedbackStatus,
 } from "@shared/schema";
 import { eq, desc, and, lt, gt, or, sql } from "drizzle-orm";
 import bcrypt from "bcrypt";
@@ -100,7 +101,7 @@ export interface IStorage {
   getDownloadRequests(filters?: { documentId?: number; requesterId?: number; status?: string }): Promise<DownloadRequest[]>;
   getDownloadRequest(id: number): Promise<DownloadRequest | undefined>;
   createDownloadRequest(request: InsertDownloadRequest): Promise<DownloadRequest>;
-  updateDownloadRequest(id: number, request: Partial<InsertDownloadRequest>): Promise<DownloadRequest>;
+  updateDownloadRequest(id: number, request: Partial<DownloadRequest>): Promise<DownloadRequest>;
 
   // My Tasks (pending document workflow tasks for a user)
   getMyTasks(userId: number): Promise<Array<{
@@ -113,6 +114,12 @@ export interface IStorage {
     createdAt: Date | null;
     dueDate: Date | null;
   }>>;
+
+  // Document Feedback
+  getDocumentFeedback(documentId: number): Promise<DocumentFeedback[]>;
+  createDocumentFeedback(feedback: InsertDocumentFeedback): Promise<DocumentFeedback>;
+  updateDocumentFeedback(id: number, updates: Partial<InsertDocumentFeedback>): Promise<DocumentFeedback>;
+  markFeedbackAddressed(id: number): Promise<DocumentFeedback>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -535,7 +542,7 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async updateDownloadRequest(id: number, updates: Partial<InsertDownloadRequest>): Promise<DownloadRequest> {
+  async updateDownloadRequest(id: number, updates: Partial<DownloadRequest>): Promise<DownloadRequest> {
     const [updated] = await db.update(downloadRequests)
       .set(updates)
       .where(eq(downloadRequests.id, id))
@@ -623,6 +630,39 @@ export class DatabaseStorage implements IStorage {
     }
 
     return tasks;
+  }
+
+  // ============================================
+  // DOCUMENT FEEDBACK
+  // ============================================
+  async getDocumentFeedback(documentId: number): Promise<DocumentFeedback[]> {
+    return await db.select().from(documentFeedback)
+      .where(eq(documentFeedback.documentId, documentId))
+      .orderBy(desc(documentFeedback.createdAt));
+  }
+
+  async createDocumentFeedback(feedback: InsertDocumentFeedback): Promise<DocumentFeedback> {
+    const [created] = await db.insert(documentFeedback).values(feedback).returning();
+    return created;
+  }
+
+  async updateDocumentFeedback(id: number, updates: Partial<InsertDocumentFeedback>): Promise<DocumentFeedback> {
+    const [updated] = await db.update(documentFeedback)
+      .set(updates)
+      .where(eq(documentFeedback.id, id))
+      .returning();
+    return updated;
+  }
+
+  async markFeedbackAddressed(id: number): Promise<DocumentFeedback> {
+    const [updated] = await db.update(documentFeedback)
+      .set({ 
+        status: FeedbackStatus.ADDRESSED, 
+        addressedAt: new Date() 
+      })
+      .where(eq(documentFeedback.id, id))
+      .returning();
+    return updated;
   }
 }
 
