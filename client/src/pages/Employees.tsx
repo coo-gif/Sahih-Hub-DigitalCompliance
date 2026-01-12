@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useEmployees, useCreateEmployee, useUpdateEmployee, useDeleteEmployee, useEmployeeTasks, useCreateEmployeeTask, useCompleteEmployeeTask, useDeleteEmployeeTask } from "@/hooks/use-employees";
 import { useDocuments } from "@/hooks/use-documents";
 import { useToast } from "@/hooks/use-toast";
@@ -111,6 +111,18 @@ export default function Employees() {
   const createTaskMutation = useCreateEmployeeTask();
   const completeTaskMutation = useCompleteEmployeeTask();
   const deleteTaskMutation = useDeleteEmployeeTask();
+
+  const nextEmployeeNumber = useMemo(() => {
+    if (!employees || employees.length === 0) return "EMP-001";
+    const numbers = employees
+      .map(e => {
+        const match = e.employeeNumber.match(/EMP-(\d+)/i);
+        return match ? parseInt(match[1], 10) : 0;
+      })
+      .filter(n => !isNaN(n));
+    const maxNum = numbers.length > 0 ? Math.max(...numbers) : 0;
+    return `EMP-${String(maxNum + 1).padStart(3, '0')}`;
+  }, [employees]);
 
   const [formData, setFormData] = useState({
     employeeNumber: "",
@@ -312,7 +324,7 @@ export default function Employees() {
           <h1 className="text-2xl font-bold" data-testid="text-page-title">HR - Employees</h1>
           <p className="text-muted-foreground">Manage employees and assign training/compliance tasks</p>
         </div>
-        <Button onClick={() => setShowCreateDialog(true)} data-testid="button-add-employee">
+        <Button onClick={() => { setFormData(prev => ({ ...prev, employeeNumber: nextEmployeeNumber })); setShowCreateDialog(true); }} data-testid="button-add-employee">
           <UserPlus className="h-4 w-4 mr-2" />
           Add Employee
         </Button>
@@ -457,7 +469,7 @@ export default function Employees() {
                 <div className="text-center py-12 text-muted-foreground">
                   <Users className="h-12 w-12 mx-auto mb-4 opacity-20" />
                   <p>No employees found</p>
-                  <Button variant="outline" className="mt-4" onClick={() => setShowCreateDialog(true)}>
+                  <Button variant="outline" className="mt-4" onClick={() => { setFormData(prev => ({ ...prev, employeeNumber: nextEmployeeNumber })); setShowCreateDialog(true); }}>
                     Add your first employee
                   </Button>
                 </div>
