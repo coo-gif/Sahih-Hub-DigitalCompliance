@@ -1,6 +1,7 @@
 import { useDashboardStats, useComplianceAlerts, useRecentActivity } from "@/hooks/use-dashboard";
-import { useMyTasks, useCompleteTask } from "@/hooks/use-tasks";
+import { useMyTasks, useCompleteTask, useAllDocumentTasks, usePokeTask } from "@/hooks/use-tasks";
 import { useUsers } from "@/hooks/use-users";
+import { useAuth } from "@/hooks/use-auth";
 import { 
   Card, 
   CardContent, 
@@ -48,7 +49,9 @@ import {
   Target,
   Award,
   BarChart3,
-  RefreshCw
+  RefreshCw,
+  Bell,
+  Eye
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
@@ -85,13 +88,34 @@ export default function Dashboard() {
   const { data: activity, isLoading: activityLoading } = useRecentActivity();
   const { data: myTasks, isLoading: tasksLoading } = useMyTasks();
   const { data: allUsers } = useUsers();
+  const { data: currentUser } = useAuth();
+  
+  const isManager = currentUser?.role === 'admin' || currentUser?.role === 'quality_manager' || currentUser?.role === 'department_head';
+  const { data: allDocumentTasks } = useAllDocumentTasks(isManager);
   const completeTaskMutation = useCompleteTask();
+  const pokeMutation = usePokeTask();
   const { toast } = useToast();
 
   const [selectedTask, setSelectedTask] = useState<MyTask | null>(null);
   const [showTaskDialog, setShowTaskDialog] = useState(false);
   const [taskComments, setTaskComments] = useState("");
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [pokeMessage, setPokeMessage] = useState("");
+  const [pokeTaskId, setPokeTaskId] = useState<number | null>(null);
+  const [showPokeDialog, setShowPokeDialog] = useState(false);
+
+  const handlePoke = async () => {
+    if (!pokeTaskId) return;
+    try {
+      await pokeMutation.mutateAsync({ taskId: pokeTaskId, message: pokeMessage });
+      toast({ title: "Reminder sent", description: "A notification has been sent to the assignee." });
+      setShowPokeDialog(false);
+      setPokeMessage("");
+      setPokeTaskId(null);
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  };
 
   const dailyQuote = useMemo(() => {
     const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
@@ -453,6 +477,140 @@ export default function Dashboard() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Workflow Monitor for Managers - Shows all pending tasks with poke capability */}
+      {isManager && allDocumentTasks && allDocumentTasks.length > 0 && (
+        <Card data-testid="card-workflow-monitor">
+          <CardHeader className="bg-gradient-to-r from-[#520812] to-[#7A0C1A] text-white rounded-t-lg">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-white/20 backdrop-blur-sm">
+                  <Eye className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <CardTitle className="text-lg">Workflow Monitor</CardTitle>
+                  <CardDescription className="text-white/70">Track and remind assignees about pending tasks</CardDescription>
+                </div>
+              </div>
+              <Badge className="bg-white/20 text-white border-white/30" variant="outline">
+                {allDocumentTasks.length} pending
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="p-4">
+            <div className="space-y-3">
+              {allDocumentTasks.slice(0, 5).map((task) => (
+                <div 
+                  key={task.id}
+                  className={`p-4 rounded-lg border transition-all ${
+                    (task.currentDelayHours || 0) > 0 
+                      ? 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800' 
+                      : 'bg-card hover:bg-muted/50'
+                  }`}
+                  data-testid={`monitor-task-${task.id}`}
+                >
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-muted">
+                        {getTaskIcon(task.taskType)}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded">{task.taskNumber}</span>
+                          <Badge className={getTaskBadgeColor(task.taskType)}>
+                            {task.taskType.charAt(0).toUpperCase() + task.taskType.slice(1)}
+                          </Badge>
+                          {(task.currentDelayHours || 0) > 0 && (
+                            <Badge variant="destructive" className="text-xs">
+                              <AlertTriangle className="w-3 h-3 mr-1" />
+                              {task.currentDelayHours}h overdue
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm font-medium mt-1">{task.documentTitle}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Assigned to: <span className="font-medium">{task.assignedToName || 'Unknown'}</span>
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setPokeTaskId(task.id);
+                          setShowPokeDialog(true);
+                        }}
+                        className="gap-1"
+                        data-testid={`button-poke-${task.id}`}
+                      >
+                        <Bell className="h-4 w-4" />
+                        Remind
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        asChild
+                      >
+                        <Link href={`/documents/${task.documentId}/edit`} data-testid={`link-view-task-${task.id}`}>
+                          View
+                        </Link>
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {allDocumentTasks.length > 5 && (
+                <div className="text-center pt-2">
+                  <Button variant="outline" asChild>
+                    <Link href="/tasks">
+                      View all {allDocumentTasks.length} tasks
+                      <ArrowRight className="w-4 h-4 ml-1" />
+                    </Link>
+                  </Button>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Poke/Remind Dialog */}
+      <Dialog open={showPokeDialog} onOpenChange={setShowPokeDialog}>
+        <DialogContent data-testid="dialog-poke">
+          <DialogHeader>
+            <DialogTitle>Send Reminder</DialogTitle>
+            <DialogDescription>
+              Send a notification to remind the assignee about their pending task.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="poke-message">Message (optional)</Label>
+              <Textarea
+                id="poke-message"
+                placeholder="Add a message to your reminder..."
+                value={pokeMessage}
+                onChange={(e) => setPokeMessage(e.target.value)}
+                className="mt-1.5"
+                data-testid="input-poke-message"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPokeDialog(false)}>Cancel</Button>
+            <Button 
+              onClick={handlePoke} 
+              disabled={pokeMutation.isPending}
+              className="gap-1"
+              data-testid="button-send-reminder"
+            >
+              <Bell className="h-4 w-4" />
+              {pokeMutation.isPending ? "Sending..." : "Send Reminder"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Modern Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

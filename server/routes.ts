@@ -1643,6 +1643,51 @@ export async function registerRoutes(
     }
   });
 
+  // Get all visible document tasks system-wide (for managers to monitor and poke)
+  app.get('/api/document-tasks/all', requireAuth, async (req, res) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const currentUser = await storage.getUser(userId);
+      
+      // Only Admin, Quality Manager, Department Head can view all tasks
+      const allowedRoles = [UserRole.ADMIN, UserRole.QUALITY_MANAGER, UserRole.DEPARTMENT_HEAD];
+      if (!currentUser || !allowedRoles.includes(currentUser.role as any)) {
+        return res.status(403).json({ message: 'Access denied. Task monitoring is restricted.' });
+      }
+      
+      // Get all visible tasks (tasks that are currently actionable or awaiting action)
+      // The isVisible flag controls sequential visibility - hidden tasks stay hidden
+      const allTasks = await storage.getDocumentTasks({ 
+        isVisible: true 
+      });
+      
+      // Filter out completed tasks - managers only need to see tasks needing action
+      const activeTasks = allTasks.filter(t => t.status !== DocumentTaskStatus.COMPLETED);
+      
+      const enrichedTasks = await Promise.all(activeTasks.map(async (task) => {
+        const doc = await storage.getDocument(task.documentId);
+        const assignedUser = await storage.getUser(task.assignedToId);
+        const now = new Date();
+        const delayHours = task.targetDate && now > task.targetDate 
+          ? Math.ceil((now.getTime() - task.targetDate.getTime()) / (1000 * 60 * 60))
+          : 0;
+        
+        return {
+          ...task,
+          documentCode: doc?.documentCode,
+          documentTitle: doc?.title,
+          assignedToName: assignedUser?.name,
+          currentDelayHours: delayHours,
+        };
+      }));
+      
+      res.json(enrichedTasks);
+    } catch (err) {
+      console.error('Error fetching all document tasks:', err);
+      res.status(500).json({ message: 'Failed to fetch tasks' });
+    }
+  });
+
   // Complete a document task
   app.post('/api/document-tasks/:id/complete', requireAuth, async (req, res) => {
     try {
