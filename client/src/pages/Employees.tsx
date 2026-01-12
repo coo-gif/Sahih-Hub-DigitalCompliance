@@ -660,7 +660,7 @@ export default function Employees() {
                   <SelectValue placeholder="Select supervisor" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
+                  <SelectItem value="none">None</SelectItem>
                   {(employees || []).map(emp => (
                     <SelectItem key={emp.id} value={String(emp.id)}>{emp.name}</SelectItem>
                   ))}
@@ -779,7 +779,7 @@ export default function Employees() {
                   <SelectValue placeholder="Select supervisor" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
+                  <SelectItem value="none">None</SelectItem>
                   {(employees || []).filter(e => e.id !== selectedEmployee?.id).map(emp => (
                     <SelectItem key={emp.id} value={String(emp.id)}>{emp.name}</SelectItem>
                   ))}
@@ -839,7 +839,7 @@ export default function Employees() {
                   <SelectValue placeholder="Select a document (optional)" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
+                  <SelectItem value="none">None</SelectItem>
                   {approvedDocs.map(doc => (
                     <SelectItem key={doc.id} value={String(doc.id)}>
                       {doc.documentCode} - {doc.title}
