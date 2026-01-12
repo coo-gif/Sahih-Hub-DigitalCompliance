@@ -396,6 +396,25 @@ export default function Documents() {
   };
   
   const openReviewDialog = (doc: Document) => {
+    // Validate that required signatories are assigned before opening dialog
+    const missingSignatories: string[] = [];
+    
+    if (doc.requiresReviewedBy && !doc.reviewedById) {
+      missingSignatories.push("Reviewer");
+    }
+    if (doc.requiresApprovedBy && !doc.approvedById) {
+      missingSignatories.push("Approver");
+    }
+    
+    if (missingSignatories.length > 0) {
+      toast({
+        title: "Missing Signatories",
+        description: `Please edit the document and assign: ${missingSignatories.join(", ")}. Go to Edit Document to assign required signatories before submission.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    
     setSelectedDocument(doc);
     setShowReviewDialog(true);
   };
