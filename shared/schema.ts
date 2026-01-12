@@ -107,6 +107,27 @@ export const FeedbackType = {
   SUGGESTION: "suggestion",
 } as const;
 
+export const DocumentTaskType = {
+  PREPARE: "prepare",
+  REVIEW: "review",
+  APPROVE: "approve",
+} as const;
+
+export const DocumentTaskStatus = {
+  PENDING: "pending",
+  ASSIGNED: "assigned",
+  IN_PROGRESS: "in_progress",
+  COMPLETED: "completed",
+  OVERDUE: "overdue",
+} as const;
+
+export const DocumentImportance = {
+  LOW: "low",
+  MEDIUM: "medium",
+  HIGH: "high",
+  CRITICAL: "critical",
+} as const;
+
 // ============================================
 // USERS TABLE
 // ============================================
@@ -138,6 +159,7 @@ export const documents = pgTable("documents", {
   editionNumber: integer("edition_number").notNull().default(1),
   revisionNumber: integer("revision_number").notNull().default(0),
   status: text("status").notNull().default(DocumentStatus.DRAFT),
+  importance: text("importance").notNull().default(DocumentImportance.MEDIUM),
   createdById: integer("created_by_id").notNull(),
   reviewerId: integer("reviewer_id"),
   approverId: integer("approver_id"),
@@ -148,6 +170,7 @@ export const documents = pgTable("documents", {
   requiresApprovedBy: boolean("requires_approved_by").default(true),
   preparedById: integer("prepared_by_id"),
   preparedBySignedAt: timestamp("prepared_by_signed_at"),
+  preparerConfirmedAt: timestamp("preparer_confirmed_at"),
   reviewedById: integer("reviewed_by_id"),
   reviewedBySignedAt: timestamp("reviewed_by_signed_at"),
   approvedById: integer("approved_by_id"),
@@ -157,6 +180,30 @@ export const documents = pgTable("documents", {
   downloadRequiresApproval: boolean("download_requires_approval").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ============================================
+// DOCUMENT TASKS (Sequential Workflow Tracking)
+// ============================================
+export const documentTasks = pgTable("document_tasks", {
+  id: serial("id").primaryKey(),
+  documentId: integer("document_id").notNull(),
+  taskNumber: text("task_number").notNull(), // e.g., TASK-001
+  taskType: text("task_type").notNull(), // prepare, review, approve
+  assignedToId: integer("assigned_to_id").notNull(),
+  assignedById: integer("assigned_by_id").notNull(),
+  status: text("status").notNull().default(DocumentTaskStatus.PENDING),
+  targetDate: timestamp("target_date").notNull(),
+  targetHours: integer("target_hours").notNull().default(24),
+  assignedAt: timestamp("assigned_at").defaultNow(),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  actualHours: integer("actual_hours"),
+  earlyHours: integer("early_hours").default(0),
+  delayHours: integer("delay_hours").default(0),
+  performancePoints: integer("performance_points").default(0),
+  isVisible: boolean("is_visible").default(false), // Only visible when it's their turn
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 // ============================================
@@ -201,6 +248,18 @@ export const downloadRequests = pgTable("download_requests", {
   decidedById: integer("decided_by_id"),
   decidedAt: timestamp("decided_at"),
   reason: text("reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// ============================================
+// TASK POKES (Buzz/Reminder Notifications)
+// ============================================
+export const taskPokes = pgTable("task_pokes", {
+  id: serial("id").primaryKey(),
+  documentTaskId: integer("document_task_id").notNull(),
+  pokedById: integer("poked_by_id").notNull(),
+  pokedUserId: integer("poked_user_id").notNull(),
+  message: text("message"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -345,6 +404,19 @@ export const documentFeedbackRelations = relations(documentFeedback, ({ one }) =
   author: one(users, { fields: [documentFeedback.authorId], references: [users.id] }),
 }));
 
+export const documentTasksRelations = relations(documentTasks, ({ one, many }) => ({
+  document: one(documents, { fields: [documentTasks.documentId], references: [documents.id] }),
+  assignedTo: one(users, { fields: [documentTasks.assignedToId], references: [users.id] }),
+  assignedBy: one(users, { fields: [documentTasks.assignedById], references: [users.id] }),
+  pokes: many(taskPokes),
+}));
+
+export const taskPokesRelations = relations(taskPokes, ({ one }) => ({
+  documentTask: one(documentTasks, { fields: [taskPokes.documentTaskId], references: [documentTasks.id] }),
+  pokedBy: one(users, { fields: [taskPokes.pokedById], references: [users.id] }),
+  pokedUser: one(users, { fields: [taskPokes.pokedUserId], references: [users.id] }),
+}));
+
 // ============================================
 // INSERT SCHEMAS
 // ============================================
@@ -406,6 +478,19 @@ export const insertDocumentFeedbackSchema = createInsertSchema(documentFeedback)
   addressedAt: true,
 });
 
+export const insertDocumentTaskSchema = createInsertSchema(documentTasks).omit({ 
+  id: true, 
+  createdAt: true,
+  assignedAt: true,
+  startedAt: true,
+  completedAt: true,
+});
+
+export const insertTaskPokeSchema = createInsertSchema(taskPokes).omit({ 
+  id: true, 
+  createdAt: true,
+});
+
 // ============================================
 // TYPES
 // ============================================
@@ -438,6 +523,12 @@ export type InsertDownloadRequest = z.infer<typeof insertDownloadRequestSchema>;
 
 export type DocumentFeedback = typeof documentFeedback.$inferSelect;
 export type InsertDocumentFeedback = z.infer<typeof insertDocumentFeedbackSchema>;
+
+export type DocumentTask = typeof documentTasks.$inferSelect;
+export type InsertDocumentTask = z.infer<typeof insertDocumentTaskSchema>;
+
+export type TaskPoke = typeof taskPokes.$inferSelect;
+export type InsertTaskPoke = z.infer<typeof insertTaskPokeSchema>;
 
 // ============================================
 // API REQUEST/RESPONSE TYPES
