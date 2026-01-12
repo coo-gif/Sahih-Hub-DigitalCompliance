@@ -246,81 +246,6 @@ export const api = {
         404: errorSchemas.notFound,
       },
     },
-    // Workflow actions
-    submitForReview: {
-      method: 'POST' as const,
-      path: '/api/documents/:id/submit-review',
-      input: z.object({
-        comments: z.string().optional(),
-      }),
-      responses: {
-        200: z.custom<typeof documents.$inferSelect>(),
-        400: errorSchemas.validation,
-        404: errorSchemas.notFound,
-      },
-    },
-    // Reviewer action: Complete review (accept or request corrections)
-    completeReview: {
-      method: 'POST' as const,
-      path: '/api/documents/:id/complete-review',
-      input: z.object({
-        action: z.enum(['accept', 'request_corrections']),
-        comments: z.string().optional(),
-      }),
-      responses: {
-        200: z.custom<typeof documents.$inferSelect>(),
-        400: errorSchemas.validation,
-        403: errorSchemas.forbidden,
-        404: errorSchemas.notFound,
-      },
-    },
-    // Approver action: Final approve (only from pending_approval status)
-    approve: {
-      method: 'POST' as const,
-      path: '/api/documents/:id/approve',
-      input: z.object({
-        comments: z.string().optional(),
-      }),
-      responses: {
-        200: z.custom<typeof documents.$inferSelect>(),
-        400: errorSchemas.validation,
-        403: errorSchemas.forbidden,
-        404: errorSchemas.notFound,
-      },
-    },
-    // Approver action: Reject (only from pending_approval status)
-    reject: {
-      method: 'POST' as const,
-      path: '/api/documents/:id/reject',
-      input: z.object({
-        comments: z.string().min(1),
-      }),
-      responses: {
-        200: z.custom<typeof documents.$inferSelect>(),
-        400: errorSchemas.validation,
-        403: errorSchemas.forbidden,
-        404: errorSchemas.notFound,
-      },
-    },
-    publish: {
-      method: 'POST' as const,
-      path: '/api/documents/:id/publish',
-      input: z.object({
-        comments: z.string().optional(),
-      }),
-      responses: {
-        200: z.custom<typeof documents.$inferSelect>(),
-        400: errorSchemas.validation,
-        404: errorSchemas.notFound,
-      },
-    },
-    workflowHistory: {
-      method: 'GET' as const,
-      path: '/api/documents/:id/workflow',
-      responses: {
-        200: z.array(z.custom<typeof workflowLogs.$inferSelect>()),
-      },
-    },
   },
 
   // Notifications
@@ -360,38 +285,6 @@ export const api = {
     },
   },
 
-  // My Tasks (Document workflow tasks for current user)
-  myTasks: {
-    list: {
-      method: 'GET' as const,
-      path: '/api/my-tasks',
-      responses: {
-        200: z.array(z.object({
-          id: z.number(),
-          documentId: z.number(),
-          documentCode: z.string(),
-          title: z.string(),
-          taskType: z.enum(['prepare', 'review', 'approve']),
-          status: z.string(),
-          createdAt: z.string().nullable(),
-          dueDate: z.string().nullable(),
-        })),
-      },
-    },
-    complete: {
-      method: 'POST' as const,
-      path: '/api/my-tasks/:documentId/complete',
-      input: z.object({
-        taskType: z.enum(['prepare', 'review', 'approve']),
-        comments: z.string().optional(),
-      }),
-      responses: {
-        200: z.custom<typeof documents.$inferSelect>(),
-        400: errorSchemas.validation,
-        404: errorSchemas.notFound,
-      },
-    },
-  },
 
   // Employees (HR)
   employees: {
