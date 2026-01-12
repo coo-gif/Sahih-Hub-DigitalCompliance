@@ -10,6 +10,7 @@ import NewDocument from "@/pages/NewDocument";
 import EditDocument from "@/pages/EditDocument";
 import Users from "@/pages/Users";
 import Employees from "@/pages/Employees";
+import HROrganogram from "@/pages/HROrganogram";
 import AuditLog from "@/pages/AuditLog";
 import MyTasks from "@/pages/MyTasks";
 import Login from "@/pages/Login";
@@ -36,6 +37,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: User; onLogout: () => v
             <Route path="/documents/new" component={NewDocument} />
             <Route path="/documents/:id/edit" component={EditDocument} />
             <Route path="/users" component={Users} />
+            <Route path="/hr" component={HROrganogram} />
             <Route path="/employees" component={Employees} />
             <Route path="/tasks" component={MyTasks} />
             <Route path="/audit-log" component={AuditLog} />

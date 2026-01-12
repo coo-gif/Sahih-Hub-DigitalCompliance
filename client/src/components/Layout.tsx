@@ -18,7 +18,7 @@ import {
   Bell,
   Menu,
   CheckCheck,
-  UserCog,
+  Network,
   LogOut,
   User,
   Shield,
@@ -44,7 +44,7 @@ const navItems = [
   { href: "/documents", label: "Documents", icon: FileText },
   { href: "/tasks", label: "My Tasks", icon: ClipboardList },
   { href: "/users", label: "Users", icon: Users },
-  { href: "/employees", label: "HR - Employees", icon: UserCog },
+  { href: "/hr", label: "HR", icon: Network },
   { href: "/audit-log", label: "Audit Log", icon: History },
 ];
 

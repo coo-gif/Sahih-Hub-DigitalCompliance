@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { Link } from "wouter";
 import { useEmployees, useCreateEmployee, useUpdateEmployee, useDeleteEmployee, useEmployeeTasks, useCreateEmployeeTask, useCompleteEmployeeTask, useDeleteEmployeeTask } from "@/hooks/use-employees";
 import { useDocuments } from "@/hooks/use-documents";
 import { useToast } from "@/hooks/use-toast";
@@ -55,7 +56,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
-import { Plus, MoreHorizontal, Pencil, Trash2, UserPlus, FileText, CheckCircle, Clock, AlertCircle, Users, ClipboardList } from "lucide-react";
+import { Plus, MoreHorizontal, Pencil, Trash2, UserPlus, FileText, CheckCircle, Clock, AlertCircle, Users, ClipboardList, Network } from "lucide-react";
 import { format } from "date-fns";
 import type { Employee, EmployeeTask } from "@shared/schema";
 
@@ -324,10 +325,18 @@ export default function Employees() {
           <h1 className="text-2xl font-bold" data-testid="text-page-title">HR - Employees</h1>
           <p className="text-muted-foreground">Manage employees and assign training/compliance tasks</p>
         </div>
-        <Button onClick={() => { setFormData(prev => ({ ...prev, employeeNumber: nextEmployeeNumber })); setShowCreateDialog(true); }} data-testid="button-add-employee">
-          <UserPlus className="h-4 w-4 mr-2" />
-          Add Employee
-        </Button>
+        <div className="flex items-center gap-3">
+          <Link href="/hr">
+            <Button variant="outline" data-testid="button-view-organogram">
+              <Network className="h-4 w-4 mr-2" />
+              Org Chart
+            </Button>
+          </Link>
+          <Button onClick={() => { setFormData(prev => ({ ...prev, employeeNumber: nextEmployeeNumber })); setShowCreateDialog(true); }} data-testid="button-add-employee">
+            <UserPlus className="h-4 w-4 mr-2" />
+            Add Employee
+          </Button>
+        </div>
       </div>
 
       <Tabs defaultValue="employees" className="w-full">
