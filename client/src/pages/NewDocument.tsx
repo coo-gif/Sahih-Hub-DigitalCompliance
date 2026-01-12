@@ -43,14 +43,10 @@ export default function NewDocument() {
     content: "",
     nextReviewDate: "",
     requiresPreparedBy: true,
-    requiresReviewedBy: true,
     requiresApprovedBy: true,
     preparedById: "",
-    reviewedById: "",
     approvedById: "",
   });
-
-  const activeUsers = users?.filter(u => u.isActive) || [];
 
   const handleCreate = async () => {
     try {
@@ -62,10 +58,8 @@ export default function NewDocument() {
         content: formData.content || undefined,
         nextReviewDate: formData.nextReviewDate || undefined,
         requiresPreparedBy: formData.requiresPreparedBy,
-        requiresReviewedBy: formData.requiresReviewedBy,
         requiresApprovedBy: formData.requiresApprovedBy,
         preparedById: formData.preparedById ? parseInt(formData.preparedById) : undefined,
-        reviewedById: formData.reviewedById ? parseInt(formData.reviewedById) : undefined,
         approvedById: formData.approvedById ? parseInt(formData.approvedById) : undefined,
       });
       toast({ title: "Document created successfully" });
@@ -212,24 +206,13 @@ export default function NewDocument() {
                     Prepared By - Document author signature
                   </Label>
                 </div>
-                <div className="flex items-center space-x-3">
-                  <Checkbox
-                    id="requiresReviewedBy"
-                    checked={formData.requiresReviewedBy}
-                    onCheckedChange={(checked) => setFormData({ ...formData, requiresReviewedBy: !!checked })}
-                    data-testid="checkbox-requires-reviewed-by"
-                  />
-                  <Label htmlFor="requiresReviewedBy" className="font-normal cursor-pointer">
-                    Reviewed By - Department head review signature
-                  </Label>
-                </div>
               </div>
               
               <Separator />
               
               <div>
                 <Label className="text-base font-medium">Signatory Selection</Label>
-                <p className="text-sm text-muted-foreground mb-3">Select the preparer and reviewer. The reviewer will decide whether to approve or delegate.</p>
+                <p className="text-sm text-muted-foreground mb-3">Select the user who will prepare this document.</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {formData.requiresPreparedBy && (
                     <div>
@@ -240,23 +223,6 @@ export default function NewDocument() {
                         </SelectTrigger>
                         <SelectContent>
                           {users?.map((user) => (
-                            <SelectItem key={user.id} value={String(user.id)}>
-                              {user.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                  {formData.requiresReviewedBy && (
-                    <div>
-                      <Label htmlFor="reviewedById">Reviewed By</Label>
-                      <Select value={formData.reviewedById} onValueChange={(v) => setFormData({ ...formData, reviewedById: v })}>
-                        <SelectTrigger id="reviewedById" data-testid="select-reviewed-by">
-                          <SelectValue placeholder="Select user" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {activeUsers.map((user) => (
                             <SelectItem key={user.id} value={String(user.id)}>
                               {user.name}
                             </SelectItem>
