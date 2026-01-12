@@ -458,7 +458,7 @@ export async function registerRoutes(
     }
   }
 
-  // Submit for Review
+  // Submit for Review - Uses pre-assigned signatories from document
   app.post(api.documents.submitForReview.path, async (req, res) => {
     try {
       const input = api.documents.submitForReview.input.parse(req.body);
@@ -481,82 +481,199 @@ export async function registerRoutes(
         });
       }
 
-      const updated = await storage.updateDocument(id, {
-        status: DocumentStatus.IN_REVIEW,
-        reviewerId: input.reviewerId,
-        ...(input.approverId && { approverId: input.approverId }),
-      });
+      // Use pre-assigned signatories from document
+      const reviewerId = doc.reviewedById;
+      const approverId = doc.approvedById;
+      const requiresReview = doc.requiresReviewedBy;
+      const requiresApproval = doc.requiresApprovedBy;
+
+      // Validate that reviewer is assigned if review is required
+      if (requiresReview && !reviewerId) {
+        return res.status(400).json({ 
+          message: 'A reviewer must be assigned before submission. Please edit the document and select a reviewer.' 
+        });
+      }
+
+      // Validate that approver is assigned if approval is required
+      if (requiresApproval && !approverId) {
+        return res.status(400).json({ 
+          message: 'An approver must be assigned before submission. Please edit the document and select an approver.' 
+        });
+      }
 
       // Calculate target hours based on document importance
       const importance = (doc as any).importance || 'medium';
       const targetHours = calculateTargetHours(importance);
       const now = new Date();
 
-      // Create review task (visible immediately)
-      const reviewTaskNumber = await storage.generateTaskNumber();
-      const reviewTargetDate = new Date(now.getTime() + targetHours * 60 * 60 * 1000);
-      
-      await storage.createDocumentTask({
-        documentId: id,
-        taskNumber: reviewTaskNumber,
-        taskType: DocumentTaskType.REVIEW,
-        assignedToId: input.reviewerId,
-        assignedById: userId,
-        status: DocumentTaskStatus.ASSIGNED,
-        targetDate: reviewTargetDate,
-        targetHours,
-        isVisible: true, // Reviewer can see immediately
-      });
+      // Use nextReviewDate as target if available, otherwise calculate from importance
+      let targetDate: Date;
+      if (doc.nextReviewDate) {
+        targetDate = new Date(doc.nextReviewDate);
+      } else {
+        targetDate = new Date(now.getTime() + targetHours * 60 * 60 * 1000);
+      }
 
-      // Create approve task (not visible until review is complete)
-      // Target date for approval will be set to 1 day after review completion
-      if (input.approverId) {
-        const approveTaskNumber = await storage.generateTaskNumber();
+      // Determine new status based on workflow requirements
+      let newStatus: string;
+      let taskNumber: string = '';
+      
+      if (requiresReview && reviewerId) {
+        // Standard flow: Draft -> In Review
+        newStatus = DocumentStatus.IN_REVIEW;
+        
+        const updated = await storage.updateDocument(id, {
+          status: newStatus,
+          reviewerId: reviewerId,
+        });
+
+        // Create review task (visible immediately)
+        taskNumber = await storage.generateTaskNumber();
         
         await storage.createDocumentTask({
           documentId: id,
-          taskNumber: approveTaskNumber,
-          taskType: DocumentTaskType.APPROVE,
-          assignedToId: input.approverId,
+          taskNumber,
+          taskType: DocumentTaskType.REVIEW,
+          assignedToId: reviewerId,
           assignedById: userId,
-          status: DocumentTaskStatus.PENDING,
-          targetDate: null, // Will be set to 1 day after review completion
-          targetHours: 24, // 1 day for approval
-          isVisible: false, // Not visible until review is complete
+          status: DocumentTaskStatus.ASSIGNED,
+          targetDate,
+          targetHours,
+          isVisible: true,
         });
+
+        // Create approve task (not visible until review is complete)
+        if (requiresApproval && approverId) {
+          const approveTaskNumber = await storage.generateTaskNumber();
+          
+          await storage.createDocumentTask({
+            documentId: id,
+            taskNumber: approveTaskNumber,
+            taskType: DocumentTaskType.APPROVE,
+            assignedToId: approverId,
+            assignedById: userId,
+            status: DocumentTaskStatus.PENDING,
+            targetDate: null,
+            targetHours: 24,
+            isVisible: false,
+          });
+        }
+
+        // Workflow log
+        await storage.createWorkflowLog({
+          documentId: id,
+          fromStatus: DocumentStatus.DRAFT,
+          toStatus: newStatus,
+          assignedToId: reviewerId,
+          actionById: userId,
+          comments: input.comments || 'Submitted for review',
+        });
+
+        // Notification to reviewer
+        await storage.createNotification({
+          userId: reviewerId,
+          title: 'New Task Assigned',
+          message: `Task ${taskNumber}: Document "${doc.title}" (${doc.documentCode}) requires your review. Target: ${targetHours} hours.`,
+          urgencyLevel: importance === 'critical' ? UrgencyLevel.CRITICAL : 
+                        importance === 'high' ? UrgencyLevel.HIGH : UrgencyLevel.MEDIUM,
+          relatedDocumentId: id,
+        });
+
+        // Audit log
+        await storage.createAuditLog({
+          userId,
+          action: AuditAction.SUBMIT_FOR_REVIEW,
+          entityType: 'document',
+          entityId: id,
+          previousValue: JSON.stringify({ status: doc.status }),
+          newValue: JSON.stringify({ status: newStatus, reviewerId }),
+        });
+
+        res.json(updated);
+      } else if (requiresApproval && approverId) {
+        // Skip review, go directly to pending approval
+        newStatus = DocumentStatus.PENDING_APPROVAL;
+        
+        const updated = await storage.updateDocument(id, {
+          status: newStatus,
+          approverId: approverId,
+        });
+
+        // Create approve task (visible immediately since no review step)
+        taskNumber = await storage.generateTaskNumber();
+        
+        await storage.createDocumentTask({
+          documentId: id,
+          taskNumber,
+          taskType: DocumentTaskType.APPROVE,
+          assignedToId: approverId,
+          assignedById: userId,
+          status: DocumentTaskStatus.ASSIGNED,
+          targetDate,
+          targetHours,
+          isVisible: true,
+        });
+
+        // Workflow log
+        await storage.createWorkflowLog({
+          documentId: id,
+          fromStatus: DocumentStatus.DRAFT,
+          toStatus: newStatus,
+          assignedToId: approverId,
+          actionById: userId,
+          comments: input.comments || 'Submitted for approval',
+        });
+
+        // Notification to approver
+        await storage.createNotification({
+          userId: approverId,
+          title: 'New Task Assigned',
+          message: `Task ${taskNumber}: Document "${doc.title}" (${doc.documentCode}) requires your approval. Target: ${targetHours} hours.`,
+          urgencyLevel: importance === 'critical' ? UrgencyLevel.CRITICAL : 
+                        importance === 'high' ? UrgencyLevel.HIGH : UrgencyLevel.MEDIUM,
+          relatedDocumentId: id,
+        });
+
+        // Audit log
+        await storage.createAuditLog({
+          userId,
+          action: AuditAction.SUBMIT_FOR_REVIEW,
+          entityType: 'document',
+          entityId: id,
+          previousValue: JSON.stringify({ status: doc.status }),
+          newValue: JSON.stringify({ status: newStatus, approverId }),
+        });
+
+        res.json(updated);
+      } else {
+        // No review or approval required - go straight to approved
+        newStatus = DocumentStatus.APPROVED;
+        
+        const updated = await storage.updateDocument(id, {
+          status: newStatus,
+        });
+
+        // Workflow log
+        await storage.createWorkflowLog({
+          documentId: id,
+          fromStatus: DocumentStatus.DRAFT,
+          toStatus: newStatus,
+          actionById: userId,
+          comments: input.comments || 'Auto-approved (no review/approval required)',
+        });
+
+        // Audit log
+        await storage.createAuditLog({
+          userId,
+          action: AuditAction.PUBLISH,
+          entityType: 'document',
+          entityId: id,
+          previousValue: JSON.stringify({ status: doc.status }),
+          newValue: JSON.stringify({ status: newStatus }),
+        });
+
+        res.json(updated);
       }
-
-      // Workflow log
-      await storage.createWorkflowLog({
-        documentId: id,
-        fromStatus: DocumentStatus.DRAFT,
-        toStatus: DocumentStatus.IN_REVIEW,
-        assignedToId: input.reviewerId,
-        actionById: userId,
-        comments: input.comments || 'Submitted for review',
-      });
-
-      // Audit log
-      await storage.createAuditLog({
-        userId,
-        action: AuditAction.SUBMIT_FOR_REVIEW,
-        entityType: 'document',
-        entityId: id,
-        previousValue: JSON.stringify({ status: doc.status }),
-        newValue: JSON.stringify({ status: DocumentStatus.IN_REVIEW, reviewerId: input.reviewerId }),
-      });
-
-      // Notification to reviewer with task info
-      await storage.createNotification({
-        userId: input.reviewerId,
-        title: 'New Task Assigned',
-        message: `Task ${reviewTaskNumber}: Document "${doc.title}" (${doc.documentCode}) requires your review. Target: ${targetHours} hours.`,
-        urgencyLevel: importance === 'critical' ? UrgencyLevel.CRITICAL : 
-                      importance === 'high' ? UrgencyLevel.HIGH : UrgencyLevel.MEDIUM,
-        relatedDocumentId: id,
-      });
-
-      res.json(updated);
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({

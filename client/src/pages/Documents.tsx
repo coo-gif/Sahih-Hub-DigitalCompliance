@@ -161,8 +161,6 @@ export default function Documents() {
     reviewedById: "",
     approvedById: "",
   });
-  const [reviewerId, setReviewerId] = useState<string>("");
-  const [approverIdForReview, setApproverIdForReview] = useState<string>("");
   const [reviewComments, setReviewComments] = useState("");
   const [rejectComments, setRejectComments] = useState("");
   
@@ -181,7 +179,6 @@ export default function Documents() {
       reviewedById: "",
       approvedById: "",
     });
-    setReviewerId("");
     setReviewComments("");
     setRejectComments("");
   };
@@ -250,20 +247,36 @@ export default function Documents() {
   };
   
   const handleSubmitForReview = async () => {
-    if (!selectedDocument || !reviewerId) return;
+    if (!selectedDocument) return;
+    
+    // Validate that signatories are assigned
+    if (selectedDocument.requiresReviewedBy && !selectedDocument.reviewedById) {
+      toast({ 
+        title: "Reviewer not assigned", 
+        description: "Please edit the document and assign a reviewer before submitting.", 
+        variant: "destructive" 
+      });
+      return;
+    }
+    if (selectedDocument.requiresApprovedBy && !selectedDocument.approvedById) {
+      toast({ 
+        title: "Approver not assigned", 
+        description: "Please edit the document and assign an approver before submitting.", 
+        variant: "destructive" 
+      });
+      return;
+    }
+    
     try {
       await submitForReviewMutation.mutateAsync({
         id: selectedDocument.id,
         data: { 
-          reviewerId: parseInt(reviewerId), 
-          approverId: approverIdForReview ? parseInt(approverIdForReview) : undefined,
           comments: reviewComments 
         },
       });
       toast({ title: "Document submitted for review" });
       setShowReviewDialog(false);
       setSelectedDocument(null);
-      setApproverIdForReview("");
       resetForm();
     } catch (error: any) {
       toast({ title: "Error submitting for review", description: error.message, variant: "destructive" });
@@ -927,40 +940,34 @@ export default function Documents() {
         <DialogContent data-testid="dialog-submit-review">
           <DialogHeader>
             <DialogTitle>Submit for Review</DialogTitle>
-            <DialogDescription>Select a reviewer for this document</DialogDescription>
+            <DialogDescription>Submit this document to the assigned reviewer</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div>
-              <Label htmlFor="reviewer">Reviewer</Label>
-              <Select value={reviewerId} onValueChange={setReviewerId}>
-                <SelectTrigger id="reviewer" data-testid="select-reviewer">
-                  <SelectValue placeholder="Select reviewer" />
-                </SelectTrigger>
-                <SelectContent>
-                  {activeUsers.map((user) => (
-                    <SelectItem key={user.id} value={String(user.id)} data-testid={`option-reviewer-${user.id}`}>
-                      {user.name} ({user.role.replace('_', ' ')})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="approver-for-review">Approver (optional)</Label>
-              <Select value={approverIdForReview} onValueChange={setApproverIdForReview}>
-                <SelectTrigger id="approver-for-review" data-testid="select-approver-for-review">
-                  <SelectValue placeholder="Select approver (optional)" />
-                </SelectTrigger>
-                <SelectContent>
-                  {activeUsers.map((user) => (
-                    <SelectItem key={user.id} value={String(user.id)} data-testid={`option-approver-for-review-${user.id}`}>
-                      {user.name} ({user.role.replace('_', ' ')})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground mt-1">If selected, this user will see the approval task in their dashboard</p>
-            </div>
+            {selectedDocument && (
+              <div className="bg-muted p-4 rounded-lg space-y-2">
+                <p className="text-sm font-medium">Workflow Assignment</p>
+                <div className="text-sm space-y-1">
+                  {selectedDocument.reviewedById && (
+                    <p>
+                      <span className="text-muted-foreground">Reviewer:</span>{" "}
+                      {users?.find(u => u.id === selectedDocument.reviewedById)?.name || "Assigned"}
+                    </p>
+                  )}
+                  {selectedDocument.approvedById && (
+                    <p>
+                      <span className="text-muted-foreground">Approver:</span>{" "}
+                      {users?.find(u => u.id === selectedDocument.approvedById)?.name || "Assigned"}
+                    </p>
+                  )}
+                  {selectedDocument.nextReviewDate && (
+                    <p>
+                      <span className="text-muted-foreground">Target Date:</span>{" "}
+                      {new Date(selectedDocument.nextReviewDate).toLocaleDateString()}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
             <div>
               <Label htmlFor="review-comments">Comments (optional)</Label>
               <Textarea
@@ -976,7 +983,7 @@ export default function Documents() {
             <Button variant="outline" onClick={() => setShowReviewDialog(false)} data-testid="button-cancel-review">Cancel</Button>
             <Button 
               onClick={handleSubmitForReview} 
-              disabled={!reviewerId || submitForReviewMutation.isPending}
+              disabled={submitForReviewMutation.isPending}
               data-testid="button-submit-for-review"
             >
               {submitForReviewMutation.isPending ? "Submitting..." : "Submit for Review"}

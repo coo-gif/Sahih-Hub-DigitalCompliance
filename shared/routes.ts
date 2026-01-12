@@ -251,8 +251,6 @@ export const api = {
       method: 'POST' as const,
       path: '/api/documents/:id/submit-review',
       input: z.object({
-        reviewerId: z.number(),
-        approverId: z.number().optional(),
         comments: z.string().optional(),
       }),
       responses: {
