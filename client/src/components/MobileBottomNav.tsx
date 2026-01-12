@@ -2,17 +2,16 @@ import { Link, useLocation } from "wouter";
 import { 
   LayoutDashboard, 
   FileText, 
-  Users, 
+  ClipboardList, 
   History,
-  UserCog
+  MoreHorizontal
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "Home", icon: LayoutDashboard },
   { href: "/documents", label: "Docs", icon: FileText },
-  { href: "/users", label: "Users", icon: Users },
-  { href: "/employees", label: "HR", icon: UserCog },
+  { href: "/tasks", label: "Tasks", icon: ClipboardList },
   { href: "/audit-log", label: "Audit", icon: History },
 ];
 

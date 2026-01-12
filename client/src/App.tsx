@@ -11,6 +11,7 @@ import EditDocument from "@/pages/EditDocument";
 import Users from "@/pages/Users";
 import Employees from "@/pages/Employees";
 import AuditLog from "@/pages/AuditLog";
+import MyTasks from "@/pages/MyTasks";
 import Login from "@/pages/Login";
 import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/Layout";
@@ -36,6 +37,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: User; onLogout: () => v
             <Route path="/documents/:id/edit" component={EditDocument} />
             <Route path="/users" component={Users} />
             <Route path="/employees" component={Employees} />
+            <Route path="/tasks" component={MyTasks} />
             <Route path="/audit-log" component={AuditLog} />
             <Route component={NotFound} />
           </Switch>
