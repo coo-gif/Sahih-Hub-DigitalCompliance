@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useCreateDocument } from "@/hooks/use-documents";
+import { useUsers } from "@/hooks/use-users";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,8 +21,9 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
-import { ArrowLeft, FileText, Save, Eye } from "lucide-react";
+import { ArrowLeft, FileText, Save, Eye, Send } from "lucide-react";
 import DOMPurify from "dompurify";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
 
@@ -29,7 +31,11 @@ export default function NewDocument() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const createMutation = useCreateDocument();
+  const { data: users = [] } = useUsers();
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
+  const [showReviewerDialog, setShowReviewerDialog] = useState(false);
+  const [selectedReviewerId, setSelectedReviewerId] = useState<string>("");
+  const [isSubmitForReview, setIsSubmitForReview] = useState(false);
 
   const [formData, setFormData] = useState({
     documentCode: "",
@@ -40,7 +46,7 @@ export default function NewDocument() {
     nextReviewDate: "",
   });
 
-  const handleCreate = async () => {
+  const handleCreate = async (reviewerId?: number) => {
     try {
       await createMutation.mutateAsync({
         documentCode: formData.documentCode,
@@ -49,12 +55,37 @@ export default function NewDocument() {
         category: formData.category as "policy" | "manual" | "sop" | "format",
         content: formData.content || undefined,
         nextReviewDate: formData.nextReviewDate || undefined,
+        reviewerId: reviewerId,
+        status: reviewerId ? "in_review" : "draft",
       });
-      toast({ title: "Document created successfully" });
+      toast({ 
+        title: reviewerId ? "Document submitted for review" : "Document created successfully" 
+      });
       navigate("/documents");
     } catch (error: any) {
       toast({ title: "Error creating document", description: error.message, variant: "destructive" });
     }
+  };
+
+  const handleCreateButtonClick = () => {
+    setIsSubmitForReview(false);
+    setShowReviewerDialog(true);
+  };
+
+  const handleSubmitForReviewClick = () => {
+    setIsSubmitForReview(true);
+    setShowReviewerDialog(true);
+  };
+
+  const handleCompleteReviewerSelection = () => {
+    const reviewerId = selectedReviewerId ? parseInt(selectedReviewerId) : undefined;
+    setShowReviewerDialog(false);
+    handleCreate(reviewerId);
+  };
+
+  const handleSkipReviewer = () => {
+    setShowReviewerDialog(false);
+    handleCreate();
   };
 
   return (
@@ -72,19 +103,9 @@ export default function NewDocument() {
             <p className="text-sm text-muted-foreground">Add a new document to the system</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => navigate("/documents")} data-testid="button-cancel">
-            Cancel
-          </Button>
-          <Button 
-            onClick={handleCreate} 
-            disabled={createMutation.isPending || !formData.documentCode || !formData.title}
-            data-testid="button-save"
-          >
-            <Save className="w-4 h-4 mr-2" />
-            {createMutation.isPending ? "Creating..." : "Create Document"}
-          </Button>
-        </div>
+        <Button variant="outline" onClick={() => navigate("/documents")} data-testid="button-cancel">
+          Cancel
+        </Button>
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -156,7 +177,7 @@ export default function NewDocument() {
           </Card>
 
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-row items-center justify-between gap-2">
               <div>
                 <CardTitle>Document Content</CardTitle>
                 <CardDescription>Write the document content using the rich text editor</CardDescription>
@@ -175,6 +196,26 @@ export default function NewDocument() {
               </div>
             </CardContent>
           </Card>
+
+          <div className="flex items-center justify-end gap-3 pt-4 border-t">
+            <Button 
+              onClick={handleCreateButtonClick} 
+              disabled={createMutation.isPending || !formData.documentCode || !formData.title}
+              data-testid="button-save"
+            >
+              <Save className="w-4 h-4 mr-2" />
+              {createMutation.isPending ? "Creating..." : "Create Document"}
+            </Button>
+            <Button 
+              variant="default"
+              onClick={handleSubmitForReviewClick} 
+              disabled={createMutation.isPending || !formData.documentCode || !formData.title}
+              data-testid="button-submit-review"
+            >
+              <Send className="w-4 h-4 mr-2" />
+              Submit for Review
+            </Button>
+          </div>
 
           </div>
         </div>
@@ -208,6 +249,50 @@ export default function NewDocument() {
               __html: DOMPurify.sanitize(formData.content || '<p class="text-muted-foreground italic">No content yet</p>') 
             }}
           />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showReviewerDialog} onOpenChange={setShowReviewerDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {isSubmitForReview ? "Select Reviewer" : "Assign Reviewer (Optional)"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <Label htmlFor="reviewer">Reviewer</Label>
+            <Select value={selectedReviewerId} onValueChange={setSelectedReviewerId}>
+              <SelectTrigger id="reviewer" data-testid="select-reviewer">
+                <SelectValue placeholder="Select a reviewer" />
+              </SelectTrigger>
+              <SelectContent>
+                {users.map((user) => (
+                  <SelectItem key={user.id} value={user.id.toString()}>
+                    {user.name} ({user.role})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground mt-2">
+              {isSubmitForReview 
+                ? "Select a reviewer to assign this document for review."
+                : "Optionally select a reviewer, or skip to create as draft."}
+            </p>
+          </div>
+          <DialogFooter>
+            {!isSubmitForReview && (
+              <Button variant="outline" onClick={handleSkipReviewer} data-testid="button-skip">
+                Skip
+              </Button>
+            )}
+            <Button 
+              onClick={handleCompleteReviewerSelection}
+              disabled={isSubmitForReview && !selectedReviewerId}
+              data-testid="button-complete"
+            >
+              Complete
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

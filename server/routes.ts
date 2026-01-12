@@ -326,14 +326,14 @@ export async function registerRoutes(
         content: input.content || null,
         fileUrl: input.fileUrl || null,
         versionNumber: "1.0",
-        status: DocumentStatus.DRAFT,
+        status: input.status || DocumentStatus.DRAFT,
         createdById: getCurrentUserId(req),
         nextReviewDate: input.nextReviewDate ? new Date(input.nextReviewDate) : null,
         requiresPreparedBy: input.requiresPreparedBy ?? true,
         requiresReviewedBy: input.requiresReviewedBy ?? true,
         requiresApprovedBy: input.requiresApprovedBy ?? true,
         preparedById: input.preparedById || null,
-        reviewerId: input.reviewedById || null,
+        reviewerId: input.reviewerId || input.reviewedById || null,
         approverId: input.approvedById || null,
       });
 
