@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { useDocuments, useCreateDocument, useUpdateDocument, useDeleteDocument, useSubmitForReview, useApproveDocument, useRejectDocument } from "@/hooks/use-documents";
+import { useDocuments, useCreateDocument, useUpdateDocument, useDeleteDocument, useSubmitForReview, useApproveDocument, useRejectDocument, useCompleteReview } from "@/hooks/use-documents";
 import { useUsers } from "@/hooks/use-users";
 import { useAuth } from "@/hooks/use-auth";
 import { useCompleteTask } from "@/hooks/use-tasks";
@@ -112,9 +112,41 @@ export default function Documents() {
   const submitForReviewMutation = useSubmitForReview();
   const approveMutation = useApproveDocument();
   const rejectMutation = useRejectDocument();
+  const completeReviewMutation = useCompleteReview();
   const completeTaskMutation = useCompleteTask();
   const createFeedbackMutation = useCreateFeedback();
   const { data: documentFeedback, refetch: refetchFeedback } = useDocumentFeedback(selectedDocument?.id || null);
+
+  // Reviewer action handlers
+  const handleAcceptReview = async () => {
+    if (!selectedDocument) return;
+    try {
+      await completeReviewMutation.mutateAsync({
+        id: selectedDocument.id,
+        data: { action: 'accept', comments: 'Review completed - accepted' },
+      });
+      toast({ title: "Review Completed", description: "The document has been passed to the approver." });
+      setShowViewDialog(false);
+      setSelectedDocument(null);
+    } catch (error: any) {
+      toast({ title: "Error completing review", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const handleRequestCorrections = async () => {
+    if (!selectedDocument) return;
+    try {
+      await completeReviewMutation.mutateAsync({
+        id: selectedDocument.id,
+        data: { action: 'request_corrections', comments: 'Corrections requested' },
+      });
+      toast({ title: "Corrections Requested", description: "The document has been returned to the preparer for corrections." });
+      setShowViewDialog(false);
+      setSelectedDocument(null);
+    } catch (error: any) {
+      toast({ title: "Error requesting corrections", description: error.message, variant: "destructive" });
+    }
+  };
   
   const handleSignTask = async (documentId: number, taskType: 'prepare' | 'review' | 'approve') => {
     try {
@@ -1328,7 +1360,31 @@ export default function Documents() {
                   </Button>
                 )}
                 
-                {/* Approver Actions - Only show when current user is the assigned approver */}
+                {/* Reviewer Actions - Only show when current user is the assigned reviewer and document is in_review */}
+                {currentUser && selectedDocument.status === "in_review" && selectedDocument.reviewerId === currentUser.id && (
+                  <>
+                    <Button 
+                      variant="outline"
+                      onClick={handleRequestCorrections}
+                      disabled={completeReviewMutation.isPending}
+                      data-testid="button-request-corrections"
+                    >
+                      <XCircle className="w-4 h-4 mr-2" />
+                      {completeReviewMutation.isPending ? 'Processing...' : 'Request Corrections'}
+                    </Button>
+                    <Button 
+                      onClick={handleAcceptReview}
+                      disabled={completeReviewMutation.isPending}
+                      className="bg-[#6B8F71] hover:bg-[#5a7a5f]"
+                      data-testid="button-accept-review"
+                    >
+                      <CheckCircle className="w-4 h-4 mr-2" />
+                      {completeReviewMutation.isPending ? 'Processing...' : 'Accept Review'}
+                    </Button>
+                  </>
+                )}
+
+                {/* Approver Actions - Only show when current user is the assigned approver and document is pending_approval */}
                 {currentUser && selectedDocument.status === "pending_approval" && selectedDocument.approverId === currentUser.id && (
                   <>
                     <Button 

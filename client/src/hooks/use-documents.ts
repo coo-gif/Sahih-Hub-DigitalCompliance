@@ -104,3 +104,20 @@ export function useRejectDocument() {
     },
   });
 }
+
+// Reviewer action: Complete review (accept or request corrections)
+// Reviewers CANNOT approve - they can only complete the review step
+export function useCompleteReview() {
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: { action: 'accept' | 'request_corrections'; comments?: string } }) => {
+      const res = await apiRequest('POST', `/api/documents/${id}/complete-review`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+    },
+  });
+}

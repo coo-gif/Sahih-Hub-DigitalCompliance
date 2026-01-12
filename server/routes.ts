@@ -685,101 +685,243 @@ export async function registerRoutes(
     }
   });
 
-  // Approve (Review stage -> Pending Approval or final approval)
+  // ============================================
+  // REVIEWER ACTION: Complete Review (Accept or Request Corrections)
+  // Reviewer can ONLY accept the review (move to pending_approval) or request corrections (back to draft)
+  // Reviewers CANNOT approve - that's the approver's job
+  // ============================================
+  app.post(api.documents.completeReview.path, async (req, res) => {
+    try {
+      const input = api.documents.completeReview.input.parse(req.body);
+      const id = Number(req.params.id);
+      const userId = getCurrentUserId(req);
+
+      const doc = await storage.getDocument(id);
+      if (!doc) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+
+      // Must be in_review status
+      if (doc.status !== DocumentStatus.IN_REVIEW) {
+        return res.status(400).json({ message: 'Document must be in review status' });
+      }
+
+      // Must be the assigned reviewer
+      if (doc.reviewerId !== userId) {
+        return res.status(403).json({ message: 'Only the assigned reviewer can complete this review' });
+      }
+
+      if (input.action === 'accept') {
+        // Accept review -> move to Pending Approval for approver
+        const updated = await storage.updateDocument(id, {
+          status: DocumentStatus.PENDING_APPROVAL,
+          reviewedById: userId,
+          reviewedBySignedAt: new Date(),
+        });
+
+        // Complete the review task
+        const tasks = await storage.getDocumentTasks({ documentId: id });
+        const reviewTask = tasks.find(t => t.taskType === DocumentTaskType.REVIEW && t.assignedToId === userId);
+        if (reviewTask) {
+          await storage.updateDocumentTask(reviewTask.id, {
+            status: DocumentTaskStatus.COMPLETED,
+            completedAt: new Date(),
+          });
+        }
+
+        // Create approval task for the approver
+        if (doc.approverId) {
+          const newTaskNumber = await storage.generateTaskNumber();
+          await storage.createDocumentTask({
+            documentId: id,
+            taskNumber: newTaskNumber,
+            taskType: DocumentTaskType.APPROVAL,
+            assignedToId: doc.approverId,
+            status: DocumentTaskStatus.PENDING,
+            assignedById: userId,
+            isVisible: true,
+          });
+
+          // Notify the assigned approver
+          await storage.createNotification({
+            userId: doc.approverId,
+            title: 'Document Ready for Approval',
+            message: `Document "${doc.title}" (${doc.documentCode}) has been reviewed and is ready for your final approval.`,
+            urgencyLevel: UrgencyLevel.HIGH,
+            relatedDocumentId: id,
+          });
+        }
+
+        // Notify the document preparer that review is complete
+        await storage.createNotification({
+          userId: doc.createdById,
+          title: 'Review Completed',
+          message: `Your document "${doc.title}" (${doc.documentCode}) has passed review and is now awaiting final approval.`,
+          urgencyLevel: UrgencyLevel.LOW,
+          relatedDocumentId: id,
+        });
+
+        // Workflow log
+        await storage.createWorkflowLog({
+          documentId: id,
+          fromStatus: doc.status,
+          toStatus: DocumentStatus.PENDING_APPROVAL,
+          actionById: userId,
+          comments: input.comments || 'Review completed - Accepted',
+        });
+
+        // Audit log
+        await storage.createAuditLog({
+          userId,
+          action: AuditAction.APPROVE,
+          entityType: 'document',
+          entityId: id,
+          previousValue: JSON.stringify({ status: doc.status }),
+          newValue: JSON.stringify({ status: DocumentStatus.PENDING_APPROVAL, reviewCompleted: true }),
+        });
+
+        res.json(updated);
+      } else {
+        // Request corrections -> return to draft
+        const updated = await storage.updateDocument(id, {
+          status: DocumentStatus.DRAFT,
+        });
+
+        // Complete the review task (with correction request)
+        const tasks = await storage.getDocumentTasks({ documentId: id });
+        const reviewTask = tasks.find(t => t.taskType === DocumentTaskType.REVIEW && t.assignedToId === userId);
+        if (reviewTask) {
+          await storage.updateDocumentTask(reviewTask.id, {
+            status: DocumentTaskStatus.COMPLETED,
+            completedAt: new Date(),
+          });
+        }
+
+        // Workflow log
+        await storage.createWorkflowLog({
+          documentId: id,
+          fromStatus: doc.status,
+          toStatus: DocumentStatus.DRAFT,
+          actionById: userId,
+          comments: input.comments || 'Corrections requested by reviewer',
+        });
+
+        // Audit log
+        await storage.createAuditLog({
+          userId,
+          action: AuditAction.REJECT,
+          entityType: 'document',
+          entityId: id,
+          previousValue: JSON.stringify({ status: doc.status }),
+          newValue: JSON.stringify({ status: DocumentStatus.DRAFT, correctionsRequested: true }),
+        });
+
+        // Notify the document creator
+        await storage.createNotification({
+          userId: doc.createdById,
+          title: 'Corrections Requested',
+          message: `Corrections have been requested for document "${doc.title}" (${doc.documentCode}). ${input.comments || ''}`,
+          urgencyLevel: UrgencyLevel.MEDIUM,
+          relatedDocumentId: id,
+        });
+
+        res.json(updated);
+      }
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      throw err;
+    }
+  });
+
+  // ============================================
+  // APPROVER ACTION: Final Approve (only from pending_approval status)
+  // Only the assigned approver can approve
+  // ============================================
   app.post(api.documents.approve.path, async (req, res) => {
     try {
       const input = api.documents.approve.input.parse(req.body);
       const id = Number(req.params.id);
+      const userId = getCurrentUserId(req);
       
       const doc = await storage.getDocument(id);
       if (!doc) {
         return res.status(404).json({ message: 'Document not found' });
       }
 
-      let newStatus: string;
-      let actionType: string;
-
-      if (doc.status === DocumentStatus.IN_REVIEW) {
-        // Reviewer approves -> move to Pending Approval
-        newStatus = DocumentStatus.PENDING_APPROVAL;
-        actionType = AuditAction.APPROVE;
-      } else if (doc.status === DocumentStatus.PENDING_APPROVAL) {
-        // Quality Manager approves -> Published
-        newStatus = DocumentStatus.APPROVED;
-        actionType = AuditAction.PUBLISH;
-      } else {
-        return res.status(400).json({ message: 'Document cannot be approved in current status' });
+      // Must be pending_approval status
+      if (doc.status !== DocumentStatus.PENDING_APPROVAL) {
+        return res.status(400).json({ message: 'Document must be in pending approval status' });
       }
 
-      const updateData: any = { status: newStatus };
-      if (newStatus === DocumentStatus.APPROVED) {
-        updateData.approverId = getCurrentUserId(req);
-        updateData.approvedAt = new Date();
-        
-        // Increment revision number on approval
-        const currentRevision = doc.revisionNumber || 0;
-        const currentEdition = doc.editionNumber || 1;
-        updateData.revisionNumber = currentRevision + 1;
-        
-        // Update version string to match edition.revision format
-        updateData.versionNumber = `${currentEdition}.${currentRevision + 1}`;
-
-        // Archive old version with edition/revision info
-        await storage.createDocumentVersion({
-          documentId: id,
-          versionNumber: doc.versionNumber,
-          editionNumber: currentEdition,
-          revisionNumber: currentRevision,
-          content: doc.content,
-          fileUrl: doc.fileUrl,
-          approvedById: doc.approverId,
-        });
+      // Must be the assigned approver
+      if (doc.approverId !== userId) {
+        return res.status(403).json({ message: 'Only the assigned approver can approve this document' });
       }
+
+      // Increment revision number on approval
+      const currentRevision = doc.revisionNumber || 0;
+      const currentEdition = doc.editionNumber || 1;
+
+      const updateData: any = {
+        status: DocumentStatus.APPROVED,
+        approvedById: userId,
+        approvedBySignedAt: new Date(),
+        revisionNumber: currentRevision + 1,
+        versionNumber: `${currentEdition}.${currentRevision + 1}`,
+      };
+
+      // Archive old version with edition/revision info
+      await storage.createDocumentVersion({
+        documentId: id,
+        versionNumber: doc.versionNumber,
+        editionNumber: currentEdition,
+        revisionNumber: currentRevision,
+        content: doc.content,
+        fileUrl: doc.fileUrl,
+        approvedById: userId,
+      });
 
       const updated = await storage.updateDocument(id, updateData);
+
+      // Complete the approval task
+      const tasks = await storage.getDocumentTasks({ documentId: id });
+      const approvalTask = tasks.find(t => t.taskType === DocumentTaskType.APPROVAL && t.assignedToId === userId);
+      if (approvalTask) {
+        await storage.updateDocumentTask(approvalTask.id, {
+          status: DocumentTaskStatus.COMPLETED,
+          completedAt: new Date(),
+        });
+      }
 
       // Workflow log
       await storage.createWorkflowLog({
         documentId: id,
         fromStatus: doc.status,
-        toStatus: newStatus,
-        actionById: getCurrentUserId(req),
-        comments: input.comments || 'Approved',
+        toStatus: DocumentStatus.APPROVED,
+        actionById: userId,
+        comments: input.comments || 'Approved and published',
       });
 
       // Audit log
       await storage.createAuditLog({
-        userId: getCurrentUserId(req),
-        action: actionType,
+        userId,
+        action: AuditAction.PUBLISH,
         entityType: 'document',
         entityId: id,
         previousValue: JSON.stringify({ status: doc.status }),
-        newValue: JSON.stringify({ status: newStatus }),
+        newValue: JSON.stringify({ status: DocumentStatus.APPROVED }),
       });
 
-      // Notification
-      if (newStatus === DocumentStatus.PENDING_APPROVAL) {
-        // Find quality managers and notify them
-        const users = await storage.getUsers();
-        const qms = users.filter(u => u.role === UserRole.QUALITY_MANAGER);
-        for (const qm of qms) {
-          await storage.createNotification({
-            userId: qm.id,
-            title: 'Document Approval Required',
-            message: `Document "${doc.title}" (${doc.documentCode}) requires your final approval.`,
-            urgencyLevel: UrgencyLevel.HIGH,
-            relatedDocumentId: id,
-          });
-        }
-      } else if (newStatus === DocumentStatus.APPROVED) {
-        await storage.createNotification({
-          userId: doc.createdById,
-          title: 'Document Published',
-          message: `Your document "${doc.title}" (${doc.documentCode}) has been approved and published.`,
-          urgencyLevel: UrgencyLevel.LOW,
-          relatedDocumentId: id,
-        });
-      }
+      // Notify the document creator
+      await storage.createNotification({
+        userId: doc.createdById,
+        title: 'Document Published',
+        message: `Your document "${doc.title}" (${doc.documentCode}) has been approved and published.`,
+        urgencyLevel: UrgencyLevel.LOW,
+        relatedDocumentId: id,
+      });
 
       res.json(updated);
     } catch (err) {
@@ -793,24 +935,35 @@ export async function registerRoutes(
     }
   });
 
-  // Reject
+  // ============================================
+  // APPROVER ACTION: Reject (only from pending_approval status)
+  // Only the assigned approver can reject
+  // Reviewers use "Request Corrections" instead via completeReview endpoint
+  // ============================================
   app.post(api.documents.reject.path, async (req, res) => {
     try {
       const input = api.documents.reject.input.parse(req.body);
       const id = Number(req.params.id);
+      const userId = getCurrentUserId(req);
       
       const doc = await storage.getDocument(id);
       if (!doc) {
         return res.status(404).json({ message: 'Document not found' });
       }
 
-      if (doc.status !== DocumentStatus.IN_REVIEW && doc.status !== DocumentStatus.PENDING_APPROVAL) {
-        return res.status(400).json({ message: 'Document cannot be rejected in current status' });
+      // Only allow rejection from pending_approval status (approver's domain)
+      // Reviewers should use "Request Corrections" via completeReview endpoint
+      if (doc.status !== DocumentStatus.PENDING_APPROVAL) {
+        return res.status(400).json({ message: 'Document can only be rejected when pending approval. Reviewers should use "Request Corrections" instead.' });
+      }
+
+      // Must be the assigned approver
+      if (doc.approverId !== userId) {
+        return res.status(403).json({ message: 'Only the assigned approver can reject this document' });
       }
 
       const updated = await storage.updateDocument(id, {
         status: DocumentStatus.DRAFT,
-        reviewerId: null,
       });
 
       // Workflow log
