@@ -103,6 +103,8 @@ export default function Dashboard() {
   const [pokeMessage, setPokeMessage] = useState("");
   const [pokeTaskId, setPokeTaskId] = useState<number | null>(null);
   const [showPokeDialog, setShowPokeDialog] = useState(false);
+  const [location, navigate] = useLocation();
+  const [activeTab, setActiveTab] = useState("dashboard");
 
   const handlePoke = async () => {
     if (!pokeTaskId) return;
@@ -209,9 +211,6 @@ export default function Dashboard() {
       </div>
     );
   }
-
-  const [location, navigate] = useLocation();
-  const [activeTab, setActiveTab] = useState("dashboard");
 
   return (
     <div className="space-y-6 pb-8">
