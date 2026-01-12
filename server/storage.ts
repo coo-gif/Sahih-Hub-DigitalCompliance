@@ -1,7 +1,7 @@
 import { db } from "./db";
 import {
   users, documents, documentVersions, workflowLogs, notifications, auditLogs,
-  employees, employeeTasks, downloadRequests, documentFeedback,
+  employees, employeeTasks, downloadRequests, documentFeedback, documentTasks, taskPokes,
   type User, type InsertUser,
   type Document, type InsertDocument,
   type DocumentVersion, type InsertDocumentVersion,
@@ -12,7 +12,9 @@ import {
   type EmployeeTask, type InsertEmployeeTask,
   type DownloadRequest, type InsertDownloadRequest,
   type DocumentFeedback, type InsertDocumentFeedback,
-  DocumentStatus, InductionStatus, TaskStatus, FeedbackStatus,
+  type DocumentTask, type InsertDocumentTask,
+  type TaskPoke, type InsertTaskPoke,
+  DocumentStatus, InductionStatus, TaskStatus, FeedbackStatus, DocumentTaskStatus,
 } from "@shared/schema";
 import { eq, desc, and, lt, gt, or, sql } from "drizzle-orm";
 import bcrypt from "bcrypt";
@@ -120,6 +122,29 @@ export interface IStorage {
   createDocumentFeedback(feedback: InsertDocumentFeedback): Promise<DocumentFeedback>;
   updateDocumentFeedback(id: number, updates: Partial<InsertDocumentFeedback>): Promise<DocumentFeedback>;
   markFeedbackAddressed(id: number): Promise<DocumentFeedback>;
+
+  // Document Tasks (Sequential Workflow)
+  getDocumentTasks(filters?: { documentId?: number; assignedToId?: number; status?: string; isVisible?: boolean }): Promise<DocumentTask[]>;
+  getDocumentTask(id: number): Promise<DocumentTask | undefined>;
+  createDocumentTask(task: InsertDocumentTask): Promise<DocumentTask>;
+  updateDocumentTask(id: number, updates: Partial<DocumentTask>): Promise<DocumentTask>;
+  completeDocumentTask(id: number): Promise<DocumentTask>;
+  generateTaskNumber(): Promise<string>;
+
+  // Task Pokes (Buzz/Reminder)
+  getTaskPokes(documentTaskId: number): Promise<TaskPoke[]>;
+  createTaskPoke(poke: InsertTaskPoke): Promise<TaskPoke>;
+
+  // User Performance Stats (for COO/CEO/Admin)
+  getUserPerformanceStats(userId: number): Promise<{
+    totalTasks: number;
+    completedTasks: number;
+    onTimeTasks: number;
+    earlyTasks: number;
+    delayedTasks: number;
+    totalPoints: number;
+    averageCompletionHours: number;
+  }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -663,6 +688,149 @@ export class DatabaseStorage implements IStorage {
       .where(eq(documentFeedback.id, id))
       .returning();
     return updated;
+  }
+
+  // ============================================
+  // DOCUMENT TASKS (Sequential Workflow)
+  // ============================================
+  async getDocumentTasks(filters?: { documentId?: number; assignedToId?: number; status?: string; isVisible?: boolean }): Promise<DocumentTask[]> {
+    const conditions: any[] = [];
+    
+    if (filters?.documentId) {
+      conditions.push(eq(documentTasks.documentId, filters.documentId));
+    }
+    if (filters?.assignedToId) {
+      conditions.push(eq(documentTasks.assignedToId, filters.assignedToId));
+    }
+    if (filters?.status) {
+      conditions.push(eq(documentTasks.status, filters.status));
+    }
+    if (filters?.isVisible !== undefined) {
+      conditions.push(eq(documentTasks.isVisible, filters.isVisible));
+    }
+
+    if (conditions.length > 0) {
+      return await db.select().from(documentTasks)
+        .where(and(...conditions))
+        .orderBy(desc(documentTasks.createdAt));
+    }
+    return await db.select().from(documentTasks).orderBy(desc(documentTasks.createdAt));
+  }
+
+  async getDocumentTask(id: number): Promise<DocumentTask | undefined> {
+    const [task] = await db.select().from(documentTasks).where(eq(documentTasks.id, id));
+    return task;
+  }
+
+  async createDocumentTask(task: InsertDocumentTask): Promise<DocumentTask> {
+    const [created] = await db.insert(documentTasks).values({
+      ...task,
+      assignedAt: new Date(),
+    }).returning();
+    return created;
+  }
+
+  async updateDocumentTask(id: number, updates: Partial<DocumentTask>): Promise<DocumentTask> {
+    const [updated] = await db.update(documentTasks)
+      .set(updates)
+      .where(eq(documentTasks.id, id))
+      .returning();
+    return updated;
+  }
+
+  async completeDocumentTask(id: number): Promise<DocumentTask> {
+    const task = await this.getDocumentTask(id);
+    if (!task) throw new Error('Task not found');
+
+    const now = new Date();
+    const assignedAt = task.assignedAt || task.createdAt || now;
+    const targetDate = task.targetDate;
+    
+    // Calculate actual hours worked
+    const actualHours = Math.ceil((now.getTime() - assignedAt.getTime()) / (1000 * 60 * 60));
+    
+    // Calculate early or delay hours
+    let earlyHours = 0;
+    let delayHours = 0;
+    let performancePoints = 1; // Base point for completion
+    
+    if (now < targetDate) {
+      // Completed early
+      earlyHours = Math.ceil((targetDate.getTime() - now.getTime()) / (1000 * 60 * 60));
+      performancePoints += earlyHours; // +1 point per hour early
+    } else if (now > targetDate) {
+      // Completed late
+      delayHours = Math.ceil((now.getTime() - targetDate.getTime()) / (1000 * 60 * 60));
+      performancePoints -= delayHours; // -1 point per hour late
+    }
+
+    const [updated] = await db.update(documentTasks)
+      .set({ 
+        status: DocumentTaskStatus.COMPLETED,
+        completedAt: now,
+        actualHours,
+        earlyHours,
+        delayHours,
+        performancePoints,
+      })
+      .where(eq(documentTasks.id, id))
+      .returning();
+    return updated;
+  }
+
+  async generateTaskNumber(): Promise<string> {
+    const allTasks = await db.select().from(documentTasks);
+    const nextNumber = allTasks.length + 1;
+    return `TASK-${String(nextNumber).padStart(4, '0')}`;
+  }
+
+  // ============================================
+  // TASK POKES (Buzz/Reminder)
+  // ============================================
+  async getTaskPokes(documentTaskId: number): Promise<TaskPoke[]> {
+    return await db.select().from(taskPokes)
+      .where(eq(taskPokes.documentTaskId, documentTaskId))
+      .orderBy(desc(taskPokes.createdAt));
+  }
+
+  async createTaskPoke(poke: InsertTaskPoke): Promise<TaskPoke> {
+    const [created] = await db.insert(taskPokes).values(poke).returning();
+    return created;
+  }
+
+  // ============================================
+  // USER PERFORMANCE STATS
+  // ============================================
+  async getUserPerformanceStats(userId: number): Promise<{
+    totalTasks: number;
+    completedTasks: number;
+    onTimeTasks: number;
+    earlyTasks: number;
+    delayedTasks: number;
+    totalPoints: number;
+    averageCompletionHours: number;
+  }> {
+    const userTasks = await db.select().from(documentTasks)
+      .where(eq(documentTasks.assignedToId, userId));
+
+    const completedTasks = userTasks.filter(t => t.status === DocumentTaskStatus.COMPLETED);
+    const earlyTasks = completedTasks.filter(t => (t.earlyHours || 0) > 0);
+    const delayedTasks = completedTasks.filter(t => (t.delayHours || 0) > 0);
+    const onTimeTasks = completedTasks.filter(t => (t.earlyHours || 0) === 0 && (t.delayHours || 0) === 0);
+
+    const totalPoints = completedTasks.reduce((sum, t) => sum + (t.performancePoints || 0), 0);
+    const totalHours = completedTasks.reduce((sum, t) => sum + (t.actualHours || 0), 0);
+    const averageCompletionHours = completedTasks.length > 0 ? Math.round(totalHours / completedTasks.length) : 0;
+
+    return {
+      totalTasks: userTasks.length,
+      completedTasks: completedTasks.length,
+      onTimeTasks: onTimeTasks.length,
+      earlyTasks: earlyTasks.length,
+      delayedTasks: delayedTasks.length,
+      totalPoints,
+      averageCompletionHours,
+    };
   }
 }
 

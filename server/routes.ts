@@ -9,6 +9,9 @@ import {
   UserRole,
   InductionStatus,
   DownloadRequestStatus,
+  DocumentTaskType,
+  DocumentTaskStatus,
+  DocumentImportance,
 } from "@shared/schema";
 import { z } from "zod";
 import puppeteer from "puppeteer";
@@ -444,11 +447,23 @@ export async function registerRoutes(
   // DOCUMENT WORKFLOW ROUTES
   // ============================================
   
+  // Helper function to calculate target hours based on importance
+  function calculateTargetHours(importance: string): number {
+    switch (importance) {
+      case 'critical': return 4;
+      case 'high': return 8;
+      case 'medium': return 24;
+      case 'low': return 48;
+      default: return 24;
+    }
+  }
+
   // Submit for Review
   app.post(api.documents.submitForReview.path, async (req, res) => {
     try {
       const input = api.documents.submitForReview.input.parse(req.body);
       const id = Number(req.params.id);
+      const userId = getCurrentUserId(req);
       
       const doc = await storage.getDocument(id);
       if (!doc) {
@@ -459,11 +474,57 @@ export async function registerRoutes(
         return res.status(400).json({ message: 'Document must be in Draft status to submit for review' });
       }
 
+      // Check if preparer has confirmed (if preparer confirmation is required)
+      if (doc.requiresPreparedBy && doc.preparedById && !doc.preparerConfirmedAt) {
+        return res.status(400).json({ 
+          message: 'The preparer must confirm the document before submission. Please have the preparer click "Confirm Preparation".' 
+        });
+      }
+
       const updated = await storage.updateDocument(id, {
         status: DocumentStatus.IN_REVIEW,
         reviewerId: input.reviewerId,
         ...(input.approverId && { approverId: input.approverId }),
       });
+
+      // Calculate target hours based on document importance
+      const importance = (doc as any).importance || 'medium';
+      const targetHours = calculateTargetHours(importance);
+      const now = new Date();
+
+      // Create review task (visible immediately)
+      const reviewTaskNumber = await storage.generateTaskNumber();
+      const reviewTargetDate = new Date(now.getTime() + targetHours * 60 * 60 * 1000);
+      
+      await storage.createDocumentTask({
+        documentId: id,
+        taskNumber: reviewTaskNumber,
+        taskType: DocumentTaskType.REVIEW,
+        assignedToId: input.reviewerId,
+        assignedById: userId,
+        status: DocumentTaskStatus.ASSIGNED,
+        targetDate: reviewTargetDate,
+        targetHours,
+        isVisible: true, // Reviewer can see immediately
+      });
+
+      // Create approve task (not visible until review is complete)
+      if (input.approverId) {
+        const approveTaskNumber = await storage.generateTaskNumber();
+        const approveTargetDate = new Date(reviewTargetDate.getTime() + targetHours * 60 * 60 * 1000);
+        
+        await storage.createDocumentTask({
+          documentId: id,
+          taskNumber: approveTaskNumber,
+          taskType: DocumentTaskType.APPROVE,
+          assignedToId: input.approverId,
+          assignedById: userId,
+          status: DocumentTaskStatus.PENDING,
+          targetDate: approveTargetDate,
+          targetHours,
+          isVisible: false, // Not visible until review is complete
+        });
+      }
 
       // Workflow log
       await storage.createWorkflowLog({
@@ -471,13 +532,13 @@ export async function registerRoutes(
         fromStatus: DocumentStatus.DRAFT,
         toStatus: DocumentStatus.IN_REVIEW,
         assignedToId: input.reviewerId,
-        actionById: getCurrentUserId(req),
+        actionById: userId,
         comments: input.comments || 'Submitted for review',
       });
 
       // Audit log
       await storage.createAuditLog({
-        userId: getCurrentUserId(req),
+        userId,
         action: AuditAction.SUBMIT_FOR_REVIEW,
         entityType: 'document',
         entityId: id,
@@ -485,12 +546,13 @@ export async function registerRoutes(
         newValue: JSON.stringify({ status: DocumentStatus.IN_REVIEW, reviewerId: input.reviewerId }),
       });
 
-      // Notification to reviewer
+      // Notification to reviewer with task info
       await storage.createNotification({
         userId: input.reviewerId,
-        title: 'Document Review Required',
-        message: `Document "${doc.title}" (${doc.documentCode}) requires your review.`,
-        urgencyLevel: UrgencyLevel.MEDIUM,
+        title: 'New Task Assigned',
+        message: `Task ${reviewTaskNumber}: Document "${doc.title}" (${doc.documentCode}) requires your review. Target: ${targetHours} hours.`,
+        urgencyLevel: importance === 'critical' ? UrgencyLevel.CRITICAL : 
+                      importance === 'high' ? UrgencyLevel.HIGH : UrgencyLevel.MEDIUM,
         relatedDocumentId: id,
       });
 
@@ -1522,6 +1584,279 @@ export async function registerRoutes(
   // ============================================
   // SEED DATABASE
   // ============================================
+  // ============================================
+  // DOCUMENT TASKS (Sequential Workflow)
+  // ============================================
+  
+  // Helper function to calculate target hours based on importance
+  function getTargetHours(importance: string): number {
+    switch (importance) {
+      case DocumentImportance.CRITICAL: return 4;  // 4 hours for critical
+      case DocumentImportance.HIGH: return 8;      // 8 hours for high
+      case DocumentImportance.MEDIUM: return 24;   // 24 hours for medium
+      case DocumentImportance.LOW: return 48;      // 48 hours for low
+      default: return 24;
+    }
+  }
+
+  // Get document tasks for current user (visible tasks only)
+  app.get('/api/document-tasks', requireAuth, async (req, res) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const tasks = await storage.getDocumentTasks({ 
+        assignedToId: userId, 
+        isVisible: true 
+      });
+      
+      // Enrich with document info
+      const enrichedTasks = await Promise.all(tasks.map(async (task) => {
+        const doc = await storage.getDocument(task.documentId);
+        const now = new Date();
+        const delayHours = task.targetDate && now > task.targetDate 
+          ? Math.ceil((now.getTime() - task.targetDate.getTime()) / (1000 * 60 * 60))
+          : 0;
+        
+        return {
+          ...task,
+          documentCode: doc?.documentCode,
+          documentTitle: doc?.title,
+          currentDelayHours: delayHours,
+        };
+      }));
+      
+      res.json(enrichedTasks);
+    } catch (err) {
+      console.error('Error fetching document tasks:', err);
+      res.status(500).json({ message: 'Failed to fetch tasks' });
+    }
+  });
+
+  // Get all tasks for a document
+  app.get('/api/documents/:id/tasks', requireAuth, async (req, res) => {
+    try {
+      const documentId = Number(req.params.id);
+      const tasks = await storage.getDocumentTasks({ documentId });
+      res.json(tasks);
+    } catch (err) {
+      console.error('Error fetching document tasks:', err);
+      res.status(500).json({ message: 'Failed to fetch tasks' });
+    }
+  });
+
+  // Complete a document task
+  app.post('/api/document-tasks/:id/complete', requireAuth, async (req, res) => {
+    try {
+      const taskId = Number(req.params.id);
+      const userId = getCurrentUserId(req);
+      
+      const task = await storage.getDocumentTask(taskId);
+      if (!task) {
+        return res.status(404).json({ message: 'Task not found' });
+      }
+      
+      if (task.assignedToId !== userId) {
+        return res.status(403).json({ message: 'You are not assigned to this task' });
+      }
+      
+      const completedTask = await storage.completeDocumentTask(taskId);
+      
+      // If this was a review task, make the approve task visible
+      if (task.taskType === DocumentTaskType.REVIEW) {
+        const approveTask = await storage.getDocumentTasks({ 
+          documentId: task.documentId, 
+          status: DocumentTaskStatus.PENDING 
+        });
+        const approverTask = approveTask.find(t => t.taskType === DocumentTaskType.APPROVE);
+        if (approverTask) {
+          await storage.updateDocumentTask(approverTask.id, { 
+            isVisible: true,
+            status: DocumentTaskStatus.ASSIGNED,
+          });
+          
+          // Notify approver
+          await storage.createNotification({
+            userId: approverTask.assignedToId,
+            title: 'New Task Assigned',
+            message: `Review completed. Task ${approverTask.taskNumber} is now awaiting your approval.`,
+            urgencyLevel: UrgencyLevel.HIGH,
+            relatedDocumentId: task.documentId,
+          });
+        }
+      }
+      
+      // Audit log
+      await storage.createAuditLog({
+        userId,
+        action: AuditAction.COMPLETE_TASK,
+        entityType: 'document_task',
+        entityId: taskId,
+        newValue: JSON.stringify({ 
+          status: completedTask.status,
+          performancePoints: completedTask.performancePoints,
+          earlyHours: completedTask.earlyHours,
+          delayHours: completedTask.delayHours,
+        }),
+      });
+      
+      res.json(completedTask);
+    } catch (err) {
+      console.error('Error completing task:', err);
+      res.status(500).json({ message: 'Failed to complete task' });
+    }
+  });
+
+  // ============================================
+  // TASK POKES (Buzz/Reminder)
+  // ============================================
+  
+  // Get pokes for a task
+  app.get('/api/document-tasks/:id/pokes', requireAuth, async (req, res) => {
+    try {
+      const taskId = Number(req.params.id);
+      const pokes = await storage.getTaskPokes(taskId);
+      res.json(pokes);
+    } catch (err) {
+      console.error('Error fetching pokes:', err);
+      res.status(500).json({ message: 'Failed to fetch pokes' });
+    }
+  });
+
+  // Poke/Buzz a user about their pending task
+  app.post('/api/document-tasks/:id/poke', requireAuth, async (req, res) => {
+    try {
+      const taskId = Number(req.params.id);
+      const userId = getCurrentUserId(req);
+      const { message } = req.body;
+      
+      const task = await storage.getDocumentTask(taskId);
+      if (!task) {
+        return res.status(404).json({ message: 'Task not found' });
+      }
+      
+      // Create the poke record
+      const poke = await storage.createTaskPoke({
+        documentTaskId: taskId,
+        pokedById: userId,
+        pokedUserId: task.assignedToId,
+        message: message || 'Please complete your pending task.',
+      });
+      
+      // Get document info for notification
+      const doc = await storage.getDocument(task.documentId);
+      
+      // Create notification for the poked user
+      await storage.createNotification({
+        userId: task.assignedToId,
+        title: 'Task Reminder',
+        message: `You have been reminded about task ${task.taskNumber} for document "${doc?.title || 'Unknown'}". ${message || ''}`,
+        urgencyLevel: UrgencyLevel.HIGH,
+        relatedDocumentId: task.documentId,
+      });
+      
+      res.json(poke);
+    } catch (err) {
+      console.error('Error creating poke:', err);
+      res.status(500).json({ message: 'Failed to send reminder' });
+    }
+  });
+
+  // ============================================
+  // PREPARER CONFIRMATION
+  // ============================================
+  
+  // Confirm document as preparer (required before submission)
+  app.post('/api/documents/:id/confirm-preparation', requireAuth, async (req, res) => {
+    try {
+      const documentId = Number(req.params.id);
+      const userId = getCurrentUserId(req);
+      
+      const doc = await storage.getDocument(documentId);
+      if (!doc) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+      
+      if (doc.status !== DocumentStatus.DRAFT) {
+        return res.status(400).json({ message: 'Document must be in Draft status' });
+      }
+      
+      if (doc.preparedById !== userId) {
+        return res.status(403).json({ message: 'You are not assigned as the preparer for this document' });
+      }
+      
+      const updated = await storage.updateDocument(documentId, {
+        preparerConfirmedAt: new Date(),
+        preparedBySignedAt: new Date(),
+      });
+      
+      // Audit log
+      await storage.createAuditLog({
+        userId,
+        action: AuditAction.COMPLETE_TASK,
+        entityType: 'document',
+        entityId: documentId,
+        newValue: JSON.stringify({ preparerConfirmedAt: updated.preparerConfirmedAt }),
+      });
+      
+      res.json(updated);
+    } catch (err) {
+      console.error('Error confirming preparation:', err);
+      res.status(500).json({ message: 'Failed to confirm preparation' });
+    }
+  });
+
+  // ============================================
+  // USER PERFORMANCE STATS (COO/CEO/Admin only)
+  // ============================================
+  
+  app.get('/api/users/:id/performance', requireAuth, async (req, res) => {
+    try {
+      const currentUserId = getCurrentUserId(req);
+      const currentUser = await storage.getUser(currentUserId);
+      
+      // Only COO, CEO, and Admin can view performance stats
+      const allowedRoles = [UserRole.ADMIN, UserRole.QUALITY_MANAGER];
+      if (!currentUser || !allowedRoles.includes(currentUser.role as any)) {
+        return res.status(403).json({ message: 'Access denied. Performance data is restricted.' });
+      }
+      
+      const targetUserId = Number(req.params.id);
+      const stats = await storage.getUserPerformanceStats(targetUserId);
+      res.json(stats);
+    } catch (err) {
+      console.error('Error fetching performance stats:', err);
+      res.status(500).json({ message: 'Failed to fetch performance stats' });
+    }
+  });
+
+  // Get all users' performance stats (for dashboard)
+  app.get('/api/performance/all', requireAuth, async (req, res) => {
+    try {
+      const currentUserId = getCurrentUserId(req);
+      const currentUser = await storage.getUser(currentUserId);
+      
+      // Only COO, CEO, and Admin can view performance stats
+      const allowedRoles = [UserRole.ADMIN, UserRole.QUALITY_MANAGER];
+      if (!currentUser || !allowedRoles.includes(currentUser.role as any)) {
+        return res.status(403).json({ message: 'Access denied. Performance data is restricted.' });
+      }
+      
+      const users = await storage.getUsers();
+      const performanceData = await Promise.all(
+        users.map(async (user) => ({
+          userId: user.id,
+          userName: user.name,
+          userRole: user.role,
+          ...await storage.getUserPerformanceStats(user.id),
+        }))
+      );
+      
+      res.json(performanceData);
+    } catch (err) {
+      console.error('Error fetching all performance stats:', err);
+      res.status(500).json({ message: 'Failed to fetch performance stats' });
+    }
+  });
+
   await seedDatabase();
 
   return httpServer;
