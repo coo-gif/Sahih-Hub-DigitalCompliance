@@ -185,7 +185,7 @@ export default function EditDocument() {
                 />
               </div>
               <div>
-                <Label htmlFor="nextReviewDate">Next Review Date</Label>
+                <Label htmlFor="nextReviewDate">Required date of review</Label>
                 <Input
                   id="nextReviewDate"
                   type="date"
