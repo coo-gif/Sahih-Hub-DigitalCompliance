@@ -1,24 +1,14 @@
 import { useState, useEffect } from "react";
 import { useLocation, useRoute } from "wouter";
 import { useDocuments, useUpdateDocument } from "@/hooks/use-documents";
-import { useUsers } from "@/hooks/use-users";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Separator } from "@/components/ui/separator";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import TiptapEditor from "@/components/TiptapEditor";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -35,7 +25,6 @@ export default function EditDocument() {
   const documentId = params?.id ? parseInt(params.id) : null;
   
   const { toast } = useToast();
-  const { data: users } = useUsers();
   const { data: documents, isLoading } = useDocuments();
   const updateMutation = useUpdateDocument();
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
@@ -48,15 +37,7 @@ export default function EditDocument() {
     description: "",
     content: "",
     nextReviewDate: "",
-    requiresPreparedBy: true,
-    requiresReviewedBy: true,
-    requiresApprovedBy: true,
-    preparedById: "",
-    reviewedById: "",
-    approvedById: "",
   });
-
-  const activeUsers = users?.filter(u => u.isActive) || [];
 
   useEffect(() => {
     if (document && !initialized) {
@@ -65,12 +46,6 @@ export default function EditDocument() {
         description: document.description || "",
         content: document.content || "",
         nextReviewDate: document.nextReviewDate ? String(document.nextReviewDate).split('T')[0] : "",
-        requiresPreparedBy: document.requiresPreparedBy ?? true,
-        requiresReviewedBy: document.requiresReviewedBy ?? true,
-        requiresApprovedBy: document.requiresApprovedBy ?? true,
-        preparedById: document.preparedById ? String(document.preparedById) : "",
-        reviewedById: document.reviewedById ? String(document.reviewedById) : "",
-        approvedById: document.approvedById ? String(document.approvedById) : "",
       });
       setInitialized(true);
     }
@@ -86,12 +61,6 @@ export default function EditDocument() {
           description: formData.description,
           content: formData.content,
           nextReviewDate: formData.nextReviewDate || undefined,
-          requiresPreparedBy: formData.requiresPreparedBy,
-          requiresReviewedBy: formData.requiresReviewedBy,
-          requiresApprovedBy: formData.requiresApprovedBy,
-          preparedById: formData.preparedById ? parseInt(formData.preparedById) : undefined,
-          reviewedById: formData.reviewedById ? parseInt(formData.reviewedById) : undefined,
-          approvedById: formData.approvedById ? parseInt(formData.approvedById) : undefined,
         },
       });
       toast({ title: "Document updated successfully" });
@@ -218,109 +187,6 @@ export default function EditDocument() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Signature Requirements</CardTitle>
-              <CardDescription>Select which signatures are required for this document</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-3">
-                <div className="flex items-center space-x-3">
-                  <Checkbox
-                    id="requiresPreparedBy"
-                    checked={formData.requiresPreparedBy}
-                    onCheckedChange={(checked) => setFormData({ ...formData, requiresPreparedBy: !!checked })}
-                    data-testid="checkbox-requires-prepared-by"
-                  />
-                  <Label htmlFor="requiresPreparedBy" className="font-normal cursor-pointer">
-                    Prepared By - Document author signature
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-3">
-                  <Checkbox
-                    id="requiresReviewedBy"
-                    checked={formData.requiresReviewedBy}
-                    onCheckedChange={(checked) => setFormData({ ...formData, requiresReviewedBy: !!checked })}
-                    data-testid="checkbox-requires-reviewed-by"
-                  />
-                  <Label htmlFor="requiresReviewedBy" className="font-normal cursor-pointer">
-                    Reviewed By - Department head review signature
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-3">
-                  <Checkbox
-                    id="requiresApprovedBy"
-                    checked={formData.requiresApprovedBy}
-                    onCheckedChange={(checked) => setFormData({ ...formData, requiresApprovedBy: !!checked })}
-                    data-testid="checkbox-requires-approved-by"
-                  />
-                  <Label htmlFor="requiresApprovedBy" className="font-normal cursor-pointer">
-                    Approved By - Quality manager approval signature
-                  </Label>
-                </div>
-              </div>
-              
-              <Separator />
-              
-              <div>
-                <Label className="text-base font-medium">Signatory Selection</Label>
-                <p className="text-sm text-muted-foreground mb-3">Assign users for each signature role</p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  {formData.requiresPreparedBy && (
-                    <div>
-                      <Label htmlFor="preparedById">Prepared By</Label>
-                      <Select value={formData.preparedById} onValueChange={(v) => setFormData({ ...formData, preparedById: v })}>
-                        <SelectTrigger id="preparedById" data-testid="select-prepared-by">
-                          <SelectValue placeholder="Select user" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {users?.map((user) => (
-                            <SelectItem key={user.id} value={String(user.id)}>
-                              {user.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                  {formData.requiresReviewedBy && (
-                    <div>
-                      <Label htmlFor="reviewedById">Reviewed By</Label>
-                      <Select value={formData.reviewedById} onValueChange={(v) => setFormData({ ...formData, reviewedById: v })}>
-                        <SelectTrigger id="reviewedById" data-testid="select-reviewed-by">
-                          <SelectValue placeholder="Select user" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {activeUsers.map((user) => (
-                            <SelectItem key={user.id} value={String(user.id)}>
-                              {user.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                  {formData.requiresApprovedBy && (
-                    <div>
-                      <Label htmlFor="approvedById">Approved By</Label>
-                      <Select value={formData.approvedById} onValueChange={(v) => setFormData({ ...formData, approvedById: v })}>
-                        <SelectTrigger id="approvedById" data-testid="select-approved-by">
-                          <SelectValue placeholder="Select user" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {activeUsers.map((user) => (
-                            <SelectItem key={user.id} value={String(user.id)}>
-                              {user.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
           </div>
         </div>
       </div>
