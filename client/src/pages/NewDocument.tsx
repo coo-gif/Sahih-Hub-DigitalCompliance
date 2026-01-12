@@ -1,15 +1,12 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useCreateDocument } from "@/hooks/use-documents";
-import { useUsers } from "@/hooks/use-users";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Separator } from "@/components/ui/separator";
-import { Checkbox } from "@/components/ui/checkbox";
 import TiptapEditor from "@/components/TiptapEditor";
 import {
   Select,
@@ -31,7 +28,6 @@ import sahihLogoPath from "@assets/sahih_logo-1.png";
 export default function NewDocument() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
-  const { data: users } = useUsers();
   const createMutation = useCreateDocument();
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
 
@@ -42,10 +38,6 @@ export default function NewDocument() {
     category: "sop" as string,
     content: "",
     nextReviewDate: "",
-    requiresPreparedBy: true,
-    requiresApprovedBy: true,
-    preparedById: "",
-    approvedById: "",
   });
 
   const handleCreate = async () => {
@@ -57,10 +49,6 @@ export default function NewDocument() {
         category: formData.category as "policy" | "manual" | "sop" | "format",
         content: formData.content || undefined,
         nextReviewDate: formData.nextReviewDate || undefined,
-        requiresPreparedBy: formData.requiresPreparedBy,
-        requiresApprovedBy: formData.requiresApprovedBy,
-        preparedById: formData.preparedById ? parseInt(formData.preparedById) : undefined,
-        approvedById: formData.approvedById ? parseInt(formData.approvedById) : undefined,
       });
       toast({ title: "Document created successfully" });
       navigate("/documents");
@@ -188,53 +176,6 @@ export default function NewDocument() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Signature Requirements</CardTitle>
-              <CardDescription>Select which signatures are required for this document</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-3">
-                <div className="flex items-center space-x-3">
-                  <Checkbox
-                    id="requiresPreparedBy"
-                    checked={formData.requiresPreparedBy}
-                    onCheckedChange={(checked) => setFormData({ ...formData, requiresPreparedBy: !!checked })}
-                    data-testid="checkbox-requires-prepared-by"
-                  />
-                  <Label htmlFor="requiresPreparedBy" className="font-normal cursor-pointer">
-                    Prepared By - Document author signature
-                  </Label>
-                </div>
-              </div>
-              
-              <Separator />
-              
-              <div>
-                <Label className="text-base font-medium">Signatory Selection</Label>
-                <p className="text-sm text-muted-foreground mb-3">Select the user who will prepare this document.</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {formData.requiresPreparedBy && (
-                    <div>
-                      <Label htmlFor="preparedById">Prepared By</Label>
-                      <Select value={formData.preparedById} onValueChange={(v) => setFormData({ ...formData, preparedById: v })}>
-                        <SelectTrigger id="preparedById" data-testid="select-prepared-by">
-                          <SelectValue placeholder="Select user" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {users?.map((user) => (
-                            <SelectItem key={user.id} value={String(user.id)}>
-                              {user.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
           </div>
         </div>
       </div>
