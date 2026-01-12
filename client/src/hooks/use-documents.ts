@@ -104,3 +104,51 @@ export function useRejectDocument() {
     },
   });
 }
+
+// Reviewer action: Self-approve (reviewer becomes both reviewer and approver)
+export function useSelfApproveDocument() {
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: { comments?: string } }) => {
+      const res = await apiRequest('POST', `/api/documents/${id}/self-approve`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+    },
+  });
+}
+
+// Reviewer action: Delegate to another reviewer
+export function useDelegateDocument() {
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: { delegateToUserId: number; comments?: string } }) => {
+      const res = await apiRequest('POST', `/api/documents/${id}/delegate`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+    },
+  });
+}
+
+// Reviewer action: Withdraw from review task
+export function useWithdrawDocument() {
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: { comments?: string } }) => {
+      const res = await apiRequest('POST', `/api/documents/${id}/withdraw`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+    },
+  });
+}

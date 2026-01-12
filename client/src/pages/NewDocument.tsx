@@ -223,25 +223,14 @@ export default function NewDocument() {
                     Reviewed By - Department head review signature
                   </Label>
                 </div>
-                <div className="flex items-center space-x-3">
-                  <Checkbox
-                    id="requiresApprovedBy"
-                    checked={formData.requiresApprovedBy}
-                    onCheckedChange={(checked) => setFormData({ ...formData, requiresApprovedBy: !!checked })}
-                    data-testid="checkbox-requires-approved-by"
-                  />
-                  <Label htmlFor="requiresApprovedBy" className="font-normal cursor-pointer">
-                    Approved By - Final approval signature
-                  </Label>
-                </div>
               </div>
               
               <Separator />
               
               <div>
                 <Label className="text-base font-medium">Signatory Selection</Label>
-                <p className="text-sm text-muted-foreground mb-3">Pre-assign users for each signature role</p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <p className="text-sm text-muted-foreground mb-3">Select the preparer and reviewer. The reviewer will decide whether to approve or delegate.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {formData.requiresPreparedBy && (
                     <div>
                       <Label htmlFor="preparedById">Prepared By</Label>
@@ -264,23 +253,6 @@ export default function NewDocument() {
                       <Label htmlFor="reviewedById">Reviewed By</Label>
                       <Select value={formData.reviewedById} onValueChange={(v) => setFormData({ ...formData, reviewedById: v })}>
                         <SelectTrigger id="reviewedById" data-testid="select-reviewed-by">
-                          <SelectValue placeholder="Select user" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {activeUsers.map((user) => (
-                            <SelectItem key={user.id} value={String(user.id)}>
-                              {user.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                  {formData.requiresApprovedBy && (
-                    <div>
-                      <Label htmlFor="approvedById">Approved By</Label>
-                      <Select value={formData.approvedById} onValueChange={(v) => setFormData({ ...formData, approvedById: v })}>
-                        <SelectTrigger id="approvedById" data-testid="select-approved-by">
                           <SelectValue placeholder="Select user" />
                         </SelectTrigger>
                         <SelectContent>
