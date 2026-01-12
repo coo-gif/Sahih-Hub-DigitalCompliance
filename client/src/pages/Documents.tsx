@@ -1,12 +1,8 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { useDocuments, useCreateDocument, useUpdateDocument, useDeleteDocument, useSubmitForReview, useApproveDocument, useRejectDocument, useCompleteReview } from "@/hooks/use-documents";
-import { useUsers } from "@/hooks/use-users";
-import { useAuth } from "@/hooks/use-auth";
-import { useCompleteTask } from "@/hooks/use-tasks";
-import { useDocumentFeedback, useCreateFeedback } from "@/hooks/use-feedback";
+import { useDocuments, useCreateDocument, useUpdateDocument, useDeleteDocument } from "@/hooks/use-documents";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -15,7 +11,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Checkbox } from "@/components/ui/checkbox";
 import TiptapEditor from "@/components/TiptapEditor";
 import DOMPurify from "dompurify";
 import {
@@ -44,31 +39,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, MoreHorizontal, Pencil, Trash2, Send, CheckCircle, XCircle, AlertCircle, Eye, FileText, Calendar, User, Clock, PenTool, FileDown, Download, Loader2 } from "lucide-react";
+import { Plus, MoreHorizontal, Pencil, Trash2, AlertCircle, Eye, FileText, Calendar, Clock, FileDown, Download, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import type { Document } from "@shared/schema";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
 
 const statusColors: Record<string, string> = {
   draft: "bg-muted text-slate-700",
-  in_review: "bg-blue-100 text-blue-700",
-  pending_approval: "bg-amber-100 text-amber-700",
-  approved: "bg-green-100 text-green-700",
-  obsolete: "bg-red-100 text-red-700",
 };
 
 const categoryColors: Record<string, string> = {
@@ -84,8 +67,6 @@ export default function Documents() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
-  const [showReviewDialog, setShowReviewDialog] = useState(false);
-  const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showViewDialog, setShowViewDialog] = useState(false);
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
@@ -93,8 +74,6 @@ export default function Documents() {
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
-  const [feedbackContent, setFeedbackContent] = useState("");
-  const [feedbackType, setFeedbackType] = useState<'comment' | 'correction' | 'suggestion'>('comment');
   
   const filters = {
     status: statusFilter !== "all" ? statusFilter : undefined,
@@ -102,82 +81,11 @@ export default function Documents() {
   };
   
   const { data: documents, isLoading, isError } = useDocuments(filters);
-  const { data: users } = useUsers();
-  const { data: currentUser } = useAuth();
   const { toast } = useToast();
   
   const createMutation = useCreateDocument();
   const updateMutation = useUpdateDocument();
   const deleteMutation = useDeleteDocument();
-  const submitForReviewMutation = useSubmitForReview();
-  const approveMutation = useApproveDocument();
-  const rejectMutation = useRejectDocument();
-  const completeReviewMutation = useCompleteReview();
-  const completeTaskMutation = useCompleteTask();
-  const createFeedbackMutation = useCreateFeedback();
-  const { data: documentFeedback, refetch: refetchFeedback } = useDocumentFeedback(selectedDocument?.id || null);
-
-  // Reviewer action handlers
-  const handleAcceptReview = async () => {
-    if (!selectedDocument) return;
-    try {
-      await completeReviewMutation.mutateAsync({
-        id: selectedDocument.id,
-        data: { action: 'accept', comments: 'Review completed - accepted' },
-      });
-      toast({ title: "Review Completed", description: "The document has been passed to the approver." });
-      setShowViewDialog(false);
-      setSelectedDocument(null);
-    } catch (error: any) {
-      toast({ title: "Error completing review", description: error.message, variant: "destructive" });
-    }
-  };
-
-  const handleRequestCorrections = async () => {
-    if (!selectedDocument) return;
-    try {
-      await completeReviewMutation.mutateAsync({
-        id: selectedDocument.id,
-        data: { action: 'request_corrections', comments: 'Corrections requested' },
-      });
-      toast({ title: "Corrections Requested", description: "The document has been returned to the preparer for corrections." });
-      setShowViewDialog(false);
-      setSelectedDocument(null);
-    } catch (error: any) {
-      toast({ title: "Error requesting corrections", description: error.message, variant: "destructive" });
-    }
-  };
-  
-  const handleSignTask = async (documentId: number, taskType: 'prepare' | 'review' | 'approve') => {
-    try {
-      await completeTaskMutation.mutateAsync({ documentId, taskType });
-      const taskLabels = { prepare: 'Prepared', review: 'Reviewed', approve: 'Approved' };
-      toast({ title: `Document ${taskLabels[taskType]}`, description: "Your signature has been recorded and notifications sent." });
-      setShowViewDialog(false);
-      setSelectedDocument(null);
-    } catch (error: any) {
-      toast({ title: "Error signing document", description: error.message, variant: "destructive" });
-    }
-  };
-
-  const handleSubmitFeedback = async (role: 'reviewer' | 'approver') => {
-    if (!selectedDocument || !feedbackContent.trim()) return;
-    
-    try {
-      await createFeedbackMutation.mutateAsync({
-        documentId: selectedDocument.id,
-        content: feedbackContent,
-        feedbackType,
-        role,
-      });
-      toast({ title: "Feedback Submitted", description: "Your feedback has been sent to the document author." });
-      setFeedbackContent("");
-      setFeedbackType('comment');
-      refetchFeedback();
-    } catch (error: any) {
-      toast({ title: "Error submitting feedback", description: error.message, variant: "destructive" });
-    }
-  };
 
   const [formData, setFormData] = useState({
     documentCode: "",
@@ -186,15 +94,7 @@ export default function Documents() {
     category: "sop" as string,
     content: "",
     nextReviewDate: "",
-    requiresPreparedBy: true,
-    requiresReviewedBy: true,
-    requiresApprovedBy: true,
-    preparedById: "",
-    reviewedById: "",
-    approvedById: "",
   });
-  const [reviewComments, setReviewComments] = useState("");
-  const [rejectComments, setRejectComments] = useState("");
   
   const resetForm = () => {
     setFormData({
@@ -204,15 +104,7 @@ export default function Documents() {
       category: "sop",
       content: "",
       nextReviewDate: "",
-      requiresPreparedBy: true,
-      requiresReviewedBy: true,
-      requiresApprovedBy: true,
-      preparedById: "",
-      reviewedById: "",
-      approvedById: "",
     });
-    setReviewComments("");
-    setRejectComments("");
   };
   
   const handleCreate = async () => {
@@ -224,12 +116,6 @@ export default function Documents() {
         category: formData.category as "policy" | "manual" | "sop" | "format",
         content: formData.content || undefined,
         nextReviewDate: formData.nextReviewDate || undefined,
-        requiresPreparedBy: formData.requiresPreparedBy,
-        requiresReviewedBy: formData.requiresReviewedBy,
-        requiresApprovedBy: formData.requiresApprovedBy,
-        preparedById: formData.preparedById ? parseInt(formData.preparedById) : undefined,
-        reviewedById: formData.reviewedById ? parseInt(formData.reviewedById) : undefined,
-        approvedById: formData.approvedById ? parseInt(formData.approvedById) : undefined,
       });
       toast({ title: "Document created successfully" });
       setShowCreateDialog(false);
@@ -249,12 +135,6 @@ export default function Documents() {
           description: formData.description,
           content: formData.content,
           nextReviewDate: formData.nextReviewDate || undefined,
-          requiresPreparedBy: formData.requiresPreparedBy,
-          requiresReviewedBy: formData.requiresReviewedBy,
-          requiresApprovedBy: formData.requiresApprovedBy,
-          preparedById: formData.preparedById ? parseInt(formData.preparedById) : undefined,
-          reviewedById: formData.reviewedById ? parseInt(formData.reviewedById) : undefined,
-          approvedById: formData.approvedById ? parseInt(formData.approvedById) : undefined,
         },
       });
       toast({ title: "Document updated successfully" });
@@ -278,59 +158,6 @@ export default function Documents() {
     }
   };
   
-  const handleSubmitForReview = async () => {
-    if (!selectedDocument) return;
-    
-    // Validate that signatories are assigned
-    if (selectedDocument.requiresReviewedBy && !selectedDocument.reviewerId) {
-      toast({ 
-        title: "Reviewer not assigned", 
-        description: "Please edit the document and assign a reviewer before submitting.", 
-        variant: "destructive" 
-      });
-      return;
-    }
-    try {
-      await submitForReviewMutation.mutateAsync({
-        id: selectedDocument.id,
-        data: { 
-          comments: reviewComments 
-        },
-      });
-      toast({ title: "Document submitted for review" });
-      setShowReviewDialog(false);
-      setSelectedDocument(null);
-      resetForm();
-    } catch (error: any) {
-      toast({ title: "Error submitting for review", description: error.message, variant: "destructive" });
-    }
-  };
-  
-  const handleApprove = async (doc: Document) => {
-    try {
-      await approveMutation.mutateAsync({ id: doc.id, data: {} });
-      toast({ title: "Document approved" });
-    } catch (error: any) {
-      toast({ title: "Error approving document", description: error.message, variant: "destructive" });
-    }
-  };
-  
-  const handleReject = async () => {
-    if (!selectedDocument || !rejectComments) return;
-    try {
-      await rejectMutation.mutateAsync({
-        id: selectedDocument.id,
-        data: { comments: rejectComments },
-      });
-      toast({ title: "Document rejected and returned to draft" });
-      setShowRejectDialog(false);
-      setSelectedDocument(null);
-      resetForm();
-    } catch (error: any) {
-      toast({ title: "Error rejecting document", description: error.message, variant: "destructive" });
-    }
-  };
-
   const handleGeneratePdf = async (doc: Document) => {
     setSelectedDocument(doc);
     setIsGeneratingPdf(true);
@@ -408,39 +235,8 @@ export default function Documents() {
       category: doc.category,
       content: doc.content || "",
       nextReviewDate: doc.nextReviewDate ? format(new Date(doc.nextReviewDate), "yyyy-MM-dd") : "",
-      requiresPreparedBy: doc.requiresPreparedBy ?? true,
-      requiresReviewedBy: doc.requiresReviewedBy ?? true,
-      requiresApprovedBy: doc.requiresApprovedBy ?? true,
-      preparedById: doc.preparedById ? String(doc.preparedById) : "",
-      reviewedById: doc.reviewerId ? String(doc.reviewerId) : "",
-      approvedById: doc.approverId ? String(doc.approverId) : "",
     });
     setShowEditDialog(true);
-  };
-  
-  const openReviewDialog = (doc: Document) => {
-    // Validate that required signatories are assigned before opening dialog
-    const missingSignatories: string[] = [];
-    
-    if (doc.requiresReviewedBy && !doc.reviewerId) {
-      missingSignatories.push("Reviewer");
-    }
-    if (missingSignatories.length > 0) {
-      toast({
-        title: "Missing Signatories",
-        description: `Please edit the document and assign: ${missingSignatories.join(", ")}. Go to Edit Document to assign required signatories before submission.`,
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    setSelectedDocument(doc);
-    setShowReviewDialog(true);
-  };
-  
-  const openRejectDialog = (doc: Document) => {
-    setSelectedDocument(doc);
-    setShowRejectDialog(true);
   };
   
   const openDeleteDialog = (doc: Document) => {
@@ -452,9 +248,6 @@ export default function Documents() {
     setSelectedDocument(doc);
     setShowViewDialog(true);
   };
-  
-  // All active users can be selected as signatories
-  const activeUsers = users?.filter(u => u.isActive) || [];
 
   if (isError) {
     return (
@@ -492,10 +285,6 @@ export default function Documents() {
                 <SelectContent>
                   <SelectItem value="all" data-testid="option-status-all">All Statuses</SelectItem>
                   <SelectItem value="draft" data-testid="option-status-draft">Draft</SelectItem>
-                  <SelectItem value="in_review" data-testid="option-status-in-review">In Review</SelectItem>
-                  <SelectItem value="pending_approval" data-testid="option-status-pending">Pending Approval</SelectItem>
-                  <SelectItem value="approved" data-testid="option-status-approved">Approved</SelectItem>
-                  <SelectItem value="obsolete" data-testid="option-status-obsolete">Obsolete</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -547,7 +336,7 @@ export default function Documents() {
                     <h3 className="font-semibold text-base truncate">{doc.title}</h3>
                     <div className="flex items-center gap-3 mt-2 text-sm text-muted-foreground">
                       <span>Ed.{doc.editionNumber || 1} Rev.{doc.revisionNumber || 0}</span>
-                      <Badge className={statusColors[doc.status] || ""} variant="secondary">
+                      <Badge className={statusColors[doc.status] || "bg-muted text-slate-700"} variant="secondary">
                         {doc.status.replace('_', ' ')}
                       </Badge>
                     </div>
@@ -576,21 +365,6 @@ export default function Documents() {
                     <DropdownMenuItem onClick={() => navigate(`/documents/${doc.id}/edit`)}>
                       <Pencil className="w-4 h-4 mr-2" /> Edit
                     </DropdownMenuItem>
-                    {doc.status === "draft" && (
-                      <DropdownMenuItem onClick={() => openReviewDialog(doc)}>
-                        <Send className="w-4 h-4 mr-2" /> Submit for Review
-                      </DropdownMenuItem>
-                    )}
-                    {(doc.status === "in_review" || doc.status === "pending_approval") && (
-                      <>
-                        <DropdownMenuItem onClick={() => handleApprove(doc)}>
-                          <CheckCircle className="w-4 h-4 mr-2" /> Approve
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => openRejectDialog(doc)}>
-                          <XCircle className="w-4 h-4 mr-2" /> Reject
-                        </DropdownMenuItem>
-                      </>
-                    )}
                     <DropdownMenuSeparator />
                     {doc.finalPdfUrl ? (
                       <DropdownMenuItem onClick={() => handleViewPdf(doc)}>
@@ -700,76 +474,6 @@ export default function Documents() {
                 data-testid="input-next-review-date"
               />
             </div>
-            <Separator />
-            <div>
-              <Label className="text-base font-medium">Signature Requirements</Label>
-              <p className="text-sm text-muted-foreground mb-3">Select which signatures are required for this document</p>
-              <div className="space-y-3">
-                <div className="flex items-center space-x-3">
-                  <Checkbox
-                    id="requiresPreparedBy"
-                    checked={formData.requiresPreparedBy}
-                    onCheckedChange={(checked) => setFormData({ ...formData, requiresPreparedBy: !!checked })}
-                    data-testid="checkbox-requires-prepared-by"
-                  />
-                  <Label htmlFor="requiresPreparedBy" className="font-normal cursor-pointer">
-                    Prepared By - Document author signature
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-3">
-                  <Checkbox
-                    id="requiresReviewedBy"
-                    checked={formData.requiresReviewedBy}
-                    onCheckedChange={(checked) => setFormData({ ...formData, requiresReviewedBy: !!checked })}
-                    data-testid="checkbox-requires-reviewed-by"
-                  />
-                  <Label htmlFor="requiresReviewedBy" className="font-normal cursor-pointer">
-                    Reviewed By - Department head review signature
-                  </Label>
-                </div>
-              </div>
-            </div>
-            <Separator />
-            <div>
-              <Label className="text-base font-medium">Signatory Selection</Label>
-              <p className="text-sm text-muted-foreground mb-3">Select the preparer and reviewer. The reviewer will decide whether to approve or delegate.</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {formData.requiresPreparedBy && (
-                  <div>
-                    <Label htmlFor="preparedById">Prepared By</Label>
-                    <Select value={formData.preparedById} onValueChange={(v) => setFormData({ ...formData, preparedById: v })}>
-                      <SelectTrigger id="preparedById" data-testid="select-prepared-by">
-                        <SelectValue placeholder="Select user" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {users?.map((user) => (
-                          <SelectItem key={user.id} value={String(user.id)} data-testid={`option-prepared-by-${user.id}`}>
-                            {user.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-                {formData.requiresReviewedBy && (
-                  <div>
-                    <Label htmlFor="reviewedById">Reviewed By</Label>
-                    <Select value={formData.reviewedById} onValueChange={(v) => setFormData({ ...formData, reviewedById: v })}>
-                      <SelectTrigger id="reviewedById" data-testid="select-reviewed-by">
-                        <SelectValue placeholder="Select user" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {activeUsers.map((user) => (
-                          <SelectItem key={user.id} value={String(user.id)} data-testid={`option-reviewed-by-${user.id}`}>
-                            {user.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
           </ScrollArea>
           <DialogFooter>
@@ -832,76 +536,6 @@ export default function Documents() {
                 data-testid="input-edit-next-review-date"
               />
             </div>
-            <Separator />
-            <div>
-              <Label className="text-base font-medium">Signature Requirements</Label>
-              <p className="text-sm text-muted-foreground mb-3">Select which signatures are required for this document</p>
-              <div className="space-y-3">
-                <div className="flex items-center space-x-3">
-                  <Checkbox
-                    id="edit-requiresPreparedBy"
-                    checked={formData.requiresPreparedBy}
-                    onCheckedChange={(checked) => setFormData({ ...formData, requiresPreparedBy: !!checked })}
-                    data-testid="checkbox-edit-requires-prepared-by"
-                  />
-                  <Label htmlFor="edit-requiresPreparedBy" className="font-normal cursor-pointer">
-                    Prepared By - Document author signature
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-3">
-                  <Checkbox
-                    id="edit-requiresReviewedBy"
-                    checked={formData.requiresReviewedBy}
-                    onCheckedChange={(checked) => setFormData({ ...formData, requiresReviewedBy: !!checked })}
-                    data-testid="checkbox-edit-requires-reviewed-by"
-                  />
-                  <Label htmlFor="edit-requiresReviewedBy" className="font-normal cursor-pointer">
-                    Reviewed By - Department head review signature
-                  </Label>
-                </div>
-              </div>
-            </div>
-            <Separator />
-            <div>
-              <Label className="text-base font-medium">Signatory Selection</Label>
-              <p className="text-sm text-muted-foreground mb-3">Select the preparer and reviewer. The reviewer will decide whether to approve or delegate.</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {formData.requiresPreparedBy && (
-                  <div>
-                    <Label htmlFor="edit-preparedById">Prepared By</Label>
-                    <Select value={formData.preparedById} onValueChange={(v) => setFormData({ ...formData, preparedById: v })}>
-                      <SelectTrigger id="edit-preparedById" data-testid="select-edit-prepared-by">
-                        <SelectValue placeholder="Select user" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {users?.map((user) => (
-                          <SelectItem key={user.id} value={String(user.id)} data-testid={`option-edit-prepared-by-${user.id}`}>
-                            {user.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-                {formData.requiresReviewedBy && (
-                  <div>
-                    <Label htmlFor="edit-reviewedById">Reviewed By</Label>
-                    <Select value={formData.reviewedById} onValueChange={(v) => setFormData({ ...formData, reviewedById: v })}>
-                      <SelectTrigger id="edit-reviewedById" data-testid="select-edit-reviewed-by">
-                        <SelectValue placeholder="Select user" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {activeUsers.map((user) => (
-                          <SelectItem key={user.id} value={String(user.id)} data-testid={`option-edit-reviewed-by-${user.id}`}>
-                            {user.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
           </div>
           <DialogFooter className="px-6 py-4 border-t flex-shrink-0">
@@ -912,96 +546,6 @@ export default function Documents() {
               data-testid="button-submit-edit"
             >
               {updateMutation.isPending ? "Saving..." : "Save Changes"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Submit for Review Dialog */}
-      <Dialog open={showReviewDialog} onOpenChange={setShowReviewDialog}>
-        <DialogContent data-testid="dialog-submit-review">
-          <DialogHeader>
-            <DialogTitle>Submit for Review</DialogTitle>
-            <DialogDescription>Submit this document to the assigned reviewer</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            {selectedDocument && (
-              <div className="bg-muted p-4 rounded-lg space-y-2">
-                <p className="text-sm font-medium">Workflow Assignment</p>
-                <div className="text-sm space-y-1">
-                  {selectedDocument.reviewerId && (
-                    <p>
-                      <span className="text-muted-foreground">Reviewer:</span>{" "}
-                      {users?.find(u => u.id === selectedDocument.reviewerId)?.name || "Assigned"}
-                    </p>
-                  )}
-                  {selectedDocument.approverId && (
-                    <p>
-                      <span className="text-muted-foreground">Approver:</span>{" "}
-                      {users?.find(u => u.id === selectedDocument.approverId)?.name || "Assigned"}
-                    </p>
-                  )}
-                  {selectedDocument.nextReviewDate && (
-                    <p>
-                      <span className="text-muted-foreground">Target Date:</span>{" "}
-                      {new Date(selectedDocument.nextReviewDate).toLocaleDateString()}
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
-            <div>
-              <Label htmlFor="review-comments">Comments (optional)</Label>
-              <Textarea
-                id="review-comments"
-                value={reviewComments}
-                onChange={(e) => setReviewComments(e.target.value)}
-                placeholder="Add any notes for the reviewer..."
-                data-testid="input-review-comments"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowReviewDialog(false)} data-testid="button-cancel-review">Cancel</Button>
-            <Button 
-              onClick={handleSubmitForReview} 
-              disabled={submitForReviewMutation.isPending}
-              data-testid="button-submit-for-review"
-            >
-              {submitForReviewMutation.isPending ? "Submitting..." : "Submit for Review"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Reject Dialog */}
-      <Dialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
-        <DialogContent data-testid="dialog-reject">
-          <DialogHeader>
-            <DialogTitle>Reject Document</DialogTitle>
-            <DialogDescription>Provide a reason for rejection</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="reject-comments">Rejection Reason (required)</Label>
-              <Textarea
-                id="reject-comments"
-                value={rejectComments}
-                onChange={(e) => setRejectComments(e.target.value)}
-                placeholder="Explain why this document is being rejected..."
-                data-testid="input-reject-comments"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowRejectDialog(false)} data-testid="button-cancel-reject">Cancel</Button>
-            <Button 
-              variant="destructive"
-              onClick={handleReject} 
-              disabled={!rejectComments || rejectMutation.isPending}
-              data-testid="button-submit-reject"
-            >
-              {rejectMutation.isPending ? "Rejecting..." : "Reject Document"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1049,7 +593,7 @@ export default function Documents() {
                         <Badge className={categoryColors[selectedDocument.category] || ""} variant="secondary">
                           {selectedDocument.category.toUpperCase()}
                         </Badge>
-                        <Badge className={statusColors[selectedDocument.status] || ""} variant="secondary">
+                        <Badge className={statusColors[selectedDocument.status] || "bg-muted text-slate-700"} variant="secondary">
                           {selectedDocument.status.replace('_', ' ').toUpperCase()}
                         </Badge>
                         <Badge variant="outline">Ed.{selectedDocument.editionNumber || 1} Rev.{selectedDocument.revisionNumber || 0}</Badge>
@@ -1073,7 +617,7 @@ export default function Documents() {
                 )}
               </div>
               
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm mb-4 p-3 bg-muted rounded-md dark:bg-slate-800">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm mb-4 p-3 bg-muted rounded-md dark:bg-slate-800">
                 <div className="flex items-center gap-2">
                   <Calendar className="w-4 h-4 text-muted-foreground/60" />
                   <div>
@@ -1105,17 +649,6 @@ export default function Documents() {
                     <div className="font-medium">Ed.{selectedDocument.editionNumber || 1} Rev.{selectedDocument.revisionNumber || 0}</div>
                   </div>
                 </div>
-                {selectedDocument.approvedBySignedAt && (
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-green-500" />
-                    <div>
-                      <div className="text-muted-foreground text-xs">Approved</div>
-                      <div className="font-medium">
-                        {format(new Date(selectedDocument.approvedBySignedAt), "MMM d, yyyy")}
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
 
               <Separator className="my-4" />
@@ -1131,284 +664,9 @@ export default function Documents() {
                 />
               </ScrollArea>
 
-              {/* Signature Block */}
-              <Separator className="my-4" />
-              <div className="bg-muted dark:bg-slate-800 rounded-md p-4" data-testid="section-signatures">
-                <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                  <PenTool className="w-4 h-4" />
-                  Document Signatures
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  {selectedDocument.requiresPreparedBy && (
-                    <div className="border rounded-md p-3 bg-white dark:bg-slate-900" data-testid="signature-block-prepared">
-                      <div className="text-xs text-muted-foreground mb-1">Prepared By</div>
-                      <div className="h-12 flex items-center justify-center border-b border-dashed mb-2">
-                        {selectedDocument.preparedBySignedAt && selectedDocument.preparedById && users?.find(u => u.id === selectedDocument.preparedById)?.signatureDataUrl ? (
-                          <img 
-                            src={users.find(u => u.id === selectedDocument.preparedById)?.signatureDataUrl || ''} 
-                            alt="Signature" 
-                            className="max-h-10 object-contain"
-                            data-testid="img-signature-prepared"
-                          />
-                        ) : (
-                          <span className="text-xs text-muted-foreground/60 italic">Pending signature</span>
-                        )}
-                      </div>
-                      <div className="text-sm font-medium">
-                        {selectedDocument.preparedById 
-                          ? users?.find(u => u.id === selectedDocument.preparedById)?.name || 'Unknown'
-                          : '---'}
-                      </div>
-                      {selectedDocument.preparedBySignedAt && (
-                        <div className="text-xs text-muted-foreground">
-                          {format(new Date(selectedDocument.preparedBySignedAt), "MMM d, yyyy")}
-                        </div>
-                      )}
-                      {currentUser && 
-                       selectedDocument.preparedById === currentUser.id && 
-                       selectedDocument.status === 'draft' && 
-                       !selectedDocument.preparedBySignedAt && (
-                        <Button 
-                          size="sm" 
-                          className="w-full mt-2"
-                          onClick={() => handleSignTask(selectedDocument.id, 'prepare')}
-                          disabled={completeTaskMutation.isPending}
-                          data-testid="button-sign-prepare"
-                        >
-                          <CheckCircle className="w-4 h-4 mr-1" />
-                          {completeTaskMutation.isPending ? 'Signing...' : 'Sign as Preparer'}
-                        </Button>
-                      )}
-                    </div>
-                  )}
-                  
-                  {selectedDocument.requiresReviewedBy && (
-                    <div className="border rounded-md p-3 bg-white dark:bg-slate-900" data-testid="signature-block-reviewed">
-                      <div className="text-xs text-muted-foreground mb-1">Reviewed By</div>
-                      <div className="h-12 flex items-center justify-center border-b border-dashed mb-2">
-                        {selectedDocument.reviewedById && users?.find(u => u.id === selectedDocument.reviewedById)?.signatureDataUrl ? (
-                          <img 
-                            src={users.find(u => u.id === selectedDocument.reviewedById)?.signatureDataUrl || ''} 
-                            alt="Signature" 
-                            className="max-h-10 object-contain"
-                            data-testid="img-signature-reviewed"
-                          />
-                        ) : (
-                          <span className="text-xs text-muted-foreground/60 italic">Pending signature</span>
-                        )}
-                      </div>
-                      <div className="text-sm font-medium">
-                        {selectedDocument.reviewedById 
-                          ? users?.find(u => u.id === selectedDocument.reviewedById)?.name || 'Unknown'
-                          : selectedDocument.reviewerId
-                          ? users?.find(u => u.id === selectedDocument.reviewerId)?.name || 'Assigned'
-                          : '---'}
-                      </div>
-                      {selectedDocument.reviewedBySignedAt && (
-                        <div className="text-xs text-muted-foreground">
-                          {format(new Date(selectedDocument.reviewedBySignedAt), "MMM d, yyyy")}
-                        </div>
-                      )}
-                      {currentUser && 
-                       selectedDocument.reviewerId === currentUser.id && 
-                       selectedDocument.status === 'in_review' && 
-                       !selectedDocument.reviewedBySignedAt && (
-                        <Button 
-                          size="sm" 
-                          className="w-full mt-2"
-                          onClick={() => handleSignTask(selectedDocument.id, 'review')}
-                          disabled={completeTaskMutation.isPending}
-                          data-testid="button-sign-review"
-                        >
-                          <CheckCircle className="w-4 h-4 mr-1" />
-                          {completeTaskMutation.isPending ? 'Signing...' : 'Sign & Complete Review'}
-                        </Button>
-                      )}
-                    </div>
-                  )}
-                  
-                  {selectedDocument.requiresApprovedBy && (
-                    <div className="border rounded-md p-3 bg-white dark:bg-slate-900" data-testid="signature-block-approved">
-                      <div className="text-xs text-muted-foreground mb-1">Approved By</div>
-                      <div className="h-12 flex items-center justify-center border-b border-dashed mb-2">
-                        {selectedDocument.approvedById && users?.find(u => u.id === selectedDocument.approvedById)?.signatureDataUrl ? (
-                          <img 
-                            src={users.find(u => u.id === selectedDocument.approvedById)?.signatureDataUrl || ''} 
-                            alt="Signature" 
-                            className="max-h-10 object-contain"
-                            data-testid="img-signature-approved"
-                          />
-                        ) : (
-                          <span className="text-xs text-muted-foreground/60 italic">Pending signature</span>
-                        )}
-                      </div>
-                      <div className="text-sm font-medium">
-                        {selectedDocument.approvedById 
-                          ? users?.find(u => u.id === selectedDocument.approvedById)?.name || 'Unknown'
-                          : selectedDocument.approverId
-                          ? users?.find(u => u.id === selectedDocument.approverId)?.name || 'Assigned'
-                          : '---'}
-                      </div>
-                      {selectedDocument.approvedBySignedAt && (
-                        <div className="text-xs text-muted-foreground">
-                          {format(new Date(selectedDocument.approvedBySignedAt), "MMM d, yyyy")}
-                        </div>
-                      )}
-                      {currentUser && 
-                       selectedDocument.approverId === currentUser.id && 
-                       selectedDocument.status === 'pending_approval' && 
-                       !selectedDocument.approvedBySignedAt && (
-                        <Button 
-                          size="sm" 
-                          className="w-full mt-2"
-                          onClick={() => handleSignTask(selectedDocument.id, 'approve')}
-                          disabled={completeTaskMutation.isPending}
-                          data-testid="button-sign-approve"
-                        >
-                          <CheckCircle className="w-4 h-4 mr-1" />
-                          {completeTaskMutation.isPending ? 'Signing...' : 'Sign & Approve'}
-                        </Button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Feedback Section for Reviewers/Approvers */}
-              {currentUser && selectedDocument && (
-                (selectedDocument.reviewerId === currentUser.id && selectedDocument.status === 'in_review') ||
-                (selectedDocument.approverId === currentUser.id && selectedDocument.status === 'pending_approval')
-              ) && (
-                <div className="mt-4 p-4 border rounded-lg bg-amber-50 dark:bg-amber-950" data-testid="section-feedback">
-                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-amber-600" />
-                    Add Comments or Corrections
-                  </h3>
-                  <div className="space-y-3">
-                    <div className="flex gap-2">
-                      <Select value={feedbackType} onValueChange={(v: 'comment' | 'correction' | 'suggestion') => setFeedbackType(v)}>
-                        <SelectTrigger className="w-40" data-testid="select-feedback-type">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="comment">Comment</SelectItem>
-                          <SelectItem value="correction">Correction</SelectItem>
-                          <SelectItem value="suggestion">Suggestion</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <Textarea
-                      placeholder="Enter your feedback, comments, or suggested corrections for the document author..."
-                      value={feedbackContent}
-                      onChange={(e) => setFeedbackContent(e.target.value)}
-                      rows={3}
-                      data-testid="textarea-feedback"
-                    />
-                    <Button
-                      size="sm"
-                      onClick={() => handleSubmitFeedback(
-                        selectedDocument.reviewerId === currentUser.id ? 'reviewer' : 'approver'
-                      )}
-                      disabled={!feedbackContent.trim() || createFeedbackMutation.isPending}
-                      data-testid="button-submit-feedback"
-                    >
-                      {createFeedbackMutation.isPending ? 'Submitting...' : 'Submit Feedback'}
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {/* Show Existing Feedback */}
-              {documentFeedback && documentFeedback.length > 0 && (
-                <div className="mt-4 p-4 border rounded-lg" data-testid="section-existing-feedback">
-                  <h3 className="text-sm font-semibold mb-3">Feedback History</h3>
-                  <div className="space-y-2">
-                    {documentFeedback.map((fb) => (
-                      <div key={fb.id} className="p-2 bg-muted rounded text-sm" data-testid={`feedback-item-${fb.id}`}>
-                        <div className="flex items-center gap-2 mb-1">
-                          <Badge variant={fb.feedbackType === 'correction' ? 'destructive' : 'secondary'}>
-                            {fb.feedbackType}
-                          </Badge>
-                          <span className="text-xs text-muted-foreground">
-                            by {users?.find(u => u.id === fb.authorId)?.name || 'Unknown'} ({fb.role})
-                          </span>
-                          {fb.status === 'addressed' && (
-                            <Badge variant="outline" className="text-green-600">Addressed</Badge>
-                          )}
-                        </div>
-                        <p className="text-muted-foreground">{fb.content}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {/* Action Buttons */}
               <Separator className="my-4" />
               <div className="flex flex-wrap items-center justify-end gap-3" data-testid="view-dialog-actions">
-                {selectedDocument.status === "draft" && (
-                  <Button 
-                    onClick={() => {
-                      setShowViewDialog(false);
-                      openReviewDialog(selectedDocument);
-                    }}
-                    className="bg-[#7A0C1A] hover:bg-[#520812]"
-                    data-testid="button-view-submit-review"
-                  >
-                    <Send className="w-4 h-4 mr-2" />
-                    Submit for Review
-                  </Button>
-                )}
-                
-                {/* Reviewer Actions - Only show when current user is the assigned reviewer and document is in_review */}
-                {currentUser && selectedDocument.status === "in_review" && selectedDocument.reviewerId === currentUser.id && (
-                  <>
-                    <Button 
-                      variant="outline"
-                      onClick={handleRequestCorrections}
-                      disabled={completeReviewMutation.isPending}
-                      data-testid="button-request-corrections"
-                    >
-                      <XCircle className="w-4 h-4 mr-2" />
-                      {completeReviewMutation.isPending ? 'Processing...' : 'Request Corrections'}
-                    </Button>
-                    <Button 
-                      onClick={handleAcceptReview}
-                      disabled={completeReviewMutation.isPending}
-                      className="bg-[#6B8F71] hover:bg-[#5a7a5f]"
-                      data-testid="button-accept-review"
-                    >
-                      <CheckCircle className="w-4 h-4 mr-2" />
-                      {completeReviewMutation.isPending ? 'Processing...' : 'Accept Review'}
-                    </Button>
-                  </>
-                )}
-
-                {/* Approver Actions - Only show when current user is the assigned approver and document is pending_approval */}
-                {currentUser && selectedDocument.status === "pending_approval" && selectedDocument.approverId === currentUser.id && (
-                  <>
-                    <Button 
-                      variant="outline"
-                      onClick={() => {
-                        setShowViewDialog(false);
-                        openRejectDialog(selectedDocument);
-                      }}
-                      data-testid="button-view-reject"
-                    >
-                      <XCircle className="w-4 h-4 mr-2" />
-                      Reject
-                    </Button>
-                    <Button 
-                      onClick={() => handleApprove(selectedDocument)}
-                      className="bg-[#6B8F71] hover:bg-[#5a7a5f]"
-                      data-testid="button-view-approve"
-                    >
-                      <CheckCircle className="w-4 h-4 mr-2" />
-                      Approve
-                    </Button>
-                  </>
-                )}
-                
                 <Button 
                   variant="outline"
                   onClick={() => navigate(`/documents/${selectedDocument.id}/edit`)}
@@ -1467,44 +725,6 @@ export default function Documents() {
                   __html: DOMPurify.sanitize(formData.content || '<p class="text-gray-400 italic">No content to preview</p>') 
                 }}
               />
-              
-              <div className="mt-8 pt-4 border-t-2 border-black">
-                <div className="grid grid-cols-3 gap-4 text-center">
-                  {formData.requiresPreparedBy && (
-                    <div>
-                      <div className="border-b border-black pb-8 mb-2"></div>
-                      <div className="text-sm font-medium">Prepared By</div>
-                      <div className="text-xs text-gray-500">
-                        {formData.preparedById 
-                          ? users?.find(u => u.id === parseInt(formData.preparedById))?.name || '---'
-                          : '---'}
-                      </div>
-                    </div>
-                  )}
-                  {formData.requiresReviewedBy && (
-                    <div>
-                      <div className="border-b border-black pb-8 mb-2"></div>
-                      <div className="text-sm font-medium">Reviewed By</div>
-                      <div className="text-xs text-gray-500">
-                        {formData.reviewedById 
-                          ? users?.find(u => u.id === parseInt(formData.reviewedById))?.name || '---'
-                          : '---'}
-                      </div>
-                    </div>
-                  )}
-                  {formData.requiresApprovedBy && (
-                    <div>
-                      <div className="border-b border-black pb-8 mb-2"></div>
-                      <div className="text-sm font-medium">Approved By</div>
-                      <div className="text-xs text-gray-500">
-                        {formData.approvedById 
-                          ? users?.find(u => u.id === parseInt(formData.approvedById))?.name || '---'
-                          : '---'}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
             </div>
           </ScrollArea>
           <DialogFooter>

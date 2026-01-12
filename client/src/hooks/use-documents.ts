@@ -1,7 +1,7 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { Document } from "@shared/schema";
-import type { DocumentInput, DocumentUpdateInput, SubmitForReviewInput, ApproveInput, RejectInput } from "@shared/routes";
+import type { DocumentInput, DocumentUpdateInput } from "@shared/routes";
 
 export function useDocuments(filters?: { status?: string; category?: string }) {
   const params = new URLSearchParams();
@@ -56,68 +56,6 @@ export function useDeleteDocument() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
       queryClient.invalidateQueries({ queryKey: ['/api/dashboard'] });
-    },
-  });
-}
-
-export function useSubmitForReview() {
-  return useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: SubmitForReviewInput }) => {
-      const res = await apiRequest('POST', `/api/documents/${id}/submit-review`, data);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/dashboard'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
-    },
-  });
-}
-
-export function useApproveDocument() {
-  return useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: ApproveInput }) => {
-      const res = await apiRequest('POST', `/api/documents/${id}/approve`, data);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/dashboard'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
-    },
-  });
-}
-
-export function useRejectDocument() {
-  return useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: RejectInput }) => {
-      const res = await apiRequest('POST', `/api/documents/${id}/reject`, data);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/dashboard'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
-    },
-  });
-}
-
-// Reviewer action: Complete review (accept or request corrections)
-// Reviewers CANNOT approve - they can only complete the review step
-export function useCompleteReview() {
-  return useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: { action: 'accept' | 'request_corrections'; comments?: string } }) => {
-      const res = await apiRequest('POST', `/api/documents/${id}/complete-review`, data);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/dashboard'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
     },
   });
 }
