@@ -482,8 +482,8 @@ export async function registerRoutes(
       }
 
       // Use pre-assigned signatories from document
-      const reviewerId = doc.reviewedById;
-      const approverId = doc.approvedById;
+      const reviewerId = doc.reviewerId;
+      const approverId = doc.approverId;
       const requiresReview = doc.requiresReviewedBy;
       const requiresApproval = doc.requiresApprovedBy;
 

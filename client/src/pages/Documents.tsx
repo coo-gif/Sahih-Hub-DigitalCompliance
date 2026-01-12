@@ -250,7 +250,7 @@ export default function Documents() {
     if (!selectedDocument) return;
     
     // Validate that signatories are assigned
-    if (selectedDocument.requiresReviewedBy && !selectedDocument.reviewedById) {
+    if (selectedDocument.requiresReviewedBy && !selectedDocument.reviewerId) {
       toast({ 
         title: "Reviewer not assigned", 
         description: "Please edit the document and assign a reviewer before submitting.", 
@@ -258,7 +258,7 @@ export default function Documents() {
       });
       return;
     }
-    if (selectedDocument.requiresApprovedBy && !selectedDocument.approvedById) {
+    if (selectedDocument.requiresApprovedBy && !selectedDocument.approverId) {
       toast({ 
         title: "Approver not assigned", 
         description: "Please edit the document and assign an approver before submitting.", 
@@ -389,8 +389,8 @@ export default function Documents() {
       requiresReviewedBy: doc.requiresReviewedBy ?? true,
       requiresApprovedBy: doc.requiresApprovedBy ?? true,
       preparedById: doc.preparedById ? String(doc.preparedById) : "",
-      reviewedById: doc.reviewedById ? String(doc.reviewedById) : "",
-      approvedById: doc.approvedById ? String(doc.approvedById) : "",
+      reviewedById: doc.reviewerId ? String(doc.reviewerId) : "",
+      approvedById: doc.approverId ? String(doc.approverId) : "",
     });
     setShowEditDialog(true);
   };
@@ -399,10 +399,10 @@ export default function Documents() {
     // Validate that required signatories are assigned before opening dialog
     const missingSignatories: string[] = [];
     
-    if (doc.requiresReviewedBy && !doc.reviewedById) {
+    if (doc.requiresReviewedBy && !doc.reviewerId) {
       missingSignatories.push("Reviewer");
     }
-    if (doc.requiresApprovedBy && !doc.approvedById) {
+    if (doc.requiresApprovedBy && !doc.approverId) {
       missingSignatories.push("Approver");
     }
     
@@ -966,16 +966,16 @@ export default function Documents() {
               <div className="bg-muted p-4 rounded-lg space-y-2">
                 <p className="text-sm font-medium">Workflow Assignment</p>
                 <div className="text-sm space-y-1">
-                  {selectedDocument.reviewedById && (
+                  {selectedDocument.reviewerId && (
                     <p>
                       <span className="text-muted-foreground">Reviewer:</span>{" "}
-                      {users?.find(u => u.id === selectedDocument.reviewedById)?.name || "Assigned"}
+                      {users?.find(u => u.id === selectedDocument.reviewerId)?.name || "Assigned"}
                     </p>
                   )}
-                  {selectedDocument.approvedById && (
+                  {selectedDocument.approverId && (
                     <p>
                       <span className="text-muted-foreground">Approver:</span>{" "}
-                      {users?.find(u => u.id === selectedDocument.approvedById)?.name || "Assigned"}
+                      {users?.find(u => u.id === selectedDocument.approverId)?.name || "Assigned"}
                     </p>
                   )}
                   {selectedDocument.nextReviewDate && (
