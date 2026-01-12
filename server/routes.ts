@@ -509,9 +509,9 @@ export async function registerRoutes(
       });
 
       // Create approve task (not visible until review is complete)
+      // Target date for approval will be set to 1 day after review completion
       if (input.approverId) {
         const approveTaskNumber = await storage.generateTaskNumber();
-        const approveTargetDate = new Date(reviewTargetDate.getTime() + targetHours * 60 * 60 * 1000);
         
         await storage.createDocumentTask({
           documentId: id,
@@ -520,8 +520,8 @@ export async function registerRoutes(
           assignedToId: input.approverId,
           assignedById: userId,
           status: DocumentTaskStatus.PENDING,
-          targetDate: approveTargetDate,
-          targetHours,
+          targetDate: null, // Will be set to 1 day after review completion
+          targetHours: 24, // 1 day for approval
           isVisible: false, // Not visible until review is complete
         });
       }
@@ -1713,9 +1713,13 @@ export async function registerRoutes(
         });
         const approverTask = approveTask.find(t => t.taskType === DocumentTaskType.APPROVE);
         if (approverTask) {
+          // Set approval target date to 1 day (24 hours) from now (review completion time)
+          const approvalTargetDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
+          
           await storage.updateDocumentTask(approverTask.id, { 
             isVisible: true,
             status: DocumentTaskStatus.ASSIGNED,
+            targetDate: approvalTargetDate,
           });
           
           // Notify approver

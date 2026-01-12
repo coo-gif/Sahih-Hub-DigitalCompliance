@@ -231,7 +231,7 @@ export default function NewDocument() {
                     data-testid="checkbox-requires-approved-by"
                   />
                   <Label htmlFor="requiresApprovedBy" className="font-normal cursor-pointer">
-                    Approved By - Quality manager approval signature
+                    Approved By - Final approval signature
                   </Label>
                 </div>
               </div>

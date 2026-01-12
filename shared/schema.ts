@@ -193,7 +193,7 @@ export const documentTasks = pgTable("document_tasks", {
   assignedToId: integer("assigned_to_id").notNull(),
   assignedById: integer("assigned_by_id").notNull(),
   status: text("status").notNull().default(DocumentTaskStatus.PENDING),
-  targetDate: timestamp("target_date").notNull(),
+  targetDate: timestamp("target_date"), // Nullable for approval tasks (set when review completes)
   targetHours: integer("target_hours").notNull().default(24),
   assignedAt: timestamp("assigned_at").defaultNow(),
   startedAt: timestamp("started_at"),
