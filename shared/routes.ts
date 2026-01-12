@@ -302,47 +302,6 @@ export const api = {
         200: z.array(z.custom<typeof workflowLogs.$inferSelect>()),
       },
     },
-    // Reviewer actions (single-reviewer workflow)
-    selfApprove: {
-      method: 'POST' as const,
-      path: '/api/documents/:id/self-approve',
-      input: z.object({
-        comments: z.string().optional(),
-      }),
-      responses: {
-        200: z.custom<typeof documents.$inferSelect>(),
-        400: errorSchemas.validation,
-        403: errorSchemas.forbidden,
-        404: errorSchemas.notFound,
-      },
-    },
-    delegate: {
-      method: 'POST' as const,
-      path: '/api/documents/:id/delegate',
-      input: z.object({
-        delegateToUserId: z.number(),
-        comments: z.string().optional(),
-      }),
-      responses: {
-        200: z.custom<typeof documents.$inferSelect>(),
-        400: errorSchemas.validation,
-        403: errorSchemas.forbidden,
-        404: errorSchemas.notFound,
-      },
-    },
-    withdraw: {
-      method: 'POST' as const,
-      path: '/api/documents/:id/withdraw',
-      input: z.object({
-        comments: z.string().optional(),
-      }),
-      responses: {
-        200: z.custom<typeof documents.$inferSelect>(),
-        400: errorSchemas.validation,
-        403: errorSchemas.forbidden,
-        404: errorSchemas.notFound,
-      },
-    },
   },
 
   // Notifications

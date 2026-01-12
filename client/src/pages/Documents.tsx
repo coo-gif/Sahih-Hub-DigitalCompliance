@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { useDocuments, useCreateDocument, useUpdateDocument, useDeleteDocument, useSubmitForReview, useApproveDocument, useRejectDocument, useSelfApproveDocument, useDelegateDocument, useWithdrawDocument } from "@/hooks/use-documents";
+import { useDocuments, useCreateDocument, useUpdateDocument, useDeleteDocument, useSubmitForReview, useApproveDocument, useRejectDocument } from "@/hooks/use-documents";
 import { useUsers } from "@/hooks/use-users";
 import { useAuth } from "@/hooks/use-auth";
 import { useCompleteTask } from "@/hooks/use-tasks";
@@ -58,7 +58,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, MoreHorizontal, Pencil, Trash2, Send, CheckCircle, XCircle, AlertCircle, Eye, FileText, Calendar, User, Clock, PenTool, FileDown, Download, Loader2, UserPlus, LogOut } from "lucide-react";
+import { Plus, MoreHorizontal, Pencil, Trash2, Send, CheckCircle, XCircle, AlertCircle, Eye, FileText, Calendar, User, Clock, PenTool, FileDown, Download, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import type { Document } from "@shared/schema";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
@@ -114,15 +114,7 @@ export default function Documents() {
   const rejectMutation = useRejectDocument();
   const completeTaskMutation = useCompleteTask();
   const createFeedbackMutation = useCreateFeedback();
-  const selfApproveMutation = useSelfApproveDocument();
-  const delegateMutation = useDelegateDocument();
-  const withdrawMutation = useWithdrawDocument();
   const { data: documentFeedback, refetch: refetchFeedback } = useDocumentFeedback(selectedDocument?.id || null);
-  
-  // Reviewer action dialogs
-  const [showDelegateDialog, setShowDelegateDialog] = useState(false);
-  const [delegateUserId, setDelegateUserId] = useState<string>("");
-  const [delegateComments, setDelegateComments] = useState("");
   
   const handleSignTask = async (documentId: number, taskType: 'prepare' | 'review' | 'approve') => {
     try {
@@ -155,58 +147,6 @@ export default function Documents() {
     }
   };
 
-  // Reviewer action handlers
-  const handleSelfApprove = async () => {
-    if (!selectedDocument) return;
-    try {
-      await selfApproveMutation.mutateAsync({
-        id: selectedDocument.id,
-        data: { comments: "Self-approved by reviewer" },
-      });
-      toast({ title: "Document Approved", description: "You have reviewed and approved this document." });
-      setShowViewDialog(false);
-      setSelectedDocument(null);
-    } catch (error: any) {
-      toast({ title: "Error approving document", description: error.message, variant: "destructive" });
-    }
-  };
-
-  const handleDelegate = async () => {
-    if (!selectedDocument || !delegateUserId) return;
-    try {
-      await delegateMutation.mutateAsync({
-        id: selectedDocument.id,
-        data: { 
-          delegateToUserId: parseInt(delegateUserId), 
-          comments: delegateComments || "Delegated to another reviewer" 
-        },
-      });
-      toast({ title: "Review Delegated", description: "The document has been assigned to another reviewer. You will be the final approver." });
-      setShowDelegateDialog(false);
-      setShowViewDialog(false);
-      setSelectedDocument(null);
-      setDelegateUserId("");
-      setDelegateComments("");
-    } catch (error: any) {
-      toast({ title: "Error delegating review", description: error.message, variant: "destructive" });
-    }
-  };
-
-  const handleWithdraw = async () => {
-    if (!selectedDocument) return;
-    try {
-      await withdrawMutation.mutateAsync({
-        id: selectedDocument.id,
-        data: { comments: "Reviewer withdrew from review task" },
-      });
-      toast({ title: "Withdrawn from Review", description: "The document has been returned to draft status." });
-      setShowViewDialog(false);
-      setSelectedDocument(null);
-    } catch (error: any) {
-      toast({ title: "Error withdrawing from review", description: error.message, variant: "destructive" });
-    }
-  };
-  
   const [formData, setFormData] = useState({
     documentCode: "",
     title: "",
@@ -1388,38 +1328,6 @@ export default function Documents() {
                   </Button>
                 )}
                 
-                {/* Reviewer Actions - Only show when current user is the assigned reviewer */}
-                {currentUser && selectedDocument.status === "in_review" && selectedDocument.reviewerId === currentUser.id && (
-                  <>
-                    <Button 
-                      variant="outline"
-                      onClick={handleWithdraw}
-                      disabled={withdrawMutation.isPending}
-                      data-testid="button-withdraw"
-                    >
-                      <LogOut className="w-4 h-4 mr-2" />
-                      {withdrawMutation.isPending ? 'Withdrawing...' : 'Withdraw'}
-                    </Button>
-                    <Button 
-                      variant="outline"
-                      onClick={() => setShowDelegateDialog(true)}
-                      data-testid="button-delegate"
-                    >
-                      <UserPlus className="w-4 h-4 mr-2" />
-                      Delegate
-                    </Button>
-                    <Button 
-                      onClick={handleSelfApprove}
-                      disabled={selfApproveMutation.isPending}
-                      className="bg-[#6B8F71] hover:bg-[#5a7a5f]"
-                      data-testid="button-self-approve"
-                    >
-                      <CheckCircle className="w-4 h-4 mr-2" />
-                      {selfApproveMutation.isPending ? 'Approving...' : 'Review & Approve'}
-                    </Button>
-                  </>
-                )}
-
                 {/* Approver Actions - Only show when current user is the assigned approver */}
                 {currentUser && selectedDocument.status === "pending_approval" && selectedDocument.approverId === currentUser.id && (
                   <>
@@ -1606,68 +1514,6 @@ export default function Documents() {
         </DialogContent>
       </Dialog>
 
-      {/* Delegate Review Dialog */}
-      <Dialog open={showDelegateDialog} onOpenChange={setShowDelegateDialog}>
-        <DialogContent className="sm:max-w-[425px]" data-testid="dialog-delegate">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <UserPlus className="w-5 h-5" />
-              Delegate Review
-            </DialogTitle>
-            <DialogDescription>
-              Assign this document to another reviewer. You will become the final approver.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="delegate-user">Select Reviewer</Label>
-              <Select value={delegateUserId} onValueChange={setDelegateUserId}>
-                <SelectTrigger id="delegate-user" data-testid="select-delegate-user">
-                  <SelectValue placeholder="Choose a reviewer..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {users?.filter(u => u.id !== currentUser?.id && u.role !== 'staff').map((user) => (
-                    <SelectItem key={user.id} value={user.id.toString()}>
-                      {user.name} ({user.role})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="delegate-comments">Comments (Optional)</Label>
-              <Textarea
-                id="delegate-comments"
-                placeholder="Add any notes for the new reviewer..."
-                value={delegateComments}
-                onChange={(e) => setDelegateComments(e.target.value)}
-                rows={3}
-                data-testid="textarea-delegate-comments"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button 
-              variant="outline" 
-              onClick={() => {
-                setShowDelegateDialog(false);
-                setDelegateUserId("");
-                setDelegateComments("");
-              }}
-              data-testid="button-cancel-delegate"
-            >
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleDelegate}
-              disabled={!delegateUserId || delegateMutation.isPending}
-              data-testid="button-confirm-delegate"
-            >
-              {delegateMutation.isPending ? 'Delegating...' : 'Delegate Review'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
