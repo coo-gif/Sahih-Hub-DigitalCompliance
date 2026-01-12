@@ -335,6 +335,8 @@ export async function registerRoutes(
         preparedById: input.preparedById || null,
         reviewerId: input.reviewerId || input.reviewedById || null,
         approverId: input.approvedById || null,
+        assignedStaffIds: input.assignedStaffIds || null,
+        assignedDepartments: input.assignedDepartments || null,
       });
 
       // Audit log

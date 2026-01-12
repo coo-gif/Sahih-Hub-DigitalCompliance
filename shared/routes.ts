@@ -213,6 +213,8 @@ export const api = {
         approvedById: z.number().optional(),
         reviewerId: z.number().optional(),
         status: z.enum([DocumentStatus.DRAFT, DocumentStatus.IN_REVIEW, DocumentStatus.PENDING_APPROVAL, DocumentStatus.APPROVED, DocumentStatus.OBSOLETE]).optional(),
+        assignedStaffIds: z.array(z.number()).optional(),
+        assignedDepartments: z.array(z.string()).optional(),
       }),
       responses: {
         201: z.custom<typeof documents.$inferSelect>(),

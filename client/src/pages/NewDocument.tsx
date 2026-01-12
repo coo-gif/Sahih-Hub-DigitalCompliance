@@ -1,13 +1,15 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { useCreateDocument } from "@/hooks/use-documents";
 import { useUsers } from "@/hooks/use-users";
+import { useEmployees } from "@/hooks/use-employees";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import TiptapEditor from "@/components/TiptapEditor";
 import {
   Select,
@@ -23,7 +25,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { ArrowLeft, FileText, Save, Eye, Send } from "lucide-react";
+import { ArrowLeft, FileText, Save, Eye, Send, Users, Building } from "lucide-react";
 import DOMPurify from "dompurify";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
 
@@ -32,10 +34,13 @@ export default function NewDocument() {
   const { toast } = useToast();
   const createMutation = useCreateDocument();
   const { data: users = [] } = useUsers();
+  const { data: employees = [] } = useEmployees();
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [showReviewerDialog, setShowReviewerDialog] = useState(false);
   const [selectedReviewerId, setSelectedReviewerId] = useState<string>("");
   const [isSubmitForReview, setIsSubmitForReview] = useState(false);
+  const [selectedStaffIds, setSelectedStaffIds] = useState<number[]>([]);
+  const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
 
   const [formData, setFormData] = useState({
     documentCode: "",
@@ -45,6 +50,27 @@ export default function NewDocument() {
     content: "",
     nextReviewDate: "",
   });
+
+  const uniqueDepartments = useMemo(() => {
+    const depts = new Set(employees.map(e => e.department));
+    return Array.from(depts).sort();
+  }, [employees]);
+
+  const toggleStaff = (staffId: number) => {
+    setSelectedStaffIds(prev => 
+      prev.includes(staffId) 
+        ? prev.filter(id => id !== staffId)
+        : [...prev, staffId]
+    );
+  };
+
+  const toggleDepartment = (dept: string) => {
+    setSelectedDepartments(prev => 
+      prev.includes(dept) 
+        ? prev.filter(d => d !== dept)
+        : [...prev, dept]
+    );
+  };
 
   const handleCreate = async (reviewerId?: number) => {
     try {
@@ -57,6 +83,8 @@ export default function NewDocument() {
         nextReviewDate: formData.nextReviewDate || undefined,
         reviewerId: reviewerId,
         status: reviewerId ? "in_review" : "draft",
+        assignedStaffIds: selectedStaffIds.length > 0 ? selectedStaffIds : undefined,
+        assignedDepartments: selectedDepartments.length > 0 ? selectedDepartments : undefined,
       });
       toast({ 
         title: reviewerId ? "Document submitted for review" : "Document created successfully" 
@@ -173,6 +201,85 @@ export default function NewDocument() {
                   data-testid="input-next-review-date"
                 />
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="w-5 h-5" />
+                Assigned Staff
+              </CardTitle>
+              <CardDescription>Select employees who should have access to this document</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {employees.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No employees found. Add employees in the HR module first.</p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-48 overflow-y-auto">
+                  {employees.map((employee) => (
+                    <div key={employee.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`staff-${employee.id}`}
+                        checked={selectedStaffIds.includes(employee.id)}
+                        onCheckedChange={() => toggleStaff(employee.id)}
+                        data-testid={`checkbox-staff-${employee.id}`}
+                      />
+                      <label
+                        htmlFor={`staff-${employee.id}`}
+                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                      >
+                        {employee.name}
+                        <span className="text-muted-foreground ml-1">({employee.department})</span>
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {selectedStaffIds.length > 0 && (
+                <p className="text-sm text-muted-foreground mt-3">
+                  {selectedStaffIds.length} staff member(s) selected
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Building className="w-5 h-5" />
+                Assigned Departments
+              </CardTitle>
+              <CardDescription>Select departments that should have access to this document</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {uniqueDepartments.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No departments found. Add employees with departments first.</p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {uniqueDepartments.map((dept) => (
+                    <div key={dept} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`dept-${dept}`}
+                        checked={selectedDepartments.includes(dept)}
+                        onCheckedChange={() => toggleDepartment(dept)}
+                        data-testid={`checkbox-dept-${dept}`}
+                      />
+                      <label
+                        htmlFor={`dept-${dept}`}
+                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                      >
+                        {dept}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {selectedDepartments.length > 0 && (
+                <p className="text-sm text-muted-foreground mt-3">
+                  {selectedDepartments.length} department(s) selected
+                </p>
+              )}
             </CardContent>
           </Card>
 
