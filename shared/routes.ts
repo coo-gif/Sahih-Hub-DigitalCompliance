@@ -16,6 +16,7 @@ import {
   InductionStatus,
   EmploymentType,
   EmployeeStatus,
+  EmployeeRecordStatus,
   TaskStatus,
   TaskPriority,
 } from './schema';
@@ -350,6 +351,56 @@ export const api = {
       path: '/api/employees/:id',
       responses: {
         204: z.void(),
+        404: errorSchemas.notFound,
+      },
+    },
+    submitForReview: {
+      method: 'POST' as const,
+      path: '/api/employees/:id/submit-review',
+      input: z.object({
+        reviewerId: z.number(),
+        notes: z.string().optional(),
+      }),
+      responses: {
+        200: z.custom<typeof employees.$inferSelect>(),
+        400: errorSchemas.validation,
+        404: errorSchemas.notFound,
+      },
+    },
+    submitForApproval: {
+      method: 'POST' as const,
+      path: '/api/employees/:id/submit-approval',
+      input: z.object({
+        approverId: z.number(),
+        notes: z.string().optional(),
+      }),
+      responses: {
+        200: z.custom<typeof employees.$inferSelect>(),
+        400: errorSchemas.validation,
+        404: errorSchemas.notFound,
+      },
+    },
+    approve: {
+      method: 'POST' as const,
+      path: '/api/employees/:id/approve',
+      input: z.object({
+        notes: z.string().optional(),
+      }),
+      responses: {
+        200: z.custom<typeof employees.$inferSelect>(),
+        400: errorSchemas.validation,
+        404: errorSchemas.notFound,
+      },
+    },
+    reject: {
+      method: 'POST' as const,
+      path: '/api/employees/:id/reject',
+      input: z.object({
+        notes: z.string().optional(),
+      }),
+      responses: {
+        200: z.custom<typeof employees.$inferSelect>(),
+        400: errorSchemas.validation,
         404: errorSchemas.notFound,
       },
     },

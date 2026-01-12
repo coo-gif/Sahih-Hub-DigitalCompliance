@@ -526,6 +526,8 @@ export async function registerRoutes(
         supervisorId: input.supervisorId || null,
         hireDate: new Date(input.hireDate),
         status: input.status || 'active',
+        createdByUserId: getCurrentUserId(req),
+        workflowStatus: 'draft',
       });
 
       // Audit log
@@ -617,6 +619,225 @@ export async function registerRoutes(
     });
 
     res.status(204).send();
+  });
+
+  // ============================================
+  // EMPLOYEE WORKFLOW ROUTES
+  // ============================================
+  app.post(api.employees.submitForReview.path, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: 'Invalid employee ID' });
+      }
+
+      const input = api.employees.submitForReview.input.parse(req.body);
+      
+      const existing = await storage.getEmployee(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Employee not found' });
+      }
+
+      if (existing.workflowStatus !== 'draft' && existing.workflowStatus !== 'rejected') {
+        return res.status(400).json({ message: 'Employee can only be submitted for review from Draft or Rejected status' });
+      }
+
+      const reviewer = await storage.getUser(input.reviewerId);
+      if (!reviewer) {
+        return res.status(400).json({ message: 'Reviewer not found', field: 'reviewerId' });
+      }
+
+      const employee = await storage.submitEmployeeForReview(id, input.reviewerId, input.notes);
+
+      // Create notification for reviewer
+      await storage.createNotification({
+        userId: input.reviewerId,
+        title: 'Employee Record Review Required',
+        message: `Employee record for "${employee.name}" (${employee.employeeNumber}) requires your review.`,
+        urgencyLevel: 'medium',
+      });
+
+      // Audit log
+      await storage.createAuditLog({
+        userId: getCurrentUserId(req),
+        action: AuditAction.SUBMIT_FOR_REVIEW,
+        entityType: 'employee',
+        entityId: id,
+        previousValue: JSON.stringify({ workflowStatus: existing.workflowStatus }),
+        newValue: JSON.stringify({ workflowStatus: 'in_review', reviewerId: input.reviewerId }),
+      });
+
+      res.json(employee);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join('.'),
+        });
+      }
+      throw err;
+    }
+  });
+
+  app.post(api.employees.submitForApproval.path, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: 'Invalid employee ID' });
+      }
+
+      const input = api.employees.submitForApproval.input.parse(req.body);
+      
+      const existing = await storage.getEmployee(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Employee not found' });
+      }
+
+      if (existing.workflowStatus !== 'in_review') {
+        return res.status(400).json({ message: 'Employee can only be submitted for approval from In-Review status' });
+      }
+
+      const approver = await storage.getUser(input.approverId);
+      if (!approver) {
+        return res.status(400).json({ message: 'Approver not found', field: 'approverId' });
+      }
+
+      const employee = await storage.submitEmployeeForApproval(id, input.approverId, input.notes);
+
+      // Create notification for approver
+      await storage.createNotification({
+        userId: input.approverId,
+        title: 'Employee Record Approval Required',
+        message: `Employee record for "${employee.name}" (${employee.employeeNumber}) requires your approval.`,
+        urgencyLevel: 'medium',
+      });
+
+      // Audit log
+      await storage.createAuditLog({
+        userId: getCurrentUserId(req),
+        action: AuditAction.APPROVE,
+        entityType: 'employee',
+        entityId: id,
+        previousValue: JSON.stringify({ workflowStatus: existing.workflowStatus }),
+        newValue: JSON.stringify({ workflowStatus: 'pending_approval', approverId: input.approverId }),
+      });
+
+      res.json(employee);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join('.'),
+        });
+      }
+      throw err;
+    }
+  });
+
+  app.post(api.employees.approve.path, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: 'Invalid employee ID' });
+      }
+
+      const input = api.employees.approve.input.parse(req.body);
+      
+      const existing = await storage.getEmployee(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Employee not found' });
+      }
+
+      if (existing.workflowStatus !== 'pending_approval') {
+        return res.status(400).json({ message: 'Employee can only be approved from Pending Approval status' });
+      }
+
+      const currentUserId = getCurrentUserId(req);
+      const employee = await storage.approveEmployee(id, currentUserId, input.notes);
+
+      // Create notification for creator
+      if (existing.createdByUserId) {
+        await storage.createNotification({
+          userId: existing.createdByUserId,
+          title: 'Employee Record Approved',
+          message: `Employee record for "${employee.name}" (${employee.employeeNumber}) has been approved.`,
+          urgencyLevel: 'low',
+        });
+      }
+
+      // Audit log
+      await storage.createAuditLog({
+        userId: currentUserId,
+        action: AuditAction.APPROVE,
+        entityType: 'employee',
+        entityId: id,
+        previousValue: JSON.stringify({ workflowStatus: existing.workflowStatus }),
+        newValue: JSON.stringify({ workflowStatus: 'approved' }),
+      });
+
+      res.json(employee);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join('.'),
+        });
+      }
+      throw err;
+    }
+  });
+
+  app.post(api.employees.reject.path, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: 'Invalid employee ID' });
+      }
+
+      const input = api.employees.reject.input.parse(req.body);
+      
+      const existing = await storage.getEmployee(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Employee not found' });
+      }
+
+      if (existing.workflowStatus !== 'in_review' && existing.workflowStatus !== 'pending_approval') {
+        return res.status(400).json({ message: 'Employee can only be rejected from In-Review or Pending Approval status' });
+      }
+
+      const currentUserId = getCurrentUserId(req);
+      const employee = await storage.rejectEmployee(id, currentUserId, input.notes);
+
+      // Create notification for creator
+      if (existing.createdByUserId) {
+        await storage.createNotification({
+          userId: existing.createdByUserId,
+          title: 'Employee Record Rejected',
+          message: `Employee record for "${employee.name}" (${employee.employeeNumber}) has been rejected. ${input.notes || ''}`,
+          urgencyLevel: 'high',
+        });
+      }
+
+      // Audit log
+      await storage.createAuditLog({
+        userId: currentUserId,
+        action: AuditAction.REJECT,
+        entityType: 'employee',
+        entityId: id,
+        previousValue: JSON.stringify({ workflowStatus: existing.workflowStatus }),
+        newValue: JSON.stringify({ workflowStatus: 'rejected', notes: input.notes }),
+      });
+
+      res.json(employee);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join('.'),
+        });
+      }
+      throw err;
+    }
   });
 
   // ============================================

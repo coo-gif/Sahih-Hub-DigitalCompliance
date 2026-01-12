@@ -1,7 +1,9 @@
 import { useState, useMemo } from "react";
 import { Link } from "wouter";
-import { useEmployees, useCreateEmployee, useUpdateEmployee, useDeleteEmployee, useEmployeeTasks, useCreateEmployeeTask, useCompleteEmployeeTask, useDeleteEmployeeTask } from "@/hooks/use-employees";
+import { useEmployees, useCreateEmployee, useUpdateEmployee, useDeleteEmployee, useEmployeeTasks, useCreateEmployeeTask, useCompleteEmployeeTask, useDeleteEmployeeTask, useSubmitEmployeeForReview, useSubmitEmployeeForApproval, useApproveEmployee, useRejectEmployee } from "@/hooks/use-employees";
 import { useDocuments } from "@/hooks/use-documents";
+import { useUsers } from "@/hooks/use-users";
+import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -56,7 +58,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
-import { Plus, MoreHorizontal, Pencil, Trash2, UserPlus, FileText, CheckCircle, Clock, AlertCircle, Users, ClipboardList, Network } from "lucide-react";
+import { Plus, MoreHorizontal, Pencil, Trash2, UserPlus, FileText, CheckCircle, Clock, AlertCircle, Users, ClipboardList, Network, Send, ThumbsUp, ThumbsDown, Eye } from "lucide-react";
 import { format } from "date-fns";
 import type { Employee, EmployeeTask } from "@shared/schema";
 
@@ -80,6 +82,22 @@ const taskStatusColors: Record<string, string> = {
   overdue: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
 };
 
+const workflowStatusColors: Record<string, string> = {
+  draft: "bg-muted text-slate-700 dark:bg-slate-700 dark:text-slate-300",
+  in_review: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  pending_approval: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  approved: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+  rejected: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+};
+
+const workflowStatusLabels: Record<string, string> = {
+  draft: "Draft",
+  in_review: "In Review",
+  pending_approval: "Pending Approval",
+  approved: "Approved",
+  rejected: "Rejected",
+};
+
 const priorityColors: Record<string, string> = {
   low: "bg-muted text-muted-foreground dark:bg-slate-700 dark:text-slate-300",
   medium: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
@@ -94,6 +112,10 @@ export default function Employees() {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showTaskDialog, setShowTaskDialog] = useState(false);
+  const [showWorkflowDialog, setShowWorkflowDialog] = useState(false);
+  const [workflowAction, setWorkflowAction] = useState<'submit_review' | 'submit_approval' | 'approve' | 'reject' | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<string>("");
+  const [workflowNotes, setWorkflowNotes] = useState("");
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
 
   const filters = {
@@ -104,6 +126,8 @@ export default function Employees() {
   const { data: employees, isLoading, isError } = useEmployees(filters);
   const { data: tasks } = useEmployeeTasks();
   const { data: documents } = useDocuments();
+  const { data: users } = useUsers();
+  const { data: currentUser } = useAuth();
   const { toast } = useToast();
 
   const createMutation = useCreateEmployee();
@@ -112,6 +136,10 @@ export default function Employees() {
   const createTaskMutation = useCreateEmployeeTask();
   const completeTaskMutation = useCompleteEmployeeTask();
   const deleteTaskMutation = useDeleteEmployeeTask();
+  const submitForReviewMutation = useSubmitEmployeeForReview();
+  const submitForApprovalMutation = useSubmitEmployeeForApproval();
+  const approveMutation = useApproveEmployee();
+  const rejectMutation = useRejectEmployee();
 
   const nextEmployeeNumber = useMemo(() => {
     if (!employees || employees.length === 0) return "EMP-001";
@@ -271,6 +299,100 @@ export default function Employees() {
     }
   };
 
+  const openWorkflowDialog = (employee: Employee, action: 'submit_review' | 'submit_approval' | 'approve' | 'reject') => {
+    setSelectedEmployee(employee);
+    setWorkflowAction(action);
+    setSelectedUserId("");
+    setWorkflowNotes("");
+    setShowWorkflowDialog(true);
+  };
+
+  const handleWorkflowAction = async () => {
+    if (!selectedEmployee || !workflowAction) return;
+    
+    try {
+      switch (workflowAction) {
+        case 'submit_review':
+          if (!selectedUserId) {
+            toast({ title: "Please select a reviewer", variant: "destructive" });
+            return;
+          }
+          await submitForReviewMutation.mutateAsync({
+            id: selectedEmployee.id,
+            reviewerId: Number(selectedUserId),
+            notes: workflowNotes || undefined,
+          });
+          toast({ title: "Employee submitted for review" });
+          break;
+        case 'submit_approval':
+          if (!selectedUserId) {
+            toast({ title: "Please select an approver", variant: "destructive" });
+            return;
+          }
+          await submitForApprovalMutation.mutateAsync({
+            id: selectedEmployee.id,
+            approverId: Number(selectedUserId),
+            notes: workflowNotes || undefined,
+          });
+          toast({ title: "Employee submitted for approval" });
+          break;
+        case 'approve':
+          await approveMutation.mutateAsync({
+            id: selectedEmployee.id,
+            notes: workflowNotes || undefined,
+          });
+          toast({ title: "Employee approved" });
+          break;
+        case 'reject':
+          await rejectMutation.mutateAsync({
+            id: selectedEmployee.id,
+            notes: workflowNotes || undefined,
+          });
+          toast({ title: "Employee rejected" });
+          break;
+      }
+      setShowWorkflowDialog(false);
+      setSelectedEmployee(null);
+      setWorkflowAction(null);
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const getWorkflowDialogTitle = () => {
+    switch (workflowAction) {
+      case 'submit_review': return 'Submit for Review';
+      case 'submit_approval': return 'Submit for Approval';
+      case 'approve': return 'Approve Employee Record';
+      case 'reject': return 'Reject Employee Record';
+      default: return '';
+    }
+  };
+
+  const canPerformWorkflowAction = (employee: Employee, action: 'submit_review' | 'submit_approval' | 'approve' | 'reject'): boolean => {
+    if (!currentUser) return false;
+    const emp = employee as any;
+    const isAdmin = currentUser.role === 'admin';
+    const isQualityManager = currentUser.role === 'quality_manager';
+    const isCreator = emp.createdByUserId === currentUser.id;
+    const isAssignedReviewer = emp.reviewerId === currentUser.id;
+    const isAssignedApprover = emp.approverId === currentUser.id;
+
+    switch (action) {
+      case 'submit_review':
+        return (emp.workflowStatus === 'draft' || emp.workflowStatus === 'rejected') && (isCreator || isAdmin || isQualityManager);
+      case 'submit_approval':
+        return emp.workflowStatus === 'in_review' && (isAssignedReviewer || isAdmin || isQualityManager);
+      case 'approve':
+        return emp.workflowStatus === 'pending_approval' && (isAssignedApprover || isAdmin || isQualityManager);
+      case 'reject':
+        return (emp.workflowStatus === 'in_review' && (isAssignedReviewer || isAdmin || isQualityManager)) ||
+               (emp.workflowStatus === 'pending_approval' && (isAssignedApprover || isAdmin || isQualityManager));
+      default:
+        return false;
+    }
+  };
+
   const openEditDialog = (employee: Employee) => {
     setSelectedEmployee(employee);
     setFormData({
@@ -401,6 +523,7 @@ export default function Employees() {
                       <TableHead>Department</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Workflow</TableHead>
                       <TableHead>Tasks</TableHead>
                       <TableHead className="w-[50px]"></TableHead>
                     </TableRow>
@@ -429,6 +552,11 @@ export default function Employees() {
                             </Badge>
                           </TableCell>
                           <TableCell>
+                            <Badge variant="secondary" className={workflowStatusColors[(employee as any).workflowStatus || 'draft']}>
+                              {workflowStatusLabels[(employee as any).workflowStatus || 'draft']}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
                             {pendingTasks > 0 ? (
                               <Badge variant="outline" className="gap-1">
                                 <Clock className="h-3 w-3" />
@@ -446,6 +574,31 @@ export default function Employees() {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
+                                {canPerformWorkflowAction(employee, 'submit_review') && (
+                                  <DropdownMenuItem onClick={() => openWorkflowDialog(employee, 'submit_review')} data-testid={`button-submit-review-${employee.id}`}>
+                                    <Send className="h-4 w-4 mr-2" />
+                                    Submit for Review
+                                  </DropdownMenuItem>
+                                )}
+                                {canPerformWorkflowAction(employee, 'submit_approval') && (
+                                  <DropdownMenuItem onClick={() => openWorkflowDialog(employee, 'submit_approval')} data-testid={`button-submit-approval-${employee.id}`}>
+                                    <ThumbsUp className="h-4 w-4 mr-2" />
+                                    Send to Approver
+                                  </DropdownMenuItem>
+                                )}
+                                {canPerformWorkflowAction(employee, 'approve') && (
+                                  <DropdownMenuItem onClick={() => openWorkflowDialog(employee, 'approve')} data-testid={`button-approve-${employee.id}`}>
+                                    <CheckCircle className="h-4 w-4 mr-2" />
+                                    Approve
+                                  </DropdownMenuItem>
+                                )}
+                                {canPerformWorkflowAction(employee, 'reject') && (
+                                  <DropdownMenuItem onClick={() => openWorkflowDialog(employee, 'reject')} className="text-destructive" data-testid={`button-reject-${employee.id}`}>
+                                    <ThumbsDown className="h-4 w-4 mr-2" />
+                                    Reject
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuSeparator />
                                 <DropdownMenuItem onClick={() => openTaskDialog(employee)} data-testid={`button-assign-task-${employee.id}`}>
                                   <FileText className="h-4 w-4 mr-2" />
                                   Assign Task
@@ -926,6 +1079,76 @@ export default function Employees() {
               data-testid="button-assign-task"
             >
               {createTaskMutation.isPending ? "Assigning..." : "Assign Task"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showWorkflowDialog} onOpenChange={(open) => {
+        setShowWorkflowDialog(open);
+        if (!open) {
+          setSelectedUserId("");
+          setWorkflowNotes("");
+          setWorkflowAction(null);
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{getWorkflowDialogTitle()}</DialogTitle>
+            <DialogDescription>
+              {workflowAction === 'submit_review' && `Submit ${selectedEmployee?.name}'s record for review`}
+              {workflowAction === 'submit_approval' && `Send ${selectedEmployee?.name}'s record to an approver`}
+              {workflowAction === 'approve' && `Approve ${selectedEmployee?.name}'s employee record`}
+              {workflowAction === 'reject' && `Reject ${selectedEmployee?.name}'s employee record`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {(workflowAction === 'submit_review' || workflowAction === 'submit_approval') && (
+              <div className="space-y-2">
+                <Label htmlFor="workflow-user">
+                  {workflowAction === 'submit_review' ? 'Select Reviewer' : 'Select Approver'} *
+                </Label>
+                <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+                  <SelectTrigger id="workflow-user" data-testid="select-workflow-user">
+                    <SelectValue placeholder={workflowAction === 'submit_review' ? 'Choose a reviewer...' : 'Choose an approver...'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(users || []).map(user => (
+                      <SelectItem key={user.id} value={String(user.id)}>{user.name} ({user.role})</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="workflow-notes">Notes</Label>
+              <Textarea
+                id="workflow-notes"
+                value={workflowNotes}
+                onChange={e => setWorkflowNotes(e.target.value)}
+                placeholder="Add optional notes..."
+                data-testid="input-workflow-notes"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowWorkflowDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleWorkflowAction}
+              disabled={
+                submitForReviewMutation.isPending || 
+                submitForApprovalMutation.isPending || 
+                approveMutation.isPending || 
+                rejectMutation.isPending
+              }
+              variant={workflowAction === 'reject' ? 'destructive' : 'default'}
+              data-testid="button-confirm-workflow"
+            >
+              {(submitForReviewMutation.isPending || submitForApprovalMutation.isPending || approveMutation.isPending || rejectMutation.isPending) 
+                ? "Processing..." 
+                : getWorkflowDialogTitle()}
             </Button>
           </DialogFooter>
         </DialogContent>

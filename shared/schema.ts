@@ -68,6 +68,14 @@ export const EmployeeStatus = {
   TERMINATED: "terminated",
 } as const;
 
+export const EmployeeRecordStatus = {
+  DRAFT: "draft",
+  IN_REVIEW: "in_review",
+  PENDING_APPROVAL: "pending_approval",
+  APPROVED: "approved",
+  REJECTED: "rejected",
+} as const;
+
 export const TaskStatus = {
   PENDING: "pending",
   IN_PROGRESS: "in_progress",
@@ -324,6 +332,17 @@ export const employees = pgTable("employees", {
   supervisorId: integer("supervisor_id"),
   hireDate: timestamp("hire_date").notNull(),
   status: text("status").notNull().default(EmployeeStatus.ACTIVE),
+  workflowStatus: text("workflow_status").notNull().default(EmployeeRecordStatus.DRAFT),
+  createdByUserId: integer("created_by_user_id"),
+  reviewerId: integer("reviewer_id"),
+  approverId: integer("approver_id"),
+  submittedForReviewAt: timestamp("submitted_for_review_at"),
+  reviewedAt: timestamp("reviewed_at"),
+  submittedForApprovalAt: timestamp("submitted_for_approval_at"),
+  approvedAt: timestamp("approved_at"),
+  rejectedAt: timestamp("rejected_at"),
+  rejectedById: integer("rejected_by_id"),
+  workflowNotes: text("workflow_notes"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

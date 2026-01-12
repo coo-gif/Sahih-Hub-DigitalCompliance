@@ -124,3 +124,51 @@ export function useCompleteEmployeeTask() {
     },
   });
 }
+
+export function useSubmitEmployeeForReview() {
+  return useMutation({
+    mutationFn: async ({ id, reviewerId, notes }: { id: number; reviewerId: number; notes?: string }) => {
+      const res = await apiRequest('POST', `/api/employees/${id}/submit-review`, { reviewerId, notes });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/employees'] });
+    },
+  });
+}
+
+export function useSubmitEmployeeForApproval() {
+  return useMutation({
+    mutationFn: async ({ id, approverId, notes }: { id: number; approverId: number; notes?: string }) => {
+      const res = await apiRequest('POST', `/api/employees/${id}/submit-approval`, { approverId, notes });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/employees'] });
+    },
+  });
+}
+
+export function useApproveEmployee() {
+  return useMutation({
+    mutationFn: async ({ id, notes }: { id: number; notes?: string }) => {
+      const res = await apiRequest('POST', `/api/employees/${id}/approve`, { notes });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/employees'] });
+    },
+  });
+}
+
+export function useRejectEmployee() {
+  return useMutation({
+    mutationFn: async ({ id, notes }: { id: number; notes?: string }) => {
+      const res = await apiRequest('POST', `/api/employees/${id}/reject`, { notes });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/employees'] });
+    },
+  });
+}

@@ -15,6 +15,7 @@ import {
   type DocumentTask, type InsertDocumentTask,
   type TaskPoke, type InsertTaskPoke,
   DocumentStatus, InductionStatus, TaskStatus, FeedbackStatus, DocumentTaskStatus,
+  EmployeeRecordStatus,
 } from "@shared/schema";
 import { eq, desc, and, lt, gt, or, sql } from "drizzle-orm";
 import bcrypt from "bcrypt";
@@ -83,13 +84,19 @@ export interface IStorage {
   }>>;
 
   // Employees
-  getEmployees(filters?: { status?: string; department?: string }): Promise<Employee[]>;
+  getEmployees(filters?: { status?: string; department?: string; workflowStatus?: string }): Promise<Employee[]>;
   getEmployee(id: number): Promise<Employee | undefined>;
   getEmployeeByNumber(employeeNumber: string): Promise<Employee | undefined>;
   getEmployeeByEmail(email: string): Promise<Employee | undefined>;
   createEmployee(employee: InsertEmployee): Promise<Employee>;
   updateEmployee(id: number, employee: Partial<InsertEmployee>): Promise<Employee>;
   deleteEmployee(id: number): Promise<void>;
+  
+  // Employee Workflow
+  submitEmployeeForReview(id: number, reviewerId: number, notes?: string): Promise<Employee>;
+  submitEmployeeForApproval(id: number, approverId: number, notes?: string): Promise<Employee>;
+  approveEmployee(id: number, approverId: number, notes?: string): Promise<Employee>;
+  rejectEmployee(id: number, rejectedById: number, notes?: string): Promise<Employee>;
 
   // Employee Tasks
   getEmployeeTasks(filters?: { employeeId?: number; status?: string; documentId?: number }): Promise<EmployeeTask[]>;
@@ -425,18 +432,22 @@ export class DatabaseStorage implements IStorage {
   // ============================================
   // EMPLOYEES
   // ============================================
-  async getEmployees(filters?: { status?: string; department?: string }): Promise<Employee[]> {
-    if (filters?.status && filters?.department) {
+  async getEmployees(filters?: { status?: string; department?: string; workflowStatus?: string }): Promise<Employee[]> {
+    const conditions: any[] = [];
+    
+    if (filters?.status) {
+      conditions.push(eq(employees.status, filters.status));
+    }
+    if (filters?.department) {
+      conditions.push(eq(employees.department, filters.department));
+    }
+    if (filters?.workflowStatus) {
+      conditions.push(eq(employees.workflowStatus, filters.workflowStatus));
+    }
+
+    if (conditions.length > 0) {
       return await db.select().from(employees)
-        .where(and(eq(employees.status, filters.status), eq(employees.department, filters.department)))
-        .orderBy(desc(employees.createdAt));
-    } else if (filters?.status) {
-      return await db.select().from(employees)
-        .where(eq(employees.status, filters.status))
-        .orderBy(desc(employees.createdAt));
-    } else if (filters?.department) {
-      return await db.select().from(employees)
-        .where(eq(employees.department, filters.department))
+        .where(and(...conditions))
         .orderBy(desc(employees.createdAt));
     }
     return await db.select().from(employees).orderBy(desc(employees.createdAt));
@@ -474,6 +485,66 @@ export class DatabaseStorage implements IStorage {
     // First delete associated tasks
     await db.delete(employeeTasks).where(eq(employeeTasks.employeeId, id));
     await db.delete(employees).where(eq(employees.id, id));
+  }
+
+  // ============================================
+  // EMPLOYEE WORKFLOW
+  // ============================================
+  async submitEmployeeForReview(id: number, reviewerId: number, notes?: string): Promise<Employee> {
+    const [updated] = await db.update(employees)
+      .set({
+        workflowStatus: EmployeeRecordStatus.IN_REVIEW,
+        reviewerId,
+        submittedForReviewAt: new Date(),
+        workflowNotes: notes || null,
+        updatedAt: new Date(),
+      })
+      .where(eq(employees.id, id))
+      .returning();
+    return updated;
+  }
+
+  async submitEmployeeForApproval(id: number, approverId: number, notes?: string): Promise<Employee> {
+    const [updated] = await db.update(employees)
+      .set({
+        workflowStatus: EmployeeRecordStatus.PENDING_APPROVAL,
+        approverId,
+        reviewedAt: new Date(),
+        submittedForApprovalAt: new Date(),
+        workflowNotes: notes || null,
+        updatedAt: new Date(),
+      })
+      .where(eq(employees.id, id))
+      .returning();
+    return updated;
+  }
+
+  async approveEmployee(id: number, approverId: number, notes?: string): Promise<Employee> {
+    const [updated] = await db.update(employees)
+      .set({
+        workflowStatus: EmployeeRecordStatus.APPROVED,
+        approverId,
+        approvedAt: new Date(),
+        workflowNotes: notes || null,
+        updatedAt: new Date(),
+      })
+      .where(eq(employees.id, id))
+      .returning();
+    return updated;
+  }
+
+  async rejectEmployee(id: number, rejectedById: number, notes?: string): Promise<Employee> {
+    const [updated] = await db.update(employees)
+      .set({
+        workflowStatus: EmployeeRecordStatus.REJECTED,
+        rejectedById,
+        rejectedAt: new Date(),
+        workflowNotes: notes || null,
+        updatedAt: new Date(),
+      })
+      .where(eq(employees.id, id))
+      .returning();
+    return updated;
   }
 
   // ============================================
