@@ -431,13 +431,78 @@ export const userRecords = pgTable("user_records", {
 });
 
 // ============================================
+// BUDDY STATUS - Compliance Avatar System
+// ============================================
+export const BuddyState = {
+  FLEXING: 'flexing',      // 90%+ compliance
+  HEALTHY: 'healthy',      // 80-89% compliance
+  TIRED: 'tired',          // 70-79% compliance
+  WEAK: 'weak',            // 60-69% compliance
+  CRITICAL: 'critical',    // <60% compliance
+} as const;
+export type BuddyStateType = typeof BuddyState[keyof typeof BuddyState];
+
+export const buddyStatus = pgTable("buddy_status", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().unique(),
+  complianceScore: integer("compliance_score").default(100),
+  totalTasksAssigned: integer("total_tasks_assigned").default(0),
+  tasksCompleted: integer("tasks_completed").default(0),
+  tasksOnTime: integer("tasks_on_time").default(0),
+  tasksOverdue: integer("tasks_overdue").default(0),
+  currentState: text("current_state").default('flexing'),
+  lastDialogueAt: timestamp("last_dialogue_at"),
+  dailyAlertsSent: integer("daily_alerts_sent").default(0),
+  lastAlertDate: text("last_alert_date"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Push Notification Subscriptions
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  endpoint: text("endpoint").notNull(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Buddy Dialogues - Track dialogues sent to users
+export const buddyDialogues = pgTable("buddy_dialogues", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  dialogueType: text("dialogue_type").notNull(), // 'reminder', 'congratulation', 'warning', 'critical'
+  message: text("message").notNull(),
+  isAcknowledged: boolean("is_acknowledged").default(false),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// ============================================
 // RELATIONS
 // ============================================
-export const usersRelations = relations(users, ({ many }) => ({
+export const usersRelations = relations(users, ({ many, one }) => ({
   documents: many(documents),
   notifications: many(notifications),
   auditLogs: many(auditLogs),
   userRecords: many(userRecords),
+  buddyStatus: one(buddyStatus, { fields: [users.id], references: [buddyStatus.userId] }),
+  pushSubscriptions: many(pushSubscriptions),
+  buddyDialogues: many(buddyDialogues),
+}));
+
+export const buddyStatusRelations = relations(buddyStatus, ({ one }) => ({
+  user: one(users, { fields: [buddyStatus.userId], references: [users.id] }),
+}));
+
+export const pushSubscriptionsRelations = relations(pushSubscriptions, ({ one }) => ({
+  user: one(users, { fields: [pushSubscriptions.userId], references: [users.id] }),
+}));
+
+export const buddyDialoguesRelations = relations(buddyDialogues, ({ one }) => ({
+  user: one(users, { fields: [buddyDialogues.userId], references: [users.id] }),
 }));
 
 export const userRecordsRelations = relations(userRecords, ({ one }) => ({
@@ -602,6 +667,23 @@ export const insertUserRecordSchema = createInsertSchema(userRecords).omit({
   createdAt: true,
 });
 
+export const insertBuddyStatusSchema = createInsertSchema(buddyStatus).omit({ 
+  id: true, 
+  updatedAt: true,
+});
+
+export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({ 
+  id: true, 
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertBuddyDialogueSchema = createInsertSchema(buddyDialogues).omit({ 
+  id: true, 
+  createdAt: true,
+  acknowledgedAt: true,
+});
+
 // ============================================
 // TYPES
 // ============================================
@@ -649,6 +731,15 @@ export type InsertDocumentAccess = z.infer<typeof insertDocumentAccessSchema>;
 
 export type UserRecord = typeof userRecords.$inferSelect;
 export type InsertUserRecord = z.infer<typeof insertUserRecordSchema>;
+
+export type BuddyStatus = typeof buddyStatus.$inferSelect;
+export type InsertBuddyStatus = z.infer<typeof insertBuddyStatusSchema>;
+
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema>;
+
+export type BuddyDialogue = typeof buddyDialogues.$inferSelect;
+export type InsertBuddyDialogue = z.infer<typeof insertBuddyDialogueSchema>;
 
 // ============================================
 // API REQUEST/RESPONSE TYPES

@@ -2,7 +2,7 @@ import { db } from "./db";
 import {
   users, documents, documentVersions, workflowLogs, notifications, auditLogs,
   employees, employeeTasks, downloadRequests, documentFeedback, documentTasks, taskPokes,
-  documentAccessRequests, documentAccess, userRecords,
+  documentAccessRequests, documentAccess, userRecords, buddyStatus, pushSubscriptions, buddyDialogues,
   type User, type InsertUser,
   type Document, type InsertDocument,
   type DocumentVersion, type InsertDocumentVersion,
@@ -18,8 +18,11 @@ import {
   type DocumentAccessRequest, type InsertDocumentAccessRequest,
   type DocumentAccess, type InsertDocumentAccess,
   type UserRecord, type InsertUserRecord,
+  type BuddyStatus, type InsertBuddyStatus,
+  type PushSubscription, type InsertPushSubscription,
+  type BuddyDialogue, type InsertBuddyDialogue,
   DocumentStatus, InductionStatus, TaskStatus, FeedbackStatus, DocumentTaskStatus,
-  EmployeeRecordStatus, DocumentAccessRequestStatus,
+  EmployeeRecordStatus, DocumentAccessRequestStatus, BuddyState,
 } from "@shared/schema";
 import { eq, desc, and, lt, gt, or, sql } from "drizzle-orm";
 import bcrypt from "bcrypt";
@@ -174,6 +177,22 @@ export interface IStorage {
   getUserRecord(id: number): Promise<UserRecord | undefined>;
   createUserRecord(record: InsertUserRecord): Promise<UserRecord>;
   generateReportNumber(reportType: string): Promise<string>;
+
+  // Buddy Status System
+  getBuddyStatus(userId: number): Promise<BuddyStatus | undefined>;
+  getOrCreateBuddyStatus(userId: number): Promise<BuddyStatus>;
+  updateBuddyStatus(userId: number, updates: Partial<InsertBuddyStatus>): Promise<BuddyStatus>;
+  calculateUserCompliance(userId: number): Promise<{ score: number; state: string }>;
+
+  // Push Subscriptions
+  getPushSubscriptions(userId: number): Promise<PushSubscription[]>;
+  savePushSubscription(subscription: InsertPushSubscription): Promise<PushSubscription>;
+  removePushSubscription(userId: number, endpoint: string): Promise<void>;
+
+  // Buddy Dialogues
+  getBuddyDialogues(userId: number, unacknowledgedOnly?: boolean): Promise<BuddyDialogue[]>;
+  createBuddyDialogue(dialogue: InsertBuddyDialogue): Promise<BuddyDialogue>;
+  acknowledgeBuddyDialogue(id: number): Promise<BuddyDialogue>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1068,6 +1087,145 @@ export class DatabaseStorage implements IStorage {
       .where(sql`${userRecords.reportNumber} LIKE ${prefix + '-' + year + '-%'}`);
     const nextNumber = existingRecords.length + 1;
     return `${prefix}-${year}-${String(nextNumber).padStart(4, '0')}`;
+  }
+
+  // ============================================
+  // BUDDY STATUS SYSTEM
+  // ============================================
+  async getBuddyStatus(userId: number): Promise<BuddyStatus | undefined> {
+    const [status] = await db.select().from(buddyStatus)
+      .where(eq(buddyStatus.userId, userId));
+    return status;
+  }
+
+  async getOrCreateBuddyStatus(userId: number): Promise<BuddyStatus> {
+    const existing = await this.getBuddyStatus(userId);
+    if (existing) return existing;
+
+    const [created] = await db.insert(buddyStatus).values({
+      userId,
+      complianceScore: 100,
+      currentState: BuddyState.FLEXING,
+    }).returning();
+    return created;
+  }
+
+  async updateBuddyStatus(userId: number, updates: Partial<InsertBuddyStatus>): Promise<BuddyStatus> {
+    const [updated] = await db.update(buddyStatus)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(buddyStatus.userId, userId))
+      .returning();
+    return updated;
+  }
+
+  async calculateUserCompliance(userId: number): Promise<{ score: number; state: string }> {
+    const tasks = await db.select().from(documentTasks)
+      .where(eq(documentTasks.assignedToId, userId));
+
+    const totalTasks = tasks.length;
+    if (totalTasks === 0) {
+      return { score: 100, state: BuddyState.FLEXING };
+    }
+
+    const completedTasks = tasks.filter(t => t.status === 'completed').length;
+    const overdueTasks = tasks.filter(t => {
+      if (t.status === 'completed') return false;
+      if (!t.targetDate) return false;
+      return new Date(t.targetDate) < new Date();
+    }).length;
+
+    // Calculate compliance score
+    // Base score from completion rate
+    const completionRate = (completedTasks / totalTasks) * 100;
+    // Penalty for overdue tasks
+    const overduePenalty = (overdueTasks / totalTasks) * 30;
+    const score = Math.max(0, Math.min(100, Math.round(completionRate - overduePenalty)));
+
+    // Determine state based on score
+    let state: string;
+    if (score >= 90) state = BuddyState.FLEXING;
+    else if (score >= 80) state = BuddyState.HEALTHY;
+    else if (score >= 70) state = BuddyState.TIRED;
+    else if (score >= 60) state = BuddyState.WEAK;
+    else state = BuddyState.CRITICAL;
+
+    // Update buddy status
+    await this.getOrCreateBuddyStatus(userId);
+    await this.updateBuddyStatus(userId, {
+      complianceScore: score,
+      currentState: state,
+      totalTasksAssigned: totalTasks,
+      tasksCompleted: completedTasks,
+      tasksOverdue: overdueTasks,
+    });
+
+    return { score, state };
+  }
+
+  // ============================================
+  // PUSH SUBSCRIPTIONS
+  // ============================================
+  async getPushSubscriptions(userId: number): Promise<PushSubscription[]> {
+    return await db.select().from(pushSubscriptions)
+      .where(and(
+        eq(pushSubscriptions.userId, userId),
+        eq(pushSubscriptions.isActive, true)
+      ));
+  }
+
+  async savePushSubscription(subscription: InsertPushSubscription): Promise<PushSubscription> {
+    // Check if subscription already exists
+    const existing = await db.select().from(pushSubscriptions)
+      .where(and(
+        eq(pushSubscriptions.userId, subscription.userId),
+        eq(pushSubscriptions.endpoint, subscription.endpoint)
+      ));
+
+    if (existing.length > 0) {
+      const [updated] = await db.update(pushSubscriptions)
+        .set({ ...subscription, isActive: true, updatedAt: new Date() })
+        .where(eq(pushSubscriptions.id, existing[0].id))
+        .returning();
+      return updated;
+    }
+
+    const [created] = await db.insert(pushSubscriptions).values(subscription).returning();
+    return created;
+  }
+
+  async removePushSubscription(userId: number, endpoint: string): Promise<void> {
+    await db.update(pushSubscriptions)
+      .set({ isActive: false, updatedAt: new Date() })
+      .where(and(
+        eq(pushSubscriptions.userId, userId),
+        eq(pushSubscriptions.endpoint, endpoint)
+      ));
+  }
+
+  // ============================================
+  // BUDDY DIALOGUES
+  // ============================================
+  async getBuddyDialogues(userId: number, unacknowledgedOnly?: boolean): Promise<BuddyDialogue[]> {
+    const conditions = [eq(buddyDialogues.userId, userId)];
+    if (unacknowledgedOnly) {
+      conditions.push(eq(buddyDialogues.isAcknowledged, false));
+    }
+    return await db.select().from(buddyDialogues)
+      .where(and(...conditions))
+      .orderBy(desc(buddyDialogues.createdAt));
+  }
+
+  async createBuddyDialogue(dialogue: InsertBuddyDialogue): Promise<BuddyDialogue> {
+    const [created] = await db.insert(buddyDialogues).values(dialogue).returning();
+    return created;
+  }
+
+  async acknowledgeBuddyDialogue(id: number): Promise<BuddyDialogue> {
+    const [updated] = await db.update(buddyDialogues)
+      .set({ isAcknowledged: true, acknowledgedAt: new Date() })
+      .where(eq(buddyDialogues.id, id))
+      .returning();
+    return updated;
   }
 }
 
