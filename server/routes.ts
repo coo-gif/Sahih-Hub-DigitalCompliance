@@ -2844,6 +2844,137 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================
+  // BUDDY STATUS ENDPOINTS
+  // ============================================
+  
+  app.get('/api/buddy/status', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
+      
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      
+      const compliance = await storage.calculateUserCompliance(userId);
+      const buddyStatus = await storage.getOrCreateBuddyStatus(userId);
+      const pendingDialogues = await storage.getBuddyDialogues(userId, true);
+      
+      const buddyName = `Buddy ${user.name.split(' ')[0]}`;
+      
+      let colorClass = 'text-green-500';
+      let bgColorClass = 'bg-green-50 dark:bg-green-900/20';
+      let animationClass = '';
+      
+      if (compliance.score < 60) {
+        colorClass = 'text-red-500';
+        bgColorClass = 'bg-red-50 dark:bg-red-900/20';
+        animationClass = 'animate-pulse';
+      } else if (compliance.score < 70) {
+        colorClass = 'text-orange-500';
+        bgColorClass = 'bg-orange-50 dark:bg-orange-900/20';
+        animationClass = 'animate-slow-blink';
+      } else if (compliance.score < 90) {
+        colorClass = 'text-yellow-500';
+        bgColorClass = 'bg-yellow-50 dark:bg-yellow-900/20';
+      }
+      
+      res.json({
+        buddyName,
+        compliance: {
+          score: compliance.score,
+          state: compliance.state,
+        },
+        stats: {
+          totalTasks: buddyStatus.totalTasksAssigned,
+          completedTasks: buddyStatus.tasksCompleted,
+          overdueTasks: buddyStatus.tasksOverdue,
+        },
+        style: {
+          colorClass,
+          bgColorClass,
+          animationClass,
+        },
+        pendingDialogues,
+        lastUpdated: buddyStatus.updatedAt,
+      });
+    } catch (err) {
+      console.error('Error fetching buddy status:', err);
+      res.status(500).json({ message: 'Failed to fetch buddy status' });
+    }
+  });
+
+  app.get('/api/buddy/dialogues', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const unacknowledgedOnly = req.query.unacknowledged === 'true';
+      const dialogues = await storage.getBuddyDialogues(userId, unacknowledgedOnly);
+      res.json(dialogues);
+    } catch (err) {
+      console.error('Error fetching buddy dialogues:', err);
+      res.status(500).json({ message: 'Failed to fetch dialogues' });
+    }
+  });
+
+  app.post('/api/buddy/dialogues/:id/acknowledge', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const dialogueId = parseInt(req.params.id);
+      const dialogue = await storage.acknowledgeBuddyDialogue(dialogueId);
+      res.json(dialogue);
+    } catch (err) {
+      console.error('Error acknowledging dialogue:', err);
+      res.status(500).json({ message: 'Failed to acknowledge dialogue' });
+    }
+  });
+
+  app.post('/api/buddy/subscribe', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const { endpoint, keys } = req.body;
+      
+      if (!endpoint || !keys?.p256dh || !keys?.auth) {
+        return res.status(400).json({ message: 'Invalid subscription data' });
+      }
+      
+      const subscription = await storage.savePushSubscription({
+        userId,
+        endpoint,
+        p256dh: keys.p256dh,
+        auth: keys.auth,
+      });
+      
+      res.json({ success: true, subscriptionId: subscription.id });
+    } catch (err) {
+      console.error('Error saving push subscription:', err);
+      res.status(500).json({ message: 'Failed to save subscription' });
+    }
+  });
+
+  app.delete('/api/buddy/subscribe', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const { endpoint } = req.body;
+      
+      await storage.removePushSubscription(userId, endpoint);
+      res.json({ success: true });
+    } catch (err) {
+      console.error('Error removing push subscription:', err);
+      res.status(500).json({ message: 'Failed to remove subscription' });
+    }
+  });
+
+  app.post('/api/buddy/refresh', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const compliance = await storage.calculateUserCompliance(userId);
+      res.json(compliance);
+    } catch (err) {
+      console.error('Error refreshing compliance:', err);
+      res.status(500).json({ message: 'Failed to refresh compliance' });
+    }
+  });
+
   await seedDatabase();
 
   return httpServer;
