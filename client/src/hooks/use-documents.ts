@@ -70,6 +70,7 @@ export function useSubmitDocumentForReview() {
       queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
       queryClient.invalidateQueries({ queryKey: ['/api/dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
     },
   });
 }

@@ -516,6 +516,129 @@ export async function registerRoutes(
   });
 
   // ============================================
+  // MY TASKS (Virtual task list based on document assignments)
+  // ============================================
+  app.get('/api/my-tasks', requireAuth, async (req, res) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const allDocs = await storage.getDocuments();
+      const tasks: any[] = [];
+
+      for (const doc of allDocs) {
+        // Review task: User is reviewer and document is in_review
+        if (doc.reviewerId === userId && doc.status === DocumentStatus.IN_REVIEW) {
+          tasks.push({
+            id: doc.id * 1000 + 1,
+            documentId: doc.id,
+            documentCode: doc.documentCode,
+            title: doc.title,
+            taskType: 'review',
+            status: 'pending',
+            createdAt: doc.updatedAt || doc.createdAt,
+            dueDate: doc.nextReviewDate,
+          });
+        }
+
+        // Approve task: User is approver and document is pending_approval
+        if (doc.approverId === userId && doc.status === DocumentStatus.PENDING_APPROVAL) {
+          tasks.push({
+            id: doc.id * 1000 + 2,
+            documentId: doc.id,
+            documentCode: doc.documentCode,
+            title: doc.title,
+            taskType: 'approve',
+            status: 'pending',
+            createdAt: doc.updatedAt || doc.createdAt,
+            dueDate: doc.nextReviewDate,
+          });
+        }
+      }
+
+      res.json(tasks);
+    } catch (err) {
+      console.error('Error fetching my tasks:', err);
+      res.status(500).json({ message: 'Failed to fetch tasks' });
+    }
+  });
+
+  // Complete a task from my-tasks (transitions document workflow)
+  app.post('/api/my-tasks/:documentId/complete', requireAuth, async (req, res) => {
+    try {
+      const documentId = Number(req.params.documentId);
+      const userId = getCurrentUserId(req);
+      const { taskType, comments } = req.body;
+
+      const doc = await storage.getDocument(documentId);
+      if (!doc) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+
+      if (taskType === 'review') {
+        if (doc.reviewerId !== userId) {
+          return res.status(403).json({ message: 'You are not the assigned reviewer' });
+        }
+        if (doc.status !== DocumentStatus.IN_REVIEW) {
+          return res.status(400).json({ message: 'Document is not in review status' });
+        }
+
+        // Move to pending approval
+        const updated = await storage.updateDocument(documentId, {
+          status: DocumentStatus.PENDING_APPROVAL,
+        });
+
+        // Notify approver if set
+        if (doc.approverId) {
+          await storage.createNotification({
+            userId: doc.approverId,
+            title: 'Document Requires Approval',
+            message: `Document "${doc.title}" (${doc.documentCode}) has been reviewed and requires your approval.`,
+            urgencyLevel: 'high',
+          });
+        }
+
+        await storage.createAuditLog({
+          userId,
+          action: AuditAction.COMPLETE_TASK,
+          entityType: 'document',
+          entityId: documentId,
+          previousValue: JSON.stringify({ status: doc.status }),
+          newValue: JSON.stringify({ status: updated.status, taskType: 'review', comments }),
+        });
+
+        res.json(updated);
+      } else if (taskType === 'approve') {
+        if (doc.approverId !== userId) {
+          return res.status(403).json({ message: 'You are not the assigned approver' });
+        }
+        if (doc.status !== DocumentStatus.PENDING_APPROVAL) {
+          return res.status(400).json({ message: 'Document is not pending approval' });
+        }
+
+        // Approve the document
+        const updated = await storage.updateDocument(documentId, {
+          status: DocumentStatus.APPROVED,
+        });
+
+        await storage.createAuditLog({
+          userId,
+          action: AuditAction.APPROVE,
+          entityType: 'document',
+          entityId: documentId,
+          previousValue: JSON.stringify({ status: doc.status }),
+          newValue: JSON.stringify({ status: updated.status, comments }),
+        });
+
+        res.json(updated);
+      } else {
+        return res.status(400).json({ message: 'Invalid task type' });
+      }
+    } catch (err) {
+      console.error('Error completing task:', err);
+      res.status(500).json({ message: 'Failed to complete task' });
+    }
+  });
+
+  // ============================================
   // NOTIFICATION ROUTES
   // ============================================
   app.get(api.notifications.list.path, async (req, res) => {
