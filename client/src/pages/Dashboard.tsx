@@ -948,15 +948,6 @@ export default function Dashboard() {
                 <p className="text-white/70 text-sm">Documents assigned to you for action</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Badge 
-                className="text-sm px-4 py-2 bg-white text-primary border-0 font-bold shadow-md" 
-                data-testid="badge-task-count"
-              >
-                <Sparkles className="w-4 h-4 mr-1.5" />
-                {myTasks?.length || 0} pending
-              </Badge>
-            </div>
           </div>
         </div>
         <CardContent className="p-6 bg-gradient-to-b from-primary/5 to-background">
@@ -1991,87 +1982,146 @@ export default function Dashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Compliance Breakdown Dialog */}
+      {/* My Performance & Compliance Dialog */}
       <Dialog open={showComplianceDialog} onOpenChange={setShowComplianceDialog}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Shield className="w-5 h-5 text-primary" />
-              Compliance Breakdown
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader className="bg-gradient-to-r from-primary to-primary/80 -mx-6 -mt-6 px-6 py-5 rounded-t-lg">
+            <DialogTitle className="flex items-center gap-2 text-white text-xl">
+              <Award className="w-6 h-6" />
+              My Performance
             </DialogTitle>
-            <DialogDescription>
-              Overview of document status and compliance metrics
+            <DialogDescription className="text-white/80">
+              Your personal metrics and team compliance overview
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
-            <div className="flex items-center justify-center">
-              <div className="text-center">
-                <div className="text-5xl font-bold text-primary">{complianceScore}%</div>
-                <p className="text-sm text-muted-foreground mt-1">Overall Compliance Score</p>
+          <div className="flex-1 overflow-y-auto space-y-6 py-4">
+            <div className="text-center p-4 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20">
+              <p className="text-sm text-muted-foreground mb-1">Overall Compliance Score</p>
+              <div className="text-5xl font-bold text-primary">{complianceScore}%</div>
+              <div className="flex justify-center gap-1 mt-2">
+                {[...Array(5)].map((_, i) => (
+                  <div 
+                    key={i} 
+                    className={`w-8 h-2 rounded-full ${i < Math.ceil(complianceScore / 20) ? 'bg-primary' : 'bg-muted'}`}
+                  />
+                ))}
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
-                <div className="flex items-center gap-2 mb-2">
-                  <CheckCircle2 className="w-5 h-5 text-green-600" />
-                  <span className="font-medium text-green-700 dark:text-green-400">Completed</span>
+            <div>
+              <h4 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
+                <Target className="w-4 h-4" />
+                My Task Performance
+              </h4>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-center">
+                  <ClipboardList className="w-6 h-6 text-blue-600 mx-auto mb-2" />
+                  <p className="text-2xl font-bold text-blue-600">{myTasks?.length || 0}</p>
+                  <p className="text-xs text-muted-foreground">Pending Tasks</p>
                 </div>
-                <p className="text-3xl font-bold text-green-600">{stats?.approvedDocuments || 0}</p>
-                <p className="text-sm text-muted-foreground">Approved Documents</p>
+                <div className="p-4 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 text-center">
+                  <FilePen className="w-6 h-6 text-purple-600 mx-auto mb-2" />
+                  <p className="text-2xl font-bold text-purple-600">
+                    {myTasks?.filter(t => t.taskType === 'prepare').length || 0}
+                  </p>
+                  <p className="text-xs text-muted-foreground">To Prepare</p>
+                </div>
+                <div className="p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-center">
+                  <FileCheck className="w-6 h-6 text-amber-600 mx-auto mb-2" />
+                  <p className="text-2xl font-bold text-amber-600">
+                    {myTasks?.filter(t => t.taskType === 'review').length || 0}
+                  </p>
+                  <p className="text-xs text-muted-foreground">To Review</p>
+                </div>
               </div>
-              
-              <div className="p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
-                <div className="flex items-center gap-2 mb-2">
-                  <Clock className="w-5 h-5 text-amber-600" />
-                  <span className="font-medium text-amber-700 dark:text-amber-400">Pending</span>
+              <div className="grid grid-cols-2 gap-3 mt-3">
+                <div className="p-4 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-center">
+                  <FileSignature className="w-6 h-6 text-emerald-600 mx-auto mb-2" />
+                  <p className="text-2xl font-bold text-emerald-600">
+                    {myTasks?.filter(t => t.taskType === 'approve').length || 0}
+                  </p>
+                  <p className="text-xs text-muted-foreground">To Approve</p>
                 </div>
-                <p className="text-3xl font-bold text-amber-600">{stats?.pendingApprovals || 0}</p>
-                <p className="text-sm text-muted-foreground">Awaiting Approval</p>
+                <div className="p-4 rounded-lg bg-pink-50 dark:bg-pink-900/20 border border-pink-200 dark:border-pink-800 text-center">
+                  <Download className="w-6 h-6 text-pink-600 mx-auto mb-2" />
+                  <p className="text-2xl font-bold text-pink-600">
+                    {myTasks?.filter(t => t.taskType === 'download_approval' || t.taskType === 'access_approval').length || 0}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Access Requests</p>
+                </div>
               </div>
-              
-              <div className="p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
-                <div className="flex items-center gap-2 mb-2">
-                  <AlertTriangle className="w-5 h-5 text-yellow-600" />
-                  <span className="font-medium text-yellow-700 dark:text-yellow-400">Expiring Soon</span>
+            </div>
+
+            <div>
+              <h4 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
+                <BarChart3 className="w-4 h-4" />
+                Team Document Status
+              </h4>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                  <div className="flex items-center gap-2 mb-2">
+                    <CheckCircle2 className="w-5 h-5 text-green-600" />
+                    <span className="font-medium text-green-700 dark:text-green-400">Approved</span>
+                  </div>
+                  <p className="text-3xl font-bold text-green-600">{stats?.approvedDocuments || 0}</p>
+                  <p className="text-xs text-muted-foreground">Documents</p>
                 </div>
-                <p className="text-3xl font-bold text-yellow-600">{stats?.expiringDocuments || 0}</p>
-                <p className="text-sm text-muted-foreground">Within 30 Days</p>
-              </div>
-              
-              <div className="p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-                <div className="flex items-center gap-2 mb-2">
-                  <AlertCircle className="w-5 h-5 text-red-600" />
-                  <span className="font-medium text-red-700 dark:text-red-400">Non-Compliant</span>
+                
+                <div className="p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Clock className="w-5 h-5 text-amber-600" />
+                    <span className="font-medium text-amber-700 dark:text-amber-400">Pending</span>
+                  </div>
+                  <p className="text-3xl font-bold text-amber-600">{stats?.pendingApprovals || 0}</p>
+                  <p className="text-xs text-muted-foreground">Awaiting Approval</p>
                 </div>
-                <p className="text-3xl font-bold text-red-600">{stats?.nonCompliantDocuments || 0}</p>
-                <p className="text-sm text-muted-foreground">Overdue Review</p>
+                
+                <div className="p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertTriangle className="w-5 h-5 text-yellow-600" />
+                    <span className="font-medium text-yellow-700 dark:text-yellow-400">Expiring Soon</span>
+                  </div>
+                  <p className="text-3xl font-bold text-yellow-600">{stats?.expiringDocuments || 0}</p>
+                  <p className="text-xs text-muted-foreground">Within 30 Days</p>
+                </div>
+                
+                <div className="p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertCircle className="w-5 h-5 text-red-600" />
+                    <span className="font-medium text-red-700 dark:text-red-400">Non-Compliant</span>
+                  </div>
+                  <p className="text-3xl font-bold text-red-600">{stats?.nonCompliantDocuments || 0}</p>
+                  <p className="text-xs text-muted-foreground">Overdue Review</p>
+                </div>
               </div>
             </div>
 
             <div className="p-4 rounded-lg bg-muted">
-              <h4 className="font-medium mb-2">Summary</h4>
+              <h4 className="font-medium mb-2 flex items-center gap-2">
+                <FileText className="w-4 h-4" />
+                Quick Summary
+              </h4>
               <div className="grid grid-cols-2 gap-2 text-sm">
-                <div>
+                <div className="flex justify-between">
                   <span className="text-muted-foreground">Total Documents:</span>
-                  <span className="ml-2 font-medium">{stats?.totalDocuments || 0}</span>
+                  <span className="font-medium">{stats?.totalDocuments || 0}</span>
                 </div>
-                <div>
-                  <span className="text-muted-foreground">My Pending Tasks:</span>
-                  <span className="ml-2 font-medium">{myTasks?.length || 0}</span>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">My Pending:</span>
+                  <span className="font-medium">{myTasks?.length || 0}</span>
                 </div>
               </div>
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="border-t pt-4">
             <Button variant="outline" onClick={() => setShowComplianceDialog(false)}>
               Close
             </Button>
-            <Button onClick={() => { setShowComplianceDialog(false); navigate("/documents"); }}>
-              <FileText className="w-4 h-4 mr-2" />
-              View All Documents
+            <Button onClick={() => { setShowComplianceDialog(false); navigate("/tasks"); }}>
+              <ClipboardList className="w-4 h-4 mr-2" />
+              View My Tasks
             </Button>
           </DialogFooter>
         </DialogContent>
