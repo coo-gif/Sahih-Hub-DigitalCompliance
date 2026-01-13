@@ -12,6 +12,7 @@ import {
   DocumentTaskType,
   DocumentTaskStatus,
   DocumentImportance,
+  DocumentAccessRequestStatus,
 } from "@shared/schema";
 import { z } from "zod";
 import puppeteer from "puppeteer";
@@ -1929,6 +1930,385 @@ export async function registerRoutes(
     } catch (err) {
       console.error('Error fetching all performance stats:', err);
       res.status(500).json({ message: 'Failed to fetch performance stats' });
+    }
+  });
+
+  // ============================================
+  // DOCUMENT ACCESS REQUESTS
+  // ============================================
+  app.get(api.documentAccessRequests.list.path, async (req, res) => {
+    const documentId = req.query.documentId ? Number(req.query.documentId) : undefined;
+    const requesterId = req.query.requesterId ? Number(req.query.requesterId) : undefined;
+    const status = req.query.status as string | undefined;
+    
+    const requests = await storage.getDocumentAccessRequests({ documentId, requesterId, status });
+    res.json(requests);
+  });
+
+  app.get(api.documentAccessRequests.get.path, async (req, res) => {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ message: 'Invalid request ID' });
+    }
+    const request = await storage.getDocumentAccessRequest(id);
+    if (!request) {
+      return res.status(404).json({ message: 'Access request not found' });
+    }
+    res.json(request);
+  });
+
+  app.post(api.documentAccessRequests.create.path, async (req, res) => {
+    try {
+      const input = api.documentAccessRequests.create.input.parse(req.body);
+      const userId = getCurrentUserId(req);
+      
+      // Check if document exists
+      const document = await storage.getDocument(input.documentId);
+      if (!document) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+      
+      // Check if user already has access
+      const hasAccess = await storage.hasDocumentAccess(input.documentId, userId);
+      if (hasAccess) {
+        return res.status(400).json({ message: 'You already have access to this document', field: 'documentId' });
+      }
+      
+      // Check if there's already a pending request
+      const existingRequests = await storage.getDocumentAccessRequests({
+        documentId: input.documentId,
+        requesterId: userId,
+        status: DocumentAccessRequestStatus.PENDING,
+      });
+      if (existingRequests.length > 0) {
+        return res.status(400).json({ message: 'You already have a pending access request for this document', field: 'documentId' });
+      }
+      
+      const request = await storage.createDocumentAccessRequest({
+        documentId: input.documentId,
+        requesterId: userId,
+        requestReason: input.requestReason || null,
+        status: DocumentAccessRequestStatus.PENDING,
+      });
+      
+      // Create notification for admins and quality managers
+      const allUsers = await storage.getUsers();
+      const adminsAndQMs = allUsers.filter(u => 
+        u.role === UserRole.ADMIN || u.role === UserRole.QUALITY_MANAGER
+      );
+      
+      for (const admin of adminsAndQMs) {
+        await storage.createNotification({
+          userId: admin.id,
+          title: 'Document Access Request',
+          message: `A user has requested access to document "${document.documentCode} - ${document.title}"`,
+          urgencyLevel: UrgencyLevel.MEDIUM,
+          relatedDocumentId: input.documentId,
+        });
+      }
+      
+      // Audit log
+      await storage.createAuditLog({
+        userId,
+        action: AuditAction.CREATE,
+        entityType: 'document_access_request',
+        entityId: request.id,
+        newValue: JSON.stringify(input),
+      });
+      
+      res.status(201).json(request);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join('.'),
+        });
+      }
+      throw err;
+    }
+  });
+
+  app.post(api.documentAccessRequests.approve.path, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: 'Invalid request ID' });
+      }
+      
+      const input = api.documentAccessRequests.approve.input.parse(req.body);
+      const userId = getCurrentUserId(req);
+      const currentUser = await storage.getUser(userId);
+      
+      // Only admin and quality manager can approve
+      if (currentUser?.role !== UserRole.ADMIN && currentUser?.role !== UserRole.QUALITY_MANAGER) {
+        return res.status(403).json({ message: 'Only Admin or Quality Manager can approve access requests' });
+      }
+      
+      const request = await storage.getDocumentAccessRequest(id);
+      if (!request) {
+        return res.status(404).json({ message: 'Access request not found' });
+      }
+      
+      if (request.status !== DocumentAccessRequestStatus.PENDING) {
+        return res.status(400).json({ message: 'This request has already been processed' });
+      }
+      
+      // Update request status
+      const updatedRequest = await storage.updateDocumentAccessRequest(id, {
+        status: DocumentAccessRequestStatus.APPROVED,
+        decidedById: userId,
+        decidedAt: new Date(),
+        decisionNote: input.decisionNote || null,
+      });
+      
+      // Grant document access
+      await storage.grantDocumentAccess({
+        documentId: request.documentId,
+        userId: request.requesterId,
+        grantedById: userId,
+      });
+      
+      // Notify the requester
+      const document = await storage.getDocument(request.documentId);
+      await storage.createNotification({
+        userId: request.requesterId,
+        title: 'Access Request Approved',
+        message: `Your request to access document "${document?.documentCode} - ${document?.title}" has been approved`,
+        urgencyLevel: UrgencyLevel.LOW,
+        relatedDocumentId: request.documentId,
+      });
+      
+      // Audit log
+      await storage.createAuditLog({
+        userId,
+        action: AuditAction.APPROVE,
+        entityType: 'document_access_request',
+        entityId: id,
+        newValue: JSON.stringify({ status: 'approved' }),
+      });
+      
+      res.json(updatedRequest);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join('.'),
+        });
+      }
+      throw err;
+    }
+  });
+
+  app.post(api.documentAccessRequests.reject.path, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: 'Invalid request ID' });
+      }
+      
+      const input = api.documentAccessRequests.reject.input.parse(req.body);
+      const userId = getCurrentUserId(req);
+      const currentUser = await storage.getUser(userId);
+      
+      // Only admin and quality manager can reject
+      if (currentUser?.role !== UserRole.ADMIN && currentUser?.role !== UserRole.QUALITY_MANAGER) {
+        return res.status(403).json({ message: 'Only Admin or Quality Manager can reject access requests' });
+      }
+      
+      const request = await storage.getDocumentAccessRequest(id);
+      if (!request) {
+        return res.status(404).json({ message: 'Access request not found' });
+      }
+      
+      if (request.status !== DocumentAccessRequestStatus.PENDING) {
+        return res.status(400).json({ message: 'This request has already been processed' });
+      }
+      
+      // Update request status
+      const updatedRequest = await storage.updateDocumentAccessRequest(id, {
+        status: DocumentAccessRequestStatus.REJECTED,
+        decidedById: userId,
+        decidedAt: new Date(),
+        decisionNote: input.decisionNote || null,
+      });
+      
+      // Notify the requester
+      const document = await storage.getDocument(request.documentId);
+      await storage.createNotification({
+        userId: request.requesterId,
+        title: 'Access Request Rejected',
+        message: `Your request to access document "${document?.documentCode} - ${document?.title}" has been rejected${input.decisionNote ? `: ${input.decisionNote}` : ''}`,
+        urgencyLevel: UrgencyLevel.MEDIUM,
+        relatedDocumentId: request.documentId,
+      });
+      
+      // Audit log
+      await storage.createAuditLog({
+        userId,
+        action: AuditAction.REJECT,
+        entityType: 'document_access_request',
+        entityId: id,
+        newValue: JSON.stringify({ status: 'rejected', note: input.decisionNote }),
+      });
+      
+      res.json(updatedRequest);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join('.'),
+        });
+      }
+      throw err;
+    }
+  });
+
+  // ============================================
+  // DOCUMENT ACCESS
+  // ============================================
+  app.get(api.documentAccess.list.path, async (req, res) => {
+    const documentId = req.query.documentId ? Number(req.query.documentId) : undefined;
+    const userId = req.query.userId ? Number(req.query.userId) : undefined;
+    
+    const accessList = await storage.getDocumentAccess({ documentId, userId });
+    res.json(accessList);
+  });
+
+  app.get(api.documentAccess.check.path, async (req, res) => {
+    const documentId = Number(req.params.id);
+    if (isNaN(documentId)) {
+      return res.status(400).json({ message: 'Invalid document ID' });
+    }
+    
+    const userId = getCurrentUserId(req);
+    const currentUser = await storage.getUser(userId);
+    
+    // Admins and Quality Managers always have access
+    if (currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.QUALITY_MANAGER) {
+      return res.json({ hasAccess: true });
+    }
+    
+    // Check document status - only approved documents need access control
+    const document = await storage.getDocument(documentId);
+    if (!document) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+    
+    // Documents not yet approved are accessible based on workflow roles
+    if (document.status !== DocumentStatus.APPROVED) {
+      // Creator, reviewer, approver have access
+      if (document.createdById === userId || document.reviewerId === userId || document.approverId === userId) {
+        return res.json({ hasAccess: true });
+      }
+    }
+    
+    // For approved documents, check explicit access grant
+    const hasAccess = await storage.hasDocumentAccess(documentId, userId);
+    res.json({ hasAccess });
+  });
+
+  app.post(api.documentAccess.grant.path, async (req, res) => {
+    try {
+      const documentId = Number(req.params.id);
+      if (isNaN(documentId)) {
+        return res.status(400).json({ message: 'Invalid document ID' });
+      }
+      
+      const input = api.documentAccess.grant.input.parse(req.body);
+      const currentUserId = getCurrentUserId(req);
+      const currentUser = await storage.getUser(currentUserId);
+      
+      // Only admin and quality manager can grant access
+      if (currentUser?.role !== UserRole.ADMIN && currentUser?.role !== UserRole.QUALITY_MANAGER) {
+        return res.status(403).json({ message: 'Only Admin or Quality Manager can grant document access' });
+      }
+      
+      const access = await storage.grantDocumentAccess({
+        documentId,
+        userId: input.userId,
+        grantedById: currentUserId,
+      });
+      
+      // Notify the user
+      const document = await storage.getDocument(documentId);
+      await storage.createNotification({
+        userId: input.userId,
+        title: 'Document Access Granted',
+        message: `You have been granted access to document "${document?.documentCode} - ${document?.title}"`,
+        urgencyLevel: UrgencyLevel.LOW,
+        relatedDocumentId: documentId,
+      });
+      
+      // Audit log
+      await storage.createAuditLog({
+        userId: currentUserId,
+        action: AuditAction.CREATE,
+        entityType: 'document_access',
+        entityId: access.id,
+        newValue: JSON.stringify({ documentId, userId: input.userId }),
+      });
+      
+      res.status(201).json(access);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join('.'),
+        });
+      }
+      throw err;
+    }
+  });
+
+  app.post(api.documentAccess.revoke.path, async (req, res) => {
+    try {
+      const documentId = Number(req.params.id);
+      if (isNaN(documentId)) {
+        return res.status(400).json({ message: 'Invalid document ID' });
+      }
+      
+      const input = api.documentAccess.revoke.input.parse(req.body);
+      const currentUserId = getCurrentUserId(req);
+      const currentUser = await storage.getUser(currentUserId);
+      
+      // Only admin and quality manager can revoke access
+      if (currentUser?.role !== UserRole.ADMIN && currentUser?.role !== UserRole.QUALITY_MANAGER) {
+        return res.status(403).json({ message: 'Only Admin or Quality Manager can revoke document access' });
+      }
+      
+      const revoked = await storage.revokeDocumentAccess(documentId, input.userId, currentUserId);
+      if (!revoked) {
+        return res.status(404).json({ message: 'No active access found for this user and document' });
+      }
+      
+      // Notify the user
+      const document = await storage.getDocument(documentId);
+      await storage.createNotification({
+        userId: input.userId,
+        title: 'Document Access Revoked',
+        message: `Your access to document "${document?.documentCode} - ${document?.title}" has been revoked`,
+        urgencyLevel: UrgencyLevel.MEDIUM,
+        relatedDocumentId: documentId,
+      });
+      
+      // Audit log
+      await storage.createAuditLog({
+        userId: currentUserId,
+        action: AuditAction.DELETE,
+        entityType: 'document_access',
+        entityId: revoked.id,
+        newValue: JSON.stringify({ documentId, userId: input.userId, revoked: true }),
+      });
+      
+      res.json(revoked);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join('.'),
+        });
+      }
+      throw err;
     }
   });
 

@@ -9,6 +9,8 @@ import {
   auditLogs,
   employees,
   employeeTasks,
+  documentAccessRequests,
+  documentAccess,
   UserRole,
   DocumentCategory,
   DocumentStatus,
@@ -483,6 +485,98 @@ export const api = {
       path: '/api/employee-tasks/:id/complete',
       responses: {
         200: z.custom<typeof employeeTasks.$inferSelect>(),
+        404: errorSchemas.notFound,
+      },
+    },
+  },
+
+  // Document Access Control
+  documentAccessRequests: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/document-access-requests',
+      responses: {
+        200: z.array(z.custom<typeof documentAccessRequests.$inferSelect>()),
+      },
+    },
+    get: {
+      method: 'GET' as const,
+      path: '/api/document-access-requests/:id',
+      responses: {
+        200: z.custom<typeof documentAccessRequests.$inferSelect>(),
+        404: errorSchemas.notFound,
+      },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/document-access-requests',
+      input: z.object({
+        documentId: z.number(),
+        requestReason: z.string().optional(),
+      }),
+      responses: {
+        201: z.custom<typeof documentAccessRequests.$inferSelect>(),
+        400: errorSchemas.validation,
+      },
+    },
+    approve: {
+      method: 'POST' as const,
+      path: '/api/document-access-requests/:id/approve',
+      input: z.object({
+        decisionNote: z.string().optional(),
+      }),
+      responses: {
+        200: z.custom<typeof documentAccessRequests.$inferSelect>(),
+        404: errorSchemas.notFound,
+      },
+    },
+    reject: {
+      method: 'POST' as const,
+      path: '/api/document-access-requests/:id/reject',
+      input: z.object({
+        decisionNote: z.string().optional(),
+      }),
+      responses: {
+        200: z.custom<typeof documentAccessRequests.$inferSelect>(),
+        404: errorSchemas.notFound,
+      },
+    },
+  },
+
+  documentAccess: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/document-access',
+      responses: {
+        200: z.array(z.custom<typeof documentAccess.$inferSelect>()),
+      },
+    },
+    check: {
+      method: 'GET' as const,
+      path: '/api/documents/:id/access',
+      responses: {
+        200: z.object({ hasAccess: z.boolean() }),
+      },
+    },
+    grant: {
+      method: 'POST' as const,
+      path: '/api/documents/:id/grant-access',
+      input: z.object({
+        userId: z.number(),
+      }),
+      responses: {
+        201: z.custom<typeof documentAccess.$inferSelect>(),
+        400: errorSchemas.validation,
+      },
+    },
+    revoke: {
+      method: 'POST' as const,
+      path: '/api/documents/:id/revoke-access',
+      input: z.object({
+        userId: z.number(),
+      }),
+      responses: {
+        200: z.custom<typeof documentAccess.$inferSelect>(),
         404: errorSchemas.notFound,
       },
     },
