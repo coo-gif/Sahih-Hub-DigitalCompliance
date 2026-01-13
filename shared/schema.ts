@@ -129,6 +129,11 @@ export const DocumentTaskStatus = {
   OVERDUE: "overdue",
 } as const;
 
+export const ReportType = {
+  DOCUMENT_APPROVAL: "document_approval",
+  STAFF_CONFIRMATION: "staff_confirmation",
+} as const;
+
 export const DocumentImportance = {
   LOW: "low",
   MEDIUM: "medium",
@@ -402,12 +407,45 @@ export const employeeTasks = pgTable("employee_tasks", {
 });
 
 // ============================================
+// USER RECORDS (Completion Reports)
+// ============================================
+export const userRecords = pgTable("user_records", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  reportType: text("report_type").notNull(),
+  reportTitle: text("report_title").notNull(),
+  reportNumber: text("report_number").notNull(),
+  relatedDocumentId: integer("related_document_id"),
+  relatedEmployeeId: integer("related_employee_id"),
+  pdfDataUrl: text("pdf_data_url"),
+  reviewerId: integer("reviewer_id"),
+  reviewerName: text("reviewer_name"),
+  reviewerSignatureDataUrl: text("reviewer_signature_data_url"),
+  reviewerSignedAt: timestamp("reviewer_signed_at"),
+  approverId: integer("approver_id"),
+  approverName: text("approver_name"),
+  approverSignatureDataUrl: text("approver_signature_data_url"),
+  approverSignedAt: timestamp("approver_signed_at"),
+  metadata: text("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// ============================================
 // RELATIONS
 // ============================================
 export const usersRelations = relations(users, ({ many }) => ({
   documents: many(documents),
   notifications: many(notifications),
   auditLogs: many(auditLogs),
+  userRecords: many(userRecords),
+}));
+
+export const userRecordsRelations = relations(userRecords, ({ one }) => ({
+  user: one(users, { fields: [userRecords.userId], references: [users.id] }),
+  relatedDocument: one(documents, { fields: [userRecords.relatedDocumentId], references: [documents.id] }),
+  relatedEmployee: one(employees, { fields: [userRecords.relatedEmployeeId], references: [employees.id] }),
+  reviewer: one(users, { fields: [userRecords.reviewerId], references: [users.id] }),
+  approver: one(users, { fields: [userRecords.approverId], references: [users.id] }),
 }));
 
 export const documentsRelations = relations(documents, ({ one, many }) => ({
@@ -559,6 +597,11 @@ export const insertDocumentAccessSchema = createInsertSchema(documentAccess).omi
   revokedAt: true,
 });
 
+export const insertUserRecordSchema = createInsertSchema(userRecords).omit({ 
+  id: true, 
+  createdAt: true,
+});
+
 // ============================================
 // TYPES
 // ============================================
@@ -603,6 +646,9 @@ export type InsertDocumentAccessRequest = z.infer<typeof insertDocumentAccessReq
 
 export type DocumentAccess = typeof documentAccess.$inferSelect;
 export type InsertDocumentAccess = z.infer<typeof insertDocumentAccessSchema>;
+
+export type UserRecord = typeof userRecords.$inferSelect;
+export type InsertUserRecord = z.infer<typeof insertUserRecordSchema>;
 
 // ============================================
 // API REQUEST/RESPONSE TYPES
