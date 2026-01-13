@@ -6,12 +6,14 @@ export interface MyTask {
   documentId: number;
   documentCode: string;
   title: string;
-  taskType: 'prepare' | 'review' | 'approve' | 'download_approval';
+  taskType: 'prepare' | 'review' | 'approve' | 'download_approval' | 'access_approval';
   status: string;
   createdAt: string | null;
   dueDate: string | null;
   downloadRequestId?: number;
+  accessRequestId?: number;
   requesterId?: number;
+  requesterName?: string;
   reason?: string;
 }
 

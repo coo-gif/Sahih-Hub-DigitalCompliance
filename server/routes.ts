@@ -578,6 +578,30 @@ export async function registerRoutes(
             });
           }
         }
+        
+        // Add pending document access requests
+        const pendingAccessRequests = await storage.getDocumentAccessRequests({ status: 'pending' });
+        
+        for (const request of pendingAccessRequests) {
+          const doc = await storage.getDocument(request.documentId);
+          const requester = await storage.getUser(request.requesterId);
+          if (doc) {
+            tasks.push({
+              id: request.id * 1000 + 4, // Use different multiplier to avoid ID conflicts
+              documentId: doc.id,
+              documentCode: doc.documentCode,
+              title: doc.title,
+              taskType: 'access_approval',
+              status: 'pending',
+              createdAt: request.createdAt,
+              dueDate: null,
+              accessRequestId: request.id,
+              requesterId: request.requesterId,
+              requesterName: requester?.name || 'Unknown User',
+              reason: request.requestReason,
+            });
+          }
+        }
       }
 
       res.json(tasks);

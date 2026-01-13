@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Clock, AlertTriangle, CheckCircle2, FileText, Target, Eye, Send, ThumbsUp, UserCheck, Download, X } from "lucide-react";
+import { Clock, AlertTriangle, CheckCircle2, FileText, Target, Eye, Send, ThumbsUp, UserCheck, Download, X, Lock, Unlock } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useMyTasks, useCompleteTask, MyTask } from "@/hooks/use-tasks";
@@ -21,6 +21,7 @@ function TaskTypeBadge({ type }: { type: string }) {
     approve: { className: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200", label: "Approve" },
     prepare: { className: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200", label: "Prepare" },
     download_approval: { className: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200", label: "Download Request" },
+    access_approval: { className: "bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200", label: "Access Request" },
   };
   const config = variants[type] || { className: "", label: type };
   return <Badge className={config.className}>{config.label}</Badge>;
@@ -175,7 +176,32 @@ export default function MyTasks() {
     },
   });
 
-  const pendingTasks = tasks.filter(t => t.taskType === 'review' || t.taskType === 'approve' || t.taskType === 'download_approval');
+  const approveAccessMutation = useMutation({
+    mutationFn: async (requestId: number) => {
+      const res = await apiRequest('POST', `/api/document-access-requests/${requestId}/approve`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/document-access-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/document-access'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
+    },
+  });
+
+  const rejectAccessMutation = useMutation({
+    mutationFn: async (requestId: number) => {
+      const res = await apiRequest('POST', `/api/document-access-requests/${requestId}/reject`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/document-access-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
+    },
+  });
+
+  const pendingTasks = tasks.filter(t => t.taskType === 'review' || t.taskType === 'approve' || t.taskType === 'download_approval' || t.taskType === 'access_approval');
   const completedCount = 0;
 
   const handleCompleteTask = (comments: string, approverId?: number) => {
@@ -184,7 +210,7 @@ export default function MyTasks() {
     completeMutation.mutate(
       { 
         documentId: selectedTask.documentId, 
-        taskType: selectedTask.taskType,
+        taskType: selectedTask.taskType as 'prepare' | 'review' | 'approve',
         comments,
         approverId 
       },
@@ -313,6 +339,8 @@ export default function MyTasks() {
                       ? 'This document is awaiting your final approval.'
                       : task.taskType === 'download_approval'
                       ? `A user has requested permission to download this document.${task.reason ? ` Reason: "${task.reason}"` : ''}`
+                      : task.taskType === 'access_approval'
+                      ? `${task.requesterName || 'A user'} has requested access to view this document.${task.reason ? ` Reason: "${task.reason}"` : ''}`
                       : 'This task requires your attention.'
                     }
                   </CardDescription>
@@ -385,6 +413,64 @@ export default function MyTasks() {
                         >
                           <X className="h-4 w-4" />
                           {rejectDownloadMutation.isPending ? "Rejecting..." : "Reject"}
+                        </Button>
+                      </>
+                    ) : task.taskType === 'access_approval' ? (
+                      <>
+                        <Button 
+                          onClick={() => {
+                            if (task.accessRequestId) {
+                              approveAccessMutation.mutate(task.accessRequestId, {
+                                onSuccess: () => {
+                                  toast({
+                                    title: "Access Granted",
+                                    description: `${task.requesterName || 'User'} can now view ${task.documentCode}.`,
+                                  });
+                                },
+                                onError: (error: Error) => {
+                                  toast({
+                                    title: "Error",
+                                    description: error.message,
+                                    variant: "destructive",
+                                  });
+                                },
+                              });
+                            }
+                          }}
+                          disabled={approveAccessMutation.isPending}
+                          className="gap-1"
+                          data-testid={`button-approve-access-${task.id}`}
+                        >
+                          <Unlock className="h-4 w-4" />
+                          {approveAccessMutation.isPending ? "Granting..." : "Grant Access"}
+                        </Button>
+                        <Button 
+                          variant="destructive"
+                          onClick={() => {
+                            if (task.accessRequestId) {
+                              rejectAccessMutation.mutate(task.accessRequestId, {
+                                onSuccess: () => {
+                                  toast({
+                                    title: "Access Denied",
+                                    description: `Access request for ${task.documentCode} has been denied.`,
+                                  });
+                                },
+                                onError: (error: Error) => {
+                                  toast({
+                                    title: "Error",
+                                    description: error.message,
+                                    variant: "destructive",
+                                  });
+                                },
+                              });
+                            }
+                          }}
+                          disabled={rejectAccessMutation.isPending}
+                          className="gap-1"
+                          data-testid={`button-reject-access-${task.id}`}
+                        >
+                          <X className="h-4 w-4" />
+                          {rejectAccessMutation.isPending ? "Denying..." : "Deny"}
                         </Button>
                       </>
                     ) : (
