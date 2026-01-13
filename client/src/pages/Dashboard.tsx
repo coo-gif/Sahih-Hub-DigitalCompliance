@@ -924,6 +924,7 @@ export default function Dashboard() {
                         : 'bg-yellow-50 border-yellow-200 dark:bg-yellow-950/20 dark:border-yellow-900/50'
                     }`}
                     style={{ animation: `slideIn 0.3s ease-out ${idx * 0.1}s backwards` }}
+                    onClick={() => navigate(`/documents/${alert.id}/view`)}
                     data-testid={`alert-${alert.id}`}
                   >
                     <div className="flex items-center justify-between gap-2">
