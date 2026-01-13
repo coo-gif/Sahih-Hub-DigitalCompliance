@@ -362,8 +362,9 @@ export default function Dashboard() {
 
           <div className="flex flex-wrap gap-3">
             <div 
-              className="rounded-xl px-4 py-3 flex items-center gap-3 border border-white/20 shadow-lg gradient-primary-soft backdrop-blur-sm"
+              className="rounded-xl px-4 py-3 flex items-center gap-3 border border-white/20 shadow-lg gradient-primary-soft backdrop-blur-sm cursor-pointer hover:bg-white/10 transition-all"
               style={{ animation: 'float 3s ease-in-out infinite' }}
+              onClick={() => navigate("/tasks")}
             >
               <div className="p-2 rounded-lg bg-white/20">
                 <Target className="w-5 h-5 text-white" />
