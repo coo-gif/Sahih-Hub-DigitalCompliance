@@ -367,6 +367,7 @@ export const employees = pgTable("employees", {
   hireDate: timestamp("hire_date").notNull(),
   status: text("status").notNull().default(EmployeeStatus.ACTIVE),
   workflowStatus: text("workflow_status").notNull().default(EmployeeRecordStatus.DRAFT),
+  userId: integer("user_id"),
   createdByUserId: integer("created_by_user_id"),
   reviewerId: integer("reviewer_id"),
   approverId: integer("approver_id"),

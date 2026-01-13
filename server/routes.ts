@@ -816,6 +816,10 @@ export async function registerRoutes(
         return res.status(400).json({ message: 'Email already exists', field: 'email' });
       }
 
+      // Auto-link employee with user by email
+      const matchingUser = await storage.getUserByEmail(input.email);
+      const linkedUserId = matchingUser ? matchingUser.id : null;
+
       const employee = await storage.createEmployee({
         employeeNumber: input.employeeNumber,
         name: input.name,
@@ -829,6 +833,7 @@ export async function registerRoutes(
         status: input.status || 'active',
         createdByUserId: getCurrentUserId(req),
         workflowStatus: 'draft',
+        userId: linkedUserId,
       });
 
       // Audit log
@@ -873,7 +878,14 @@ export async function registerRoutes(
         }
       }
 
-      const employee = await storage.updateEmployee(id, input);
+      // Auto-link employee with user by email when email changes
+      let updateData: any = { ...input };
+      if (input.email) {
+        const matchingUser = await storage.getUserByEmail(input.email);
+        updateData.userId = matchingUser ? matchingUser.id : null;
+      }
+
+      const employee = await storage.updateEmployee(id, updateData);
 
       // Audit log
       await storage.createAuditLog({
