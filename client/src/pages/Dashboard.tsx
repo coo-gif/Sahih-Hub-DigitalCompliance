@@ -1105,19 +1105,51 @@ export default function Dashboard() {
           </DialogHeader>
 
           <div className="space-y-4 py-4">
-            <div className="p-4 bg-muted rounded-lg">
-              <h4 className="font-medium mb-2">Task Details</h4>
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Document:</span>
-                  <span className="ml-2 font-medium">{selectedTask?.documentCode}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Action:</span>
-                  <span className="ml-2 font-medium capitalize">{selectedTask?.taskType}</span>
+            {(selectedTask?.taskType === 'employee_review' || selectedTask?.taskType === 'employee_approve') ? (
+              <div className="p-4 bg-muted rounded-lg">
+                <h4 className="font-medium mb-3">Employee Details</h4>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Name:</span>
+                    <span className="ml-2 font-medium">{selectedTask?.employeeName}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Designation:</span>
+                    <span className="ml-2 font-medium">{selectedTask?.employeeJobTitle}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Reporting Officer:</span>
+                    <span className="ml-2 font-medium">{selectedTask?.employeeSupervisorName || 'N/A'}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Department:</span>
+                    <span className="ml-2 font-medium">{selectedTask?.employeeDepartment}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Email:</span>
+                    <span className="ml-2 font-medium">{selectedTask?.employeeEmail}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Phone:</span>
+                    <span className="ml-2 font-medium">{selectedTask?.employeePhone || 'N/A'}</span>
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="p-4 bg-muted rounded-lg">
+                <h4 className="font-medium mb-2">Task Details</h4>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Document:</span>
+                    <span className="ml-2 font-medium">{selectedTask?.documentCode}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Action:</span>
+                    <span className="ml-2 font-medium capitalize">{selectedTask?.taskType}</span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="comments">Comments (optional)</Label>
@@ -1131,12 +1163,21 @@ export default function Dashboard() {
             </div>
 
             <div className="flex gap-2">
-              <Link href={`/documents/${selectedTask?.documentId}/edit`} className="flex-1">
-                <Button variant="outline" className="w-full">
-                  <FileText className="w-4 h-4 mr-2" />
-                  View Document
-                </Button>
-              </Link>
+              {(selectedTask?.taskType === 'employee_review' || selectedTask?.taskType === 'employee_approve') ? (
+                <Link href="/hr" className="flex-1">
+                  <Button variant="outline" className="w-full">
+                    <Users className="w-4 h-4 mr-2" />
+                    View Employee
+                  </Button>
+                </Link>
+              ) : (
+                <Link href={`/documents/${selectedTask?.documentId}/edit`} className="flex-1">
+                  <Button variant="outline" className="w-full">
+                    <FileText className="w-4 h-4 mr-2" />
+                    View Document
+                  </Button>
+                </Link>
+              )}
             </div>
           </div>
 

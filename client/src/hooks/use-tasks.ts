@@ -7,6 +7,11 @@ export interface MyTask {
   documentCode?: string;
   employeeId?: number;
   employeeName?: string;
+  employeeEmail?: string;
+  employeePhone?: string;
+  employeeJobTitle?: string;
+  employeeDepartment?: string;
+  employeeSupervisorName?: string;
   title: string;
   taskType: 'prepare' | 'review' | 'approve' | 'download_approval' | 'access_approval' | 'employee_review' | 'employee_approve';
   status: string;

@@ -560,12 +560,24 @@ export async function registerRoutes(
       // Add employee review/approval tasks
       const allEmployees = await storage.getEmployees();
       for (const emp of allEmployees) {
+        // Get supervisor name if available
+        let supervisorName: string | null = null;
+        if (emp.supervisorId) {
+          const supervisor = allEmployees.find(e => e.id === emp.supervisorId);
+          supervisorName = supervisor?.name || null;
+        }
+        
         // Employee review task: User is reviewer and employee is in_review
         if (emp.reviewerId === userId && emp.workflowStatus === EmployeeRecordStatus.IN_REVIEW) {
           tasks.push({
             id: emp.id * 1000 + 5,
             employeeId: emp.id,
             employeeName: emp.name,
+            employeeEmail: emp.email,
+            employeePhone: emp.phone || null,
+            employeeJobTitle: emp.jobTitle,
+            employeeDepartment: emp.department,
+            employeeSupervisorName: supervisorName,
             title: `Review Employee Record: ${emp.name}`,
             taskType: 'employee_review',
             status: 'pending',
@@ -580,6 +592,11 @@ export async function registerRoutes(
             id: emp.id * 1000 + 6,
             employeeId: emp.id,
             employeeName: emp.name,
+            employeeEmail: emp.email,
+            employeePhone: emp.phone || null,
+            employeeJobTitle: emp.jobTitle,
+            employeeDepartment: emp.department,
+            employeeSupervisorName: supervisorName,
             title: `Approve Employee Record: ${emp.name}`,
             taskType: 'employee_approve',
             status: 'pending',
