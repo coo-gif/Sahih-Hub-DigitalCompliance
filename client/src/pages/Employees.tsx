@@ -795,13 +795,19 @@ export default function Employees() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="department">Department *</Label>
-              <Input
-                id="department"
-                value={formData.department}
-                onChange={e => setFormData({ ...formData, department: e.target.value })}
-                placeholder="e.g., Quality Assurance"
-                data-testid="input-department"
-              />
+              <Select value={formData.department} onValueChange={v => setFormData({ ...formData, department: v })}>
+                <SelectTrigger id="department" data-testid="select-department">
+                  <SelectValue placeholder="Select department" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Board of directors">Board of directors</SelectItem>
+                  <SelectItem value="HR and Admin">HR and Admin</SelectItem>
+                  <SelectItem value="Sales and marketing">Sales and marketing</SelectItem>
+                  <SelectItem value="Quality assurance & Compliance">Quality assurance & Compliance</SelectItem>
+                  <SelectItem value="IT and Systems">IT and Systems</SelectItem>
+                  <SelectItem value="Audit and certifications">Audit and certifications</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="employmentType">Employment Type</Label>
@@ -925,12 +931,19 @@ export default function Employees() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-department">Department *</Label>
-              <Input
-                id="edit-department"
-                value={formData.department}
-                onChange={e => setFormData({ ...formData, department: e.target.value })}
-                data-testid="input-edit-department"
-              />
+              <Select value={formData.department} onValueChange={v => setFormData({ ...formData, department: v })}>
+                <SelectTrigger id="edit-department" data-testid="select-edit-department">
+                  <SelectValue placeholder="Select department" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Board of directors">Board of directors</SelectItem>
+                  <SelectItem value="HR and Admin">HR and Admin</SelectItem>
+                  <SelectItem value="Sales and marketing">Sales and marketing</SelectItem>
+                  <SelectItem value="Quality assurance & Compliance">Quality assurance & Compliance</SelectItem>
+                  <SelectItem value="IT and Systems">IT and Systems</SelectItem>
+                  <SelectItem value="Audit and certifications">Audit and certifications</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-employmentType">Employment Type</Label>
