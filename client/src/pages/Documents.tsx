@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useDocuments, useCreateDocument, useUpdateDocument, useDeleteDocument, useSubmitDocumentForReview, useDocumentAccessRequests, useCreateDocumentAccessRequest, useDocumentAccess } from "@/hooks/use-documents";
-import { useUsers, useAuth } from "@/hooks/use-users";
+import { useUsers } from "@/hooks/use-users";
+import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
