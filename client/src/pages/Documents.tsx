@@ -55,7 +55,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, MoreHorizontal, Pencil, Trash2, AlertCircle, Eye, FileText, Calendar, Clock, FileDown, Download, Loader2, Send, Lock, Unlock } from "lucide-react";
+import { Plus, MoreHorizontal, Pencil, Trash2, AlertCircle, Eye, FileText, Calendar, Clock, FileDown, Loader2, Send, Lock, Unlock } from "lucide-react";
 import { format } from "date-fns";
 import type { Document } from "@shared/schema";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
@@ -248,35 +248,6 @@ export default function Documents() {
     }
   };
 
-  const handleDownloadPdf = () => {
-    if (!pdfUrl || !selectedDocument) return;
-    
-    const link = document.createElement('a');
-    link.href = pdfUrl;
-    link.download = `${selectedDocument.documentCode}_Ed${selectedDocument.editionNumber || 1}_Rev${selectedDocument.revisionNumber || 0}.pdf`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleRequestDownload = async (doc: Document) => {
-    try {
-      const response = await fetch('/api/download-requests', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ documentId: doc.id, reason: 'Document download request' }),
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to request download');
-      }
-      
-      toast({ title: "Download request submitted", description: "An admin will review your request." });
-    } catch (error: any) {
-      toast({ title: "Error requesting download", description: error.message, variant: "destructive" });
-    }
-  };
   
   const openEditDialog = (doc: Document) => {
     setSelectedDocument(doc);
@@ -505,38 +476,15 @@ export default function Documents() {
                         {doc.status === "approved" && (
                           <>
                             {hasAccessToDocument(doc.id) ? (
-                              <>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleViewPdf(doc)}
-                                  data-testid={`button-view-pdf-${doc.id}`}
-                                >
-                                  <FileDown className="w-4 h-4 mr-1" />
-                                  View PDF
-                                </Button>
-                                {doc.downloadRequiresApproval ? (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handleRequestDownload(doc)}
-                                    data-testid={`button-request-download-${doc.id}`}
-                                  >
-                                    <Download className="w-4 h-4 mr-1" />
-                                    Request
-                                  </Button>
-                                ) : (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handleViewPdf(doc)}
-                                    data-testid={`button-download-${doc.id}`}
-                                  >
-                                    <Download className="w-4 h-4 mr-1" />
-                                    Download
-                                  </Button>
-                                )}
-                              </>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleViewPdf(doc)}
+                                data-testid={`button-view-pdf-${doc.id}`}
+                              >
+                                <FileDown className="w-4 h-4 mr-1" />
+                                View PDF
+                              </Button>
                             ) : hasPendingAccessRequest(doc.id) ? (
                               <Badge variant="secondary" className="bg-amber-100 text-amber-700" data-testid={`badge-pending-access-${doc.id}`}>
                                 <Clock className="w-3 h-3 mr-1" />
@@ -978,11 +926,6 @@ export default function Documents() {
             <Button variant="outline" onClick={() => setShowPdfDialog(false)} data-testid="button-close-pdf">
               Close
             </Button>
-            {pdfUrl && (
-              <Button onClick={handleDownloadPdf} data-testid="button-download-pdf">
-                <Download className="w-4 h-4 mr-2" /> Download PDF
-              </Button>
-            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
