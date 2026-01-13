@@ -74,3 +74,86 @@ export function useSubmitDocumentForReview() {
     },
   });
 }
+
+// Document Access Control
+export function useDocumentAccessCheck(documentId: number) {
+  return useQuery<{ hasAccess: boolean }>({
+    queryKey: ['/api/documents', documentId, 'access'],
+    enabled: !!documentId,
+  });
+}
+
+export function useDocumentAccessRequests(filters?: { documentId?: number; requesterId?: number; status?: string }) {
+  const params = new URLSearchParams();
+  if (filters?.documentId) params.append('documentId', String(filters.documentId));
+  if (filters?.requesterId) params.append('requesterId', String(filters.requesterId));
+  if (filters?.status) params.append('status', filters.status);
+  const queryString = params.toString();
+  const url = queryString ? `/api/document-access-requests?${queryString}` : '/api/document-access-requests';
+  
+  return useQuery<any[]>({
+    queryKey: ['/api/document-access-requests', filters],
+  });
+}
+
+export function useMyDocumentAccessRequests() {
+  return useQuery<any[]>({
+    queryKey: ['/api/document-access-requests', { mine: true }],
+  });
+}
+
+export function useCreateDocumentAccessRequest() {
+  return useMutation({
+    mutationFn: async (data: { documentId: number; requestReason?: string }) => {
+      const res = await apiRequest('POST', '/api/document-access-requests', data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/document-access-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
+    },
+  });
+}
+
+export function useApproveDocumentAccessRequest() {
+  return useMutation({
+    mutationFn: async ({ id, decisionNote }: { id: number; decisionNote?: string }) => {
+      const res = await apiRequest('POST', `/api/document-access-requests/${id}/approve`, { decisionNote });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/document-access-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/document-access'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+    },
+  });
+}
+
+export function useRejectDocumentAccessRequest() {
+  return useMutation({
+    mutationFn: async ({ id, decisionNote }: { id: number; decisionNote?: string }) => {
+      const res = await apiRequest('POST', `/api/document-access-requests/${id}/reject`, { decisionNote });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/document-access-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+    },
+  });
+}
+
+export function useDocumentAccess(filters?: { documentId?: number; userId?: number }) {
+  const params = new URLSearchParams();
+  if (filters?.documentId) params.append('documentId', String(filters.documentId));
+  if (filters?.userId) params.append('userId', String(filters.userId));
+  const queryString = params.toString();
+  const url = queryString ? `/api/document-access?${queryString}` : '/api/document-access';
+  
+  return useQuery<any[]>({
+    queryKey: ['/api/document-access', filters],
+  });
+}

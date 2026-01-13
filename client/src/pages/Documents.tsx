@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { useDocuments, useCreateDocument, useUpdateDocument, useDeleteDocument, useSubmitDocumentForReview } from "@/hooks/use-documents";
-import { useUsers } from "@/hooks/use-users";
+import { useDocuments, useCreateDocument, useUpdateDocument, useDeleteDocument, useSubmitDocumentForReview, useDocumentAccessRequests, useCreateDocumentAccessRequest, useDocumentAccess } from "@/hooks/use-documents";
+import { useUsers, useAuth } from "@/hooks/use-users";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -54,7 +54,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, MoreHorizontal, Pencil, Trash2, AlertCircle, Eye, FileText, Calendar, Clock, FileDown, Download, Loader2, Send } from "lucide-react";
+import { Plus, MoreHorizontal, Pencil, Trash2, AlertCircle, Eye, FileText, Calendar, Clock, FileDown, Download, Loader2, Send, Lock, Unlock } from "lucide-react";
 import { format } from "date-fns";
 import type { Document } from "@shared/schema";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
@@ -102,6 +102,41 @@ export default function Documents() {
   const submitForReviewMutation = useSubmitDocumentForReview();
   
   const { data: users = [] } = useUsers();
+  const { data: currentUser } = useAuth();
+  
+  // Access control
+  const isAdminOrQM = currentUser?.role === 'admin' || currentUser?.role === 'quality_manager';
+  const { data: myAccessRequests = [] } = useDocumentAccessRequests({ 
+    requesterId: currentUser?.id 
+  });
+  const { data: myDocumentAccess = [] } = useDocumentAccess({ 
+    userId: currentUser?.id 
+  });
+  const requestAccessMutation = useCreateDocumentAccessRequest();
+  
+  // Check if user has access to an approved document
+  const hasAccessToDocument = (docId: number): boolean => {
+    if (isAdminOrQM) return true;
+    return myDocumentAccess.some((access: any) => access.documentId === docId && !access.isRevoked);
+  };
+  
+  // Check if user has a pending access request for a document
+  const hasPendingAccessRequest = (docId: number): boolean => {
+    return myAccessRequests.some((req: any) => req.documentId === docId && req.status === 'pending');
+  };
+  
+  // Handle requesting access to a document
+  const handleRequestAccess = async (doc: Document) => {
+    try {
+      await requestAccessMutation.mutateAsync({ 
+        documentId: doc.id, 
+        requestReason: `Request access to view document: ${doc.documentCode} - ${doc.title}` 
+      });
+      toast({ title: "Access request submitted", description: "An admin will review your request." });
+    } catch (error: any) {
+      toast({ title: "Error requesting access", description: error.message, variant: "destructive" });
+    }
+  };
 
   const [formData, setFormData] = useState({
     documentCode: "",
@@ -468,34 +503,54 @@ export default function Documents() {
                         
                         {doc.status === "approved" && (
                           <>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleViewPdf(doc)}
-                              data-testid={`button-view-pdf-${doc.id}`}
-                            >
-                              <FileDown className="w-4 h-4 mr-1" />
-                              View PDF
-                            </Button>
-                            {doc.downloadRequiresApproval ? (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleRequestDownload(doc)}
-                                data-testid={`button-request-download-${doc.id}`}
-                              >
-                                <Download className="w-4 h-4 mr-1" />
-                                Request
-                              </Button>
+                            {hasAccessToDocument(doc.id) ? (
+                              <>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleViewPdf(doc)}
+                                  data-testid={`button-view-pdf-${doc.id}`}
+                                >
+                                  <FileDown className="w-4 h-4 mr-1" />
+                                  View PDF
+                                </Button>
+                                {doc.downloadRequiresApproval ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleRequestDownload(doc)}
+                                    data-testid={`button-request-download-${doc.id}`}
+                                  >
+                                    <Download className="w-4 h-4 mr-1" />
+                                    Request
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleViewPdf(doc)}
+                                    data-testid={`button-download-${doc.id}`}
+                                  >
+                                    <Download className="w-4 h-4 mr-1" />
+                                    Download
+                                  </Button>
+                                )}
+                              </>
+                            ) : hasPendingAccessRequest(doc.id) ? (
+                              <Badge variant="secondary" className="bg-amber-100 text-amber-700" data-testid={`badge-pending-access-${doc.id}`}>
+                                <Clock className="w-3 h-3 mr-1" />
+                                Access Pending
+                              </Badge>
                             ) : (
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => handleViewPdf(doc)}
-                                data-testid={`button-download-${doc.id}`}
+                                onClick={() => handleRequestAccess(doc)}
+                                disabled={requestAccessMutation.isPending}
+                                data-testid={`button-request-access-${doc.id}`}
                               >
-                                <Download className="w-4 h-4 mr-1" />
-                                Download
+                                <Lock className="w-4 h-4 mr-1" />
+                                Request Access
                               </Button>
                             )}
                           </>
