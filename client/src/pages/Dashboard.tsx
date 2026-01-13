@@ -165,6 +165,7 @@ export default function Dashboard() {
   const [pokeTaskId, setPokeTaskId] = useState<number | null>(null);
   const [showPokeDialog, setShowPokeDialog] = useState(false);
   const [showComplianceDialog, setShowComplianceDialog] = useState(false);
+  const [showTasksFocusDialog, setShowTasksFocusDialog] = useState(false);
   const [location, navigate] = useLocation();
   const [activeTab, setActiveTab] = useState("dashboard");
 
@@ -365,7 +366,7 @@ export default function Dashboard() {
             <div 
               className="rounded-xl px-4 py-3 flex items-center gap-3 border border-white/20 shadow-lg gradient-primary-soft backdrop-blur-sm cursor-pointer hover:bg-white/10 transition-all"
               style={{ animation: 'float 3s ease-in-out infinite' }}
-              onClick={() => navigate("/tasks")}
+              onClick={() => setShowTasksFocusDialog(true)}
             >
               <div className="p-2 rounded-lg bg-white/20">
                 <Target className="w-5 h-5 text-white" />
@@ -1469,6 +1470,93 @@ export default function Dashboard() {
             <Button onClick={() => { setShowComplianceDialog(false); navigate("/documents"); }}>
               <FileText className="w-4 h-4 mr-2" />
               View All Documents
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Tasks Focus Dialog */}
+      <Dialog open={showTasksFocusDialog} onOpenChange={setShowTasksFocusDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Target className="w-5 h-5 text-primary" />
+              Today's Focus
+            </DialogTitle>
+            <DialogDescription>
+              Your pending tasks - {format(currentTime, "EEEE, MMMM d, yyyy")}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {myTasks && myTasks.length > 0 ? (
+              <div className="space-y-3">
+                {myTasks.map((task, idx) => (
+                  <div 
+                    key={`focus-${task.documentId}-${task.taskType}`}
+                    className="p-4 rounded-lg border hover:border-primary cursor-pointer transition-all group"
+                    onClick={() => {
+                      setShowTasksFocusDialog(false);
+                      handleOpenTask(task);
+                    }}
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-primary/10 group-hover:bg-primary/20 transition-colors">
+                          {getTaskIcon(task.taskType)}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-medium">{task.documentCode}</p>
+                            <Badge className={`${getTaskBadgeColor(task.taskType)} text-xs`}>
+                              {task.taskType.charAt(0).toUpperCase() + task.taskType.slice(1)}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">{task.title}</p>
+                        </div>
+                      </div>
+                      <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 mx-auto mb-4 flex items-center justify-center">
+                  <CheckCircle2 className="w-8 h-8 text-green-500" />
+                </div>
+                <p className="font-bold text-lg text-green-700 dark:text-green-400">All Caught Up!</p>
+                <p className="text-muted-foreground text-sm">No pending tasks for now.</p>
+              </div>
+            )}
+
+            <div className="p-4 rounded-lg bg-muted">
+              <h4 className="font-medium mb-2 flex items-center gap-2">
+                <ClipboardList className="w-4 h-4" />
+                Task Summary
+              </h4>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Total Pending:</span>
+                  <span className="ml-2 font-medium">{myTasks?.length || 0}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Status:</span>
+                  <span className="ml-2 font-medium text-green-600">
+                    {(myTasks?.length || 0) === 0 ? 'Complete' : 'In Progress'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowTasksFocusDialog(false)}>
+              Close
+            </Button>
+            <Button onClick={() => { setShowTasksFocusDialog(false); navigate("/tasks"); }}>
+              <ClipboardList className="w-4 h-4 mr-2" />
+              View All Tasks
             </Button>
           </DialogFooter>
         </DialogContent>
