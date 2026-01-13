@@ -894,6 +894,7 @@ export default function Dashboard() {
               
               <div 
                 className="p-4 rounded-xl bg-gradient-to-br from-amber-100 to-amber-50 dark:from-amber-900/30 dark:to-amber-950/20 cursor-pointer hover-elevate transition-all border border-amber-200 dark:border-amber-800"
+                onClick={() => navigate("/tasks")}
               >
                 <div className="flex items-center gap-2 mb-2">
                   <Zap className="w-4 h-4 text-amber-600" />
