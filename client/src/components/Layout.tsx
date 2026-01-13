@@ -57,7 +57,7 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">
-      <div className="p-5 border-b border-[#C78A5F]/30 bg-gradient-to-br from-[#F3E3D0] to-[#E3C39B]">
+      <div className="p-5 border-b border-[#C78A5F]/30 bg-white">
         <div className="flex flex-col items-center gap-2">
           <img 
             src={sahihLogoPath} 
