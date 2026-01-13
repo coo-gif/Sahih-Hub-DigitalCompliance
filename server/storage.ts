@@ -2,7 +2,7 @@ import { db } from "./db";
 import {
   users, documents, documentVersions, workflowLogs, notifications, auditLogs,
   employees, employeeTasks, downloadRequests, documentFeedback, documentTasks, taskPokes,
-  documentAccessRequests, documentAccess,
+  documentAccessRequests, documentAccess, userRecords,
   type User, type InsertUser,
   type Document, type InsertDocument,
   type DocumentVersion, type InsertDocumentVersion,
@@ -17,6 +17,7 @@ import {
   type TaskPoke, type InsertTaskPoke,
   type DocumentAccessRequest, type InsertDocumentAccessRequest,
   type DocumentAccess, type InsertDocumentAccess,
+  type UserRecord, type InsertUserRecord,
   DocumentStatus, InductionStatus, TaskStatus, FeedbackStatus, DocumentTaskStatus,
   EmployeeRecordStatus, DocumentAccessRequestStatus,
 } from "@shared/schema";
@@ -167,6 +168,12 @@ export interface IStorage {
   hasDocumentAccess(documentId: number, userId: number): Promise<boolean>;
   grantDocumentAccess(access: InsertDocumentAccess): Promise<DocumentAccess>;
   revokeDocumentAccess(documentId: number, userId: number, revokedById: number): Promise<DocumentAccess | undefined>;
+
+  // User Records (Completion Reports)
+  getUserRecords(userId: number): Promise<UserRecord[]>;
+  getUserRecord(id: number): Promise<UserRecord | undefined>;
+  createUserRecord(record: InsertUserRecord): Promise<UserRecord>;
+  generateReportNumber(reportType: string): Promise<string>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1032,6 +1039,35 @@ export class DatabaseStorage implements IStorage {
       ))
       .returning();
     return revoked;
+  }
+
+  // ============================================
+  // USER RECORDS (Completion Reports)
+  // ============================================
+  async getUserRecords(userId: number): Promise<UserRecord[]> {
+    return await db.select().from(userRecords)
+      .where(eq(userRecords.userId, userId))
+      .orderBy(desc(userRecords.createdAt));
+  }
+
+  async getUserRecord(id: number): Promise<UserRecord | undefined> {
+    const [record] = await db.select().from(userRecords)
+      .where(eq(userRecords.id, id));
+    return record;
+  }
+
+  async createUserRecord(record: InsertUserRecord): Promise<UserRecord> {
+    const [created] = await db.insert(userRecords).values(record).returning();
+    return created;
+  }
+
+  async generateReportNumber(reportType: string): Promise<string> {
+    const prefix = reportType === 'document_approval' ? 'DAR' : 'SCR';
+    const year = new Date().getFullYear();
+    const existingRecords = await db.select().from(userRecords)
+      .where(sql`${userRecords.reportNumber} LIKE ${prefix + '-' + year + '-%'}`);
+    const nextNumber = existingRecords.length + 1;
+    return `${prefix}-${year}-${String(nextNumber).padStart(4, '0')}`;
   }
 }
 

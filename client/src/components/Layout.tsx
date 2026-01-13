@@ -22,7 +22,8 @@ import {
   LogOut,
   User,
   Shield,
-  ClipboardList
+  ClipboardList,
+  FolderOpen
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -51,6 +52,7 @@ const navItems: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/documents", label: "Documents", icon: FileText },
   { href: "/tasks", label: "My Tasks", icon: ClipboardList },
+  { href: "/user-records", label: "My Records", icon: FolderOpen },
   { href: "/users", label: "Users", icon: Users },
   { 
     href: "/hr", 

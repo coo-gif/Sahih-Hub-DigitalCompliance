@@ -13,6 +13,7 @@ import Employees from "@/pages/Employees";
 import HROrganogram from "@/pages/HROrganogram";
 import AuditLog from "@/pages/AuditLog";
 import MyTasks from "@/pages/MyTasks";
+import UserRecords from "@/pages/UserRecords";
 import Login from "@/pages/Login";
 import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/Layout";
@@ -40,6 +41,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: User; onLogout: () => v
             <Route path="/hr" component={HROrganogram} />
             <Route path="/employees" component={Employees} />
             <Route path="/tasks" component={MyTasks} />
+            <Route path="/user-records" component={UserRecords} />
             <Route path="/audit-log" component={AuditLog} />
             <Route component={NotFound} />
           </Switch>

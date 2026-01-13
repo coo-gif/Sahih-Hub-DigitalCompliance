@@ -14,6 +14,7 @@ import {
   DocumentImportance,
   DocumentAccessRequestStatus,
   EmployeeRecordStatus,
+  ReportType,
 } from "@shared/schema";
 import { z } from "zod";
 import puppeteer from "puppeteer";
@@ -32,6 +33,199 @@ function getCurrentUserId(req: any): number {
     throw new Error('Not authenticated');
   }
   return req.session.userId;
+}
+
+const COMPANY_LOGO_BASE64 = 'data:image/png;base64,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';
+
+async function generateReportPdf(
+  reportType: string,
+  title: string,
+  content: string,
+  metadata: {
+    documentCode?: string;
+    documentTitle?: string;
+    employeeName?: string;
+    employeeNumber?: string;
+    department?: string;
+    jobTitle?: string;
+    hireDate?: string;
+    preparedByName?: string;
+    preparedBySignature?: string | null;
+    preparedBySignedAt?: Date | null;
+    reviewerName?: string;
+    reviewerSignature?: string | null;
+    reviewerSignedAt?: Date | null;
+    approverName?: string;
+    approverSignature?: string | null;
+    approverSignedAt?: Date | null;
+    reportNumber: string;
+    generatedAt: Date;
+  }
+): Promise<string> {
+  const formatDate = (date: Date | null | undefined) => {
+    if (!date) return 'N/A';
+    return new Date(date).toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const signatureHtml = (name: string | undefined, signature: string | null | undefined, signedAt: Date | null | undefined, role: string) => `
+    <div class="signature-block">
+      <div class="signature-role">${role}</div>
+      ${signature ? `<img src="${signature}" class="signature-img" alt="${name} signature" />` : '<div class="signature-placeholder"></div>'}
+      <div class="signature-line">${name || 'N/A'}</div>
+      <div class="signature-date">${formatDate(signedAt)}</div>
+    </div>
+  `;
+
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11pt; line-height: 1.6; color: #333; padding: 40px; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 20px; border-bottom: 3px solid #0891b2; margin-bottom: 30px; }
+        .logo-container { display: flex; align-items: center; gap: 15px; }
+        .logo-img { height: 60px; width: auto; }
+        .company-info { text-align: right; }
+        .company-name { font-size: 18px; font-weight: bold; color: #0891b2; }
+        .report-number { font-size: 12px; color: #666; margin-top: 5px; }
+        .report-title { text-align: center; font-size: 20px; font-weight: bold; color: #0891b2; margin: 30px 0; padding: 15px; background: linear-gradient(135deg, #ecfeff 0%, #f0fdfa 100%); border-radius: 8px; }
+        .section { margin-bottom: 25px; }
+        .section-title { font-size: 14px; font-weight: bold; color: #0891b2; border-bottom: 2px solid #0891b2; padding-bottom: 5px; margin-bottom: 15px; }
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .info-item { padding: 8px 12px; background: #f8fafc; border-radius: 4px; }
+        .info-label { font-size: 10px; color: #64748b; text-transform: uppercase; }
+        .info-value { font-size: 12px; font-weight: 600; color: #1e293b; }
+        .content { padding: 20px; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; margin: 20px 0; min-height: 100px; }
+        .signatures { display: flex; justify-content: space-around; margin-top: 40px; padding-top: 30px; border-top: 2px solid #e2e8f0; }
+        .signature-block { text-align: center; width: 28%; }
+        .signature-role { font-size: 12px; font-weight: bold; color: #0891b2; margin-bottom: 10px; }
+        .signature-img { max-height: 50px; max-width: 150px; margin: 10px auto; display: block; }
+        .signature-placeholder { height: 50px; border-bottom: 1px solid #999; margin: 10px auto; width: 150px; }
+        .signature-line { font-size: 11px; font-weight: 600; margin-top: 5px; padding-top: 5px; border-top: 1px solid #333; }
+        .signature-date { font-size: 9px; color: #666; margin-top: 3px; }
+        .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 9px; color: #94a3b8; }
+        .watermark { position: fixed; bottom: 50px; right: 50px; font-size: 60px; color: rgba(8, 145, 178, 0.05); transform: rotate(-15deg); font-weight: bold; }
+      </style>
+    </head>
+    <body>
+      <div class="watermark">SAHIH</div>
+      <div class="header">
+        <div class="logo-container">
+          <img src="${COMPANY_LOGO_BASE64}" alt="Sahih Certifications" class="logo-img" />
+          <div>
+            <div class="company-name">SAHIH CERTIFICATIONS</div>
+            <div style="font-size: 10px; color: #64748b;">Quality Management System</div>
+          </div>
+        </div>
+        <div class="company-info">
+          <div class="report-number"><strong>Report No:</strong> ${metadata.reportNumber}</div>
+          <div class="report-number"><strong>Generated:</strong> ${formatDate(metadata.generatedAt)}</div>
+        </div>
+      </div>
+      
+      <div class="report-title">${title}</div>
+      
+      ${reportType === ReportType.DOCUMENT_APPROVAL ? `
+        <div class="section">
+          <div class="section-title">Document Information</div>
+          <div class="info-grid">
+            <div class="info-item">
+              <div class="info-label">Document Code</div>
+              <div class="info-value">${metadata.documentCode || 'N/A'}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Document Title</div>
+              <div class="info-value">${metadata.documentTitle || 'N/A'}</div>
+            </div>
+          </div>
+        </div>
+      ` : `
+        <div class="section">
+          <div class="section-title">Employee Information</div>
+          <div class="info-grid">
+            <div class="info-item">
+              <div class="info-label">Employee Name</div>
+              <div class="info-value">${metadata.employeeName || 'N/A'}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Employee Number</div>
+              <div class="info-value">${metadata.employeeNumber || 'N/A'}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Department</div>
+              <div class="info-value">${metadata.department || 'N/A'}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Job Title</div>
+              <div class="info-value">${metadata.jobTitle || 'N/A'}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Hire Date</div>
+              <div class="info-value">${metadata.hireDate || 'N/A'}</div>
+            </div>
+          </div>
+        </div>
+      `}
+      
+      <div class="section">
+        <div class="section-title">Report Details</div>
+        <div class="content">${content}</div>
+      </div>
+      
+      <div class="signatures">
+        ${reportType === ReportType.DOCUMENT_APPROVAL ? `
+          ${signatureHtml(metadata.preparedByName, metadata.preparedBySignature, metadata.preparedBySignedAt, 'Prepared By')}
+          ${signatureHtml(metadata.reviewerName, metadata.reviewerSignature, metadata.reviewerSignedAt, 'Reviewed By')}
+          ${signatureHtml(metadata.approverName, metadata.approverSignature, metadata.approverSignedAt, 'Approved By')}
+        ` : `
+          ${signatureHtml(metadata.reviewerName, metadata.reviewerSignature, metadata.reviewerSignedAt, 'Reviewed By')}
+          ${signatureHtml(metadata.approverName, metadata.approverSignature, metadata.approverSignedAt, 'Approved By')}
+        `}
+      </div>
+      
+      <div class="footer">
+        This is an official document generated by Sahih Certifications Quality Management System.<br/>
+        Document ID: ${metadata.reportNumber} | Generated: ${formatDate(metadata.generatedAt)}
+      </div>
+    </body>
+    </html>
+  `;
+
+  const browser = await puppeteer.launch({ 
+    headless: true,
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/nix/store/zi4f80l169xlmivz8vja8wlphq74qqk0-chromium-125.0.6422.141/bin/chromium',
+    args: [
+      '--no-sandbox', 
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--no-first-run',
+      '--no-zygote',
+      '--single-process'
+    ]
+  });
+  
+  const page = await browser.newPage();
+  await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+  
+  const pdfBuffer = await page.pdf({
+    format: 'A4',
+    margin: { top: '15mm', right: '15mm', bottom: '15mm', left: '15mm' },
+    printBackground: true
+  });
+  
+  await browser.close();
+
+  const pdfBase64 = Buffer.from(pdfBuffer).toString('base64');
+  return `data:application/pdf;base64,${pdfBase64}`;
 }
 
 export async function registerRoutes(
@@ -725,6 +919,8 @@ export async function registerRoutes(
         // Approve the document
         const updated = await storage.updateDocument(documentId, {
           status: DocumentStatus.APPROVED,
+          approvedAt: new Date(),
+          approvedBySignedAt: new Date(),
         });
 
         await storage.createAuditLog({
@@ -735,6 +931,79 @@ export async function registerRoutes(
           previousValue: JSON.stringify({ status: doc.status }),
           newValue: JSON.stringify({ status: updated.status, comments }),
         });
+
+        // Generate Document Approval Report and send to Admin(s)
+        try {
+          const allUsers = await storage.getUsers();
+          const preparedBy = allUsers.find(u => u.id === doc.preparedById);
+          const reviewer = allUsers.find(u => u.id === doc.reviewerId);
+          const approver = allUsers.find(u => u.id === doc.approverId);
+          const admins = allUsers.filter(u => u.role === UserRole.ADMIN);
+
+          const reportNumber = await storage.generateReportNumber(ReportType.DOCUMENT_APPROVAL);
+          const reportTitle = 'Document Approval Completion Report';
+          const reportContent = `
+            <p>This report confirms the successful approval of document <strong>${doc.documentCode}</strong>.</p>
+            <p><strong>Document Title:</strong> ${doc.title}</p>
+            <p><strong>Category:</strong> ${doc.category}</p>
+            <p><strong>Edition:</strong> Ed.${doc.editionNumber} Rev.${doc.revisionNumber}</p>
+            <p><strong>Approval Date:</strong> ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+            ${comments ? `<p><strong>Approval Comments:</strong> ${comments}</p>` : ''}
+            <p style="margin-top: 20px;">The document has been reviewed and approved according to the Quality Management System procedures.</p>
+          `;
+
+          const pdfDataUrl = await generateReportPdf(
+            ReportType.DOCUMENT_APPROVAL,
+            reportTitle,
+            reportContent,
+            {
+              documentCode: doc.documentCode,
+              documentTitle: doc.title,
+              preparedByName: preparedBy?.name,
+              preparedBySignature: preparedBy?.signatureDataUrl,
+              preparedBySignedAt: doc.preparedBySignedAt,
+              reviewerName: reviewer?.name,
+              reviewerSignature: reviewer?.signatureDataUrl,
+              reviewerSignedAt: doc.reviewedBySignedAt,
+              approverName: approver?.name,
+              approverSignature: approver?.signatureDataUrl,
+              approverSignedAt: new Date(),
+              reportNumber,
+              generatedAt: new Date(),
+            }
+          );
+
+          // Create user records for all admin users
+          for (const admin of admins) {
+            await storage.createUserRecord({
+              userId: admin.id,
+              reportType: ReportType.DOCUMENT_APPROVAL,
+              reportTitle,
+              reportNumber,
+              relatedDocumentId: documentId,
+              pdfDataUrl,
+              reviewerId: reviewer?.id,
+              reviewerName: reviewer?.name,
+              reviewerSignatureDataUrl: reviewer?.signatureDataUrl,
+              reviewerSignedAt: doc.reviewedBySignedAt,
+              approverId: approver?.id,
+              approverName: approver?.name,
+              approverSignatureDataUrl: approver?.signatureDataUrl,
+              approverSignedAt: new Date(),
+              metadata: JSON.stringify({ documentCode: doc.documentCode, documentTitle: doc.title }),
+            });
+
+            await storage.createNotification({
+              userId: admin.id,
+              title: 'Document Approval Report Generated',
+              message: `Document "${doc.title}" (${doc.documentCode}) has been approved. A completion report has been saved to your User Records.`,
+              urgencyLevel: UrgencyLevel.LOW,
+              relatedDocumentId: documentId,
+            });
+          }
+        } catch (reportErr) {
+          console.error('Error generating document approval report:', reportErr);
+        }
 
         res.json(updated);
       } else {
@@ -1066,14 +1335,14 @@ export async function registerRoutes(
       }
 
       const currentUserId = getCurrentUserId(req);
-      const employee = await storage.approveEmployee(id, currentUserId, input.notes);
+      const approvedEmployee = await storage.approveEmployee(id, currentUserId, input.notes);
 
       // Create notification for creator
       if (existing.createdByUserId) {
         await storage.createNotification({
           userId: existing.createdByUserId,
           title: 'Employee Record Approved',
-          message: `Employee record for "${employee.name}" (${employee.employeeNumber}) has been approved.`,
+          message: `Employee record for "${approvedEmployee.name}" (${approvedEmployee.employeeNumber}) has been approved.`,
           urgencyLevel: 'low',
         });
       }
@@ -1088,7 +1357,109 @@ export async function registerRoutes(
         newValue: JSON.stringify({ workflowStatus: 'approved' }),
       });
 
-      res.json(employee);
+      // Generate Staff Confirmation Report and send to HR and employee
+      try {
+        const allUsers = await storage.getUsers();
+        const reviewer = existing.reviewerId ? allUsers.find(u => u.id === existing.reviewerId) : undefined;
+        const approver = allUsers.find(u => u.id === currentUserId);
+        const hrUsers = allUsers.filter(u => u.email?.toLowerCase().includes('hr@') || u.role === UserRole.ADMIN);
+        const linkedUser = approvedEmployee.userId ? allUsers.find(u => u.id === approvedEmployee.userId) : undefined;
+
+        const reportNumber = await storage.generateReportNumber(ReportType.STAFF_CONFIRMATION);
+        const reportTitle = 'Staff Confirmation Report';
+        const reportContent = `
+          <p>This report confirms the successful addition and approval of employee <strong>${approvedEmployee.name}</strong> to Sahih Certifications.</p>
+          <p><strong>Employee Number:</strong> ${approvedEmployee.employeeNumber}</p>
+          <p><strong>Job Title:</strong> ${approvedEmployee.jobTitle}</p>
+          <p><strong>Department:</strong> ${approvedEmployee.department}</p>
+          <p><strong>Employment Type:</strong> ${approvedEmployee.employmentType?.replace('_', ' ')}</p>
+          <p><strong>Hire Date:</strong> ${approvedEmployee.hireDate ? new Date(approvedEmployee.hireDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'N/A'}</p>
+          <p><strong>Approval Date:</strong> ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+          ${input.notes ? `<p><strong>Approval Notes:</strong> ${input.notes}</p>` : ''}
+          <p style="margin-top: 20px;">The employee record has been verified and approved according to HR procedures.</p>
+        `;
+
+        const pdfDataUrl = await generateReportPdf(
+          ReportType.STAFF_CONFIRMATION,
+          reportTitle,
+          reportContent,
+          {
+            employeeName: approvedEmployee.name,
+            employeeNumber: approvedEmployee.employeeNumber,
+            department: approvedEmployee.department,
+            jobTitle: approvedEmployee.jobTitle,
+            hireDate: approvedEmployee.hireDate ? new Date(approvedEmployee.hireDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : undefined,
+            reviewerName: reviewer?.name,
+            reviewerSignature: reviewer?.signatureDataUrl,
+            reviewerSignedAt: existing.reviewedAt,
+            approverName: approver?.name,
+            approverSignature: approver?.signatureDataUrl,
+            approverSignedAt: new Date(),
+            reportNumber,
+            generatedAt: new Date(),
+          }
+        );
+
+        // Create user records for HR users
+        for (const hrUser of hrUsers) {
+          await storage.createUserRecord({
+            userId: hrUser.id,
+            reportType: ReportType.STAFF_CONFIRMATION,
+            reportTitle,
+            reportNumber,
+            relatedEmployeeId: id,
+            pdfDataUrl,
+            reviewerId: reviewer?.id,
+            reviewerName: reviewer?.name,
+            reviewerSignatureDataUrl: reviewer?.signatureDataUrl,
+            reviewerSignedAt: existing.reviewedAt,
+            approverId: approver?.id,
+            approverName: approver?.name,
+            approverSignatureDataUrl: approver?.signatureDataUrl,
+            approverSignedAt: new Date(),
+            metadata: JSON.stringify({ employeeName: approvedEmployee.name, employeeNumber: approvedEmployee.employeeNumber }),
+          });
+
+          await storage.createNotification({
+            userId: hrUser.id,
+            title: 'Staff Confirmation Report Generated',
+            message: `Employee "${approvedEmployee.name}" (${approvedEmployee.employeeNumber}) has been confirmed. A Staff Confirmation report has been saved to your User Records.`,
+            urgencyLevel: UrgencyLevel.LOW,
+          });
+        }
+
+        // Also send to the employee if they have a linked user account
+        if (linkedUser && !hrUsers.find(u => u.id === linkedUser.id)) {
+          await storage.createUserRecord({
+            userId: linkedUser.id,
+            reportType: ReportType.STAFF_CONFIRMATION,
+            reportTitle,
+            reportNumber,
+            relatedEmployeeId: id,
+            pdfDataUrl,
+            reviewerId: reviewer?.id,
+            reviewerName: reviewer?.name,
+            reviewerSignatureDataUrl: reviewer?.signatureDataUrl,
+            reviewerSignedAt: existing.reviewedAt,
+            approverId: approver?.id,
+            approverName: approver?.name,
+            approverSignatureDataUrl: approver?.signatureDataUrl,
+            approverSignedAt: new Date(),
+            metadata: JSON.stringify({ employeeName: approvedEmployee.name, employeeNumber: approvedEmployee.employeeNumber }),
+          });
+
+          await storage.createNotification({
+            userId: linkedUser.id,
+            title: 'Your Staff Confirmation Report',
+            message: `Your employee record has been confirmed. A Staff Confirmation report has been saved to your User Records.`,
+            urgencyLevel: UrgencyLevel.LOW,
+          });
+        }
+      } catch (reportErr) {
+        console.error('Error generating staff confirmation report:', reportErr);
+      }
+
+      res.json(approvedEmployee);
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({
@@ -2402,6 +2773,74 @@ export async function registerRoutes(
         });
       }
       throw err;
+    }
+  });
+
+  // ============================================
+  // USER RECORDS (Completion Reports)
+  // ============================================
+  app.get('/api/user-records', requireAuth, async (req, res) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const records = await storage.getUserRecords(userId);
+      res.json(records);
+    } catch (err) {
+      console.error('Error fetching user records:', err);
+      res.status(500).json({ message: 'Failed to fetch user records' });
+    }
+  });
+
+  app.get('/api/user-records/:id', requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const userId = getCurrentUserId(req);
+      
+      const record = await storage.getUserRecord(id);
+      if (!record) {
+        return res.status(404).json({ message: 'Record not found' });
+      }
+      
+      // Only allow users to access their own records
+      if (record.userId !== userId) {
+        const user = await storage.getUser(userId);
+        if (user?.role !== UserRole.ADMIN) {
+          return res.status(403).json({ message: 'Access denied' });
+        }
+      }
+      
+      res.json(record);
+    } catch (err) {
+      console.error('Error fetching user record:', err);
+      res.status(500).json({ message: 'Failed to fetch user record' });
+    }
+  });
+
+  app.get('/api/user-records/:id/pdf', requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const userId = getCurrentUserId(req);
+      
+      const record = await storage.getUserRecord(id);
+      if (!record) {
+        return res.status(404).json({ message: 'Record not found' });
+      }
+      
+      // Only allow users to access their own records
+      if (record.userId !== userId) {
+        const user = await storage.getUser(userId);
+        if (user?.role !== UserRole.ADMIN) {
+          return res.status(403).json({ message: 'Access denied' });
+        }
+      }
+      
+      if (!record.pdfDataUrl) {
+        return res.status(404).json({ message: 'PDF not available' });
+      }
+      
+      res.json({ pdfUrl: record.pdfDataUrl });
+    } catch (err) {
+      console.error('Error fetching user record PDF:', err);
+      res.status(500).json({ message: 'Failed to fetch PDF' });
     }
   });
 
