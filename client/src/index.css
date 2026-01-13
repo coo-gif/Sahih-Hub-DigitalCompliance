@@ -119,7 +119,7 @@
   }
 }
 
-/* Custom Scrollbar - Maroon accent */
+/* Custom Scrollbar - Dynamic theme accent */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -130,12 +130,12 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: hsl(345 40% 60% / 0.4);
+  background: hsl(var(--primary) / 0.4);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(345 60% 45% / 0.6);
+  background: hsl(var(--primary) / 0.6);
 }
 
 /* Animations */
@@ -155,12 +155,12 @@
 
 .hover-elevate:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px hsl(345 50% 30% / 0.15);
+  box-shadow: 0 4px 12px hsl(var(--primary) / 0.15);
 }
 
 .active-elevate-2:active {
   transform: translateY(0);
-  box-shadow: 0 2px 4px hsl(345 50% 30% / 0.1);
+  box-shadow: 0 2px 4px hsl(var(--primary) / 0.1);
 }
 
 /* Document Editor Styles */
@@ -228,12 +228,44 @@
 }
 
 .card-professional:hover {
-  box-shadow: 0 4px 12px hsl(345 50% 30% / 0.08), 0 2px 4px hsl(0 0% 0% / 0.03);
+  box-shadow: 0 4px 12px hsl(var(--primary) / 0.08), 0 2px 4px hsl(0 0% 0% / 0.03);
 }
 
-/* Maroon Gradient for Headers */
-.gradient-maroon {
-  background: linear-gradient(135deg, hsl(345 80% 32%) 0%, hsl(345 70% 25%) 100%);
+/* Dynamic Theme Gradients */
+.gradient-primary {
+  background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--primary-dark)) 100%);
+}
+
+.gradient-primary-soft {
+  background: linear-gradient(135deg, hsl(var(--primary-soft) / 0.2) 0%, hsl(var(--accent-muted) / 0.15) 100%);
+}
+
+.bg-primary-soft {
+  background-color: hsl(var(--primary-soft));
+}
+
+.bg-accent-soft {
+  background-color: hsl(var(--accent-soft));
+}
+
+.bg-accent-muted {
+  background-color: hsl(var(--accent-muted));
+}
+
+.text-primary-themed {
+  color: hsl(var(--primary));
+}
+
+.text-primary-dark {
+  color: hsl(var(--primary-dark));
+}
+
+.text-success {
+  color: hsl(var(--success));
+}
+
+.border-accent-muted {
+  border-color: hsl(var(--accent-muted) / 0.4);
 }
 
 /* Focus states with maroon ring */
@@ -244,13 +276,13 @@
 
 /* Selection color */
 ::selection {
-  background: hsl(345 60% 85%);
-  color: hsl(345 70% 20%);
+  background: hsl(var(--primary-soft));
+  color: hsl(var(--primary-dark));
 }
 
 /* Dark mode selection */
 .dark ::selection {
-  background: hsl(345 50% 30%);
+  background: hsl(var(--primary) / 0.3);
   color: hsl(0 0% 95%);
 }
 

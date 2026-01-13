@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sahih-hub-v2';
+const CACHE_NAME = 'sahih-hub-v4';
 const urlsToCache = [
   '/',
   '/manifest.json',

@@ -146,11 +146,11 @@ export default function Dashboard() {
   const getTaskIcon = (taskType: string) => {
     switch (taskType) {
       case 'prepare':
-        return <FilePen className="w-4 h-4 text-[#7A0C1A]" />;
+        return <FilePen className="w-4 h-4 text-primary" />;
       case 'review':
-        return <FileCheck className="w-4 h-4 text-[#C78A5F]" />;
+        return <FileCheck className="w-4 h-4 text-amber-600" />;
       case 'approve':
-        return <FileSignature className="w-4 h-4 text-[#6B8F71]" />;
+        return <FileSignature className="w-4 h-4 text-success" />;
       default:
         return <FileText className="w-4 h-4" />;
     }
@@ -159,11 +159,11 @@ export default function Dashboard() {
   const getTaskBadgeColor = (taskType: string) => {
     switch (taskType) {
       case 'prepare':
-        return 'bg-[#F3E3D0] text-[#7A0C1A]';
+        return 'bg-primary/10 text-primary';
       case 'review':
-        return 'bg-[#E3C39B] text-[#520812]';
+        return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400';
       case 'approve':
-        return 'bg-[#d4e5d6] text-[#6B8F71]';
+        return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400';
       default:
         return '';
     }
@@ -267,17 +267,14 @@ export default function Dashboard() {
 
       {/* Hero Section with Dynamic Greeting */}
       <div 
-        className="relative overflow-hidden rounded-2xl p-6 lg:p-8 shadow-xl"
-        style={{
-          background: 'linear-gradient(135deg, #7A0C1A 0%, #520812 100%)',
-        }}
+        className="relative overflow-hidden rounded-2xl p-6 lg:p-8 shadow-xl gradient-primary"
         data-testid="hero-section"
       >
-        {/* Desert sand accent overlays */}
+        {/* Soft accent overlays */}
         <div className="absolute inset-0">
-          <div className="absolute top-0 right-0 w-96 h-96 bg-[#F3E3D0] rounded-full blur-3xl opacity-25 -translate-y-1/2 translate-x-1/2"></div>
-          <div className="absolute bottom-0 left-0 w-80 h-80 bg-[#E3C39B] rounded-full blur-3xl opacity-30 translate-y-1/2 -translate-x-1/2"></div>
-          <div className="absolute top-1/2 left-1/2 w-64 h-64 bg-[#C78A5F] rounded-full blur-3xl opacity-20 -translate-x-1/2 -translate-y-1/2"></div>
+          <div className="absolute top-0 right-0 w-96 h-96 bg-primary-soft rounded-full blur-3xl opacity-25 -translate-y-1/2 translate-x-1/2"></div>
+          <div className="absolute bottom-0 left-0 w-80 h-80 bg-accent-soft rounded-full blur-3xl opacity-30 translate-y-1/2 -translate-x-1/2"></div>
+          <div className="absolute top-1/2 left-1/2 w-64 h-64 bg-accent-muted rounded-full blur-3xl opacity-20 -translate-x-1/2 -translate-y-1/2"></div>
         </div>
         
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
@@ -288,7 +285,7 @@ export default function Dashboard() {
                 <h1 className="text-2xl lg:text-3xl font-bold text-white drop-shadow-lg" data-testid="text-greeting">
                   {timeInfo.greeting}!
                 </h1>
-                <p className="text-[#F3E3D0] text-sm font-medium">
+                <p className="text-white/80 text-sm font-medium">
                   {format(currentTime, "EEEE, MMMM d, yyyy")} • {format(currentTime, "h:mm a")}
                 </p>
               </div>
@@ -298,24 +295,20 @@ export default function Dashboard() {
               <p className="text-white italic text-lg drop-shadow-md" data-testid="text-quote">
                 "{dailyQuote.quote}"
               </p>
-              <p className="text-[#E3C39B] text-sm mt-1 font-medium">— {dailyQuote.author}</p>
+              <p className="text-white/70 text-sm mt-1 font-medium">— {dailyQuote.author}</p>
             </div>
           </div>
 
           <div className="flex flex-wrap gap-3">
             <div 
-              className="rounded-xl px-4 py-3 flex items-center gap-3 border border-[#C78A5F]/40 shadow-lg"
-              style={{ 
-                background: 'linear-gradient(135deg, rgba(243,227,208,0.2) 0%, rgba(199,138,95,0.15) 100%)',
-                backdropFilter: 'blur(10px)',
-                animation: 'float 3s ease-in-out infinite' 
-              }}
+              className="rounded-xl px-4 py-3 flex items-center gap-3 border border-white/20 shadow-lg gradient-primary-soft backdrop-blur-sm"
+              style={{ animation: 'float 3s ease-in-out infinite' }}
             >
-              <div className="p-2 rounded-lg bg-[#E3C39B]/40">
-                <Target className="w-5 h-5 text-[#F3E3D0]" />
+              <div className="p-2 rounded-lg bg-white/20">
+                <Target className="w-5 h-5 text-white" />
               </div>
               <div>
-                <p className="text-[#E3C39B] text-xs font-medium">Today's Focus</p>
+                <p className="text-white/70 text-xs font-medium">Today's Focus</p>
                 <p className="text-white font-semibold" data-testid="text-focus">
                   {(myTasks?.length || 0) > 0 ? `${myTasks?.length} Tasks Pending` : 'All Clear!'}
                 </p>
@@ -323,18 +316,14 @@ export default function Dashboard() {
             </div>
             
             <div 
-              className="rounded-xl px-4 py-3 flex items-center gap-3 border border-[#C78A5F]/40 shadow-lg"
-              style={{ 
-                background: 'linear-gradient(135deg, rgba(243,227,208,0.2) 0%, rgba(199,138,95,0.15) 100%)',
-                backdropFilter: 'blur(10px)',
-                animation: 'float 3s ease-in-out infinite 0.5s' 
-              }}
+              className="rounded-xl px-4 py-3 flex items-center gap-3 border border-white/20 shadow-lg gradient-primary-soft backdrop-blur-sm"
+              style={{ animation: 'float 3s ease-in-out infinite 0.5s' }}
             >
-              <div className="p-2 rounded-lg bg-[#E3C39B]/40">
-                <Shield className="w-5 h-5 text-[#F3E3D0]" />
+              <div className="p-2 rounded-lg bg-white/20">
+                <Shield className="w-5 h-5 text-white" />
               </div>
               <div>
-                <p className="text-[#E3C39B] text-xs font-medium">Compliance Score</p>
+                <p className="text-white/70 text-xs font-medium">Compliance Score</p>
                 <p className="text-white font-semibold" data-testid="text-score">{complianceScore}%</p>
               </div>
             </div>
@@ -385,26 +374,21 @@ export default function Dashboard() {
       </Tabs>
 
       {/* My Tasks Section - Primary Focus for Individual Performance */}
-      <Card data-testid="card-my-tasks" className="overflow-hidden shadow-lg border-2 border-[#C78A5F]/30">
-        <div 
-          className="px-6 py-4"
-          style={{
-            background: 'linear-gradient(135deg, #7A0C1A 0%, #520812 100%)',
-          }}
-        >
+      <Card data-testid="card-my-tasks" className="overflow-hidden shadow-lg border-2 border-primary/20">
+        <div className="px-6 py-4 gradient-primary">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-3">
-              <div className="p-3 rounded-xl bg-[#F3E3D0]/20 border border-[#C78A5F]/40">
-                <ClipboardList className="w-6 h-6 text-[#F3E3D0]" />
+              <div className="p-3 rounded-xl bg-white/10 border border-white/20">
+                <ClipboardList className="w-6 h-6 text-white" />
               </div>
               <div>
                 <h2 className="text-xl font-bold text-white">My Tasks</h2>
-                <p className="text-[#E3C39B] text-sm">Documents assigned to you for action</p>
+                <p className="text-white/70 text-sm">Documents assigned to you for action</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
               <Badge 
-                className="text-sm px-4 py-2 bg-[#F3E3D0] text-[#7A0C1A] border-0 font-bold shadow-md" 
+                className="text-sm px-4 py-2 bg-white text-primary border-0 font-bold shadow-md" 
                 data-testid="badge-task-count"
               >
                 <Sparkles className="w-4 h-4 mr-1.5" />
@@ -413,11 +397,11 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
-        <CardContent className="p-6 bg-gradient-to-b from-[#F3E3D0]/30 to-white dark:from-[#2B1E1B] dark:to-background">
+        <CardContent className="p-6 bg-gradient-to-b from-primary/5 to-background">
           <div className="space-y-3">
             {tasksLoading ? (
               Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="p-4 rounded-xl border-2 border-[#E3C39B] bg-white dark:bg-card">
+                <div key={i} className="p-4 rounded-xl border-2 border-primary/20 bg-white dark:bg-card">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-3 flex-1">
                       <Skeleton className="h-12 w-12 rounded-xl" />
@@ -434,14 +418,14 @@ export default function Dashboard() {
               myTasks.map((task, idx) => (
                 <div 
                   key={`${task.documentId}-${task.taskType}`} 
-                  className="p-4 rounded-xl border-2 border-[#E3C39B] hover:border-[#7A0C1A] hover:shadow-xl cursor-pointer transition-all group bg-white dark:bg-card"
+                  className="p-4 rounded-xl border-2 border-primary/20 hover:border-primary hover:shadow-xl cursor-pointer transition-all group bg-white dark:bg-card"
                   style={{ animation: `slideIn 0.3s ease-out ${idx * 0.1}s backwards` }}
                   onClick={() => handleOpenTask(task)}
                   data-testid={`task-${task.documentId}-${task.taskType}`}
                 >
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
-                      <div className="p-3 rounded-xl bg-gradient-to-br from-[#F3E3D0] to-[#E3C39B] group-hover:from-[#7A0C1A]/10 group-hover:to-[#A0333A]/10 transition-all">
+                      <div className="p-3 rounded-xl bg-gradient-to-br from-primary/10 to-primary/20 group-hover:from-primary/20 group-hover:to-primary/30 transition-all">
                         {getTaskIcon(task.taskType)}
                       </div>
                       <div>
@@ -456,7 +440,7 @@ export default function Dashboard() {
                     </div>
                     <Button 
                       size="default" 
-                      className="bg-[#7A0C1A] hover:bg-[#A0333A] text-white shadow-md group-hover:shadow-lg transition-all" 
+                      className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-md group-hover:shadow-lg transition-all" 
                       data-testid={`button-open-task-${task.documentId}`}
                     >
                       Open Task
@@ -480,7 +464,7 @@ export default function Dashboard() {
       {/* Workflow Monitor for Managers - Shows all pending tasks with poke capability */}
       {isManager && allDocumentTasks && allDocumentTasks.length > 0 && (
         <Card data-testid="card-workflow-monitor">
-          <CardHeader className="bg-gradient-to-r from-[#520812] to-[#7A0C1A] text-white rounded-t-lg">
+          <CardHeader className="gradient-primary text-white rounded-t-lg">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="p-2.5 rounded-xl bg-white/20 backdrop-blur-sm">
@@ -781,9 +765,9 @@ export default function Dashboard() {
                 />
                 <defs>
                   <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#7A0C1A" />
-                    <stop offset="60%" stopColor="#A0333A" />
-                    <stop offset="100%" stopColor="#C78A5F" />
+                    <stop offset="0%" stopColor="hsl(var(--primary))" />
+                    <stop offset="60%" stopColor="hsl(var(--primary))" stopOpacity="0.7" />
+                    <stop offset="100%" stopColor="hsl(var(--accent-muted))" />
                   </linearGradient>
                 </defs>
               </svg>
@@ -818,49 +802,49 @@ export default function Dashboard() {
           <CardContent>
             <div className="grid grid-cols-2 gap-4">
               <div 
-                className="p-4 rounded-xl bg-gradient-to-br from-[#F3E3D0] to-[#E3C39B]/40 dark:from-[#2B1E1B] dark:to-[#1a1412] cursor-pointer hover-elevate transition-all border border-[#C78A5F]/30"
+                className="p-4 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 dark:from-primary/20 dark:to-primary/10 cursor-pointer hover-elevate transition-all border border-primary/20"
                 onClick={() => navigate("/users")}
               >
                 <div className="flex items-center gap-2 mb-2">
-                  <Users className="w-4 h-4 text-[#7A0C1A]" />
+                  <Users className="w-4 h-4 text-primary" />
                   <span className="text-sm font-medium">Active Users</span>
                 </div>
-                <p className="text-2xl font-bold text-[#520812]" data-testid="text-total-users">{stats?.totalUsers || 0}</p>
+                <p className="text-2xl font-bold text-primary" data-testid="text-total-users">{stats?.totalUsers || 0}</p>
                 <p className="text-xs text-muted-foreground">{stats?.pendingInductions || 0} pending induction</p>
               </div>
               
               <div 
-                className="p-4 rounded-xl bg-gradient-to-br from-[#F3E3D0] to-[#E3C39B]/40 dark:from-[#2B1E1B] dark:to-[#1a1412] cursor-pointer hover-elevate transition-all border border-[#C78A5F]/30"
+                className="p-4 rounded-xl bg-gradient-to-br from-emerald-100 to-emerald-50 dark:from-emerald-900/30 dark:to-emerald-950/20 cursor-pointer hover-elevate transition-all border border-emerald-200 dark:border-emerald-800"
                 onClick={() => navigate("/documents")}
               >
                 <div className="flex items-center gap-2 mb-2">
-                  <CheckCircle2 className="w-4 h-4 text-[#6B8F71]" />
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                   <span className="text-sm font-medium">Approved</span>
                 </div>
-                <p className="text-2xl font-bold text-[#6B8F71]">{stats?.approvedDocuments || 0}</p>
+                <p className="text-2xl font-bold text-emerald-600">{stats?.approvedDocuments || 0}</p>
                 <p className="text-xs text-muted-foreground">Documents approved</p>
               </div>
               
               <div 
-                className="p-4 rounded-xl bg-gradient-to-br from-[#F3E3D0] to-[#E3C39B]/40 dark:from-[#2B1E1B] dark:to-[#1a1412] cursor-pointer hover-elevate transition-all border border-[#C78A5F]/30"
+                className="p-4 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 dark:from-primary/20 dark:to-primary/10 cursor-pointer hover-elevate transition-all border border-primary/20"
                 onClick={() => navigate("/documents")}
               >
                 <div className="flex items-center gap-2 mb-2">
-                  <Award className="w-4 h-4 text-[#7A0C1A]" />
+                  <Award className="w-4 h-4 text-primary" />
                   <span className="text-sm font-medium">Success Rate</span>
                 </div>
-                <p className="text-2xl font-bold text-[#7A0C1A]">{complianceScore}%</p>
+                <p className="text-2xl font-bold text-primary">{complianceScore}%</p>
                 <p className="text-xs text-muted-foreground">Document approval rate</p>
               </div>
               
               <div 
-                className="p-4 rounded-xl bg-gradient-to-br from-[#F3E3D0] to-[#E3C39B]/40 dark:from-[#2B1E1B] dark:to-[#1a1412] cursor-pointer hover-elevate transition-all border border-[#C78A5F]/30"
+                className="p-4 rounded-xl bg-gradient-to-br from-amber-100 to-amber-50 dark:from-amber-900/30 dark:to-amber-950/20 cursor-pointer hover-elevate transition-all border border-amber-200 dark:border-amber-800"
               >
                 <div className="flex items-center gap-2 mb-2">
-                  <Zap className="w-4 h-4 text-[#C78A5F]" />
+                  <Zap className="w-4 h-4 text-amber-600" />
                   <span className="text-sm font-medium">Active Tasks</span>
                 </div>
-                <p className="text-2xl font-bold text-[#C78A5F]">{myTasks?.length || 0}</p>
+                <p className="text-2xl font-bold text-amber-600">{myTasks?.length || 0}</p>
                 <p className="text-xs text-muted-foreground">Pending your action</p>
               </div>
             </div>
