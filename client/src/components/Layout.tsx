@@ -45,7 +45,7 @@ const navItems = [
   { href: "/tasks", label: "My Tasks", icon: ClipboardList },
   { href: "/users", label: "Users", icon: Users },
   { href: "/hr", label: "HR", icon: Network },
-  { href: "/audit-log", label: "Audit Log", icon: History },
+  { href: "/audit-log", label: "Audit Log", icon: History, adminOnly: true },
 ];
 
 export function Layout({ children, user, onLogout }: LayoutProps) {
@@ -72,25 +72,27 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
       </div>
       
       <nav className="p-3 space-y-1 flex-1">
-        {navItems.map((item) => {
-          const isActive = location === item.href;
-          return (
-            <Link key={item.href} href={item.href}>
-              <div
-                className={cn(
-                  "flex items-center gap-3 px-4 py-2.5 rounded-lg cursor-pointer transition-all duration-200",
-                  isActive 
-                    ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium shadow-sm" 
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                )}
-                data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
-              >
-                <item.icon className="w-5 h-5" />
-                <span className="text-sm">{item.label}</span>
-              </div>
-            </Link>
-          );
-        })}
+        {navItems
+          .filter((item) => !item.adminOnly || user?.role === 'admin')
+          .map((item) => {
+            const isActive = location === item.href;
+            return (
+              <Link key={item.href} href={item.href}>
+                <div
+                  className={cn(
+                    "flex items-center gap-3 px-4 py-2.5 rounded-lg cursor-pointer transition-all duration-200",
+                    isActive 
+                      ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium shadow-sm" 
+                      : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  )}
+                  data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
+                >
+                  <item.icon className="w-5 h-5" />
+                  <span className="text-sm">{item.label}</span>
+                </div>
+              </Link>
+            );
+          })}
       </nav>
 
       <div className="p-4 border-t border-sidebar-border">
