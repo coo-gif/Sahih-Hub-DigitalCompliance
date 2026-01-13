@@ -164,6 +164,7 @@ export default function Dashboard() {
   const [pokeMessage, setPokeMessage] = useState("");
   const [pokeTaskId, setPokeTaskId] = useState<number | null>(null);
   const [showPokeDialog, setShowPokeDialog] = useState(false);
+  const [showComplianceDialog, setShowComplianceDialog] = useState(false);
   const [location, navigate] = useLocation();
   const [activeTab, setActiveTab] = useState("dashboard");
 
@@ -378,8 +379,9 @@ export default function Dashboard() {
             </div>
             
             <div 
-              className="rounded-xl px-4 py-3 flex items-center gap-3 border border-white/20 shadow-lg gradient-primary-soft backdrop-blur-sm"
+              className="rounded-xl px-4 py-3 flex items-center gap-3 border border-white/20 shadow-lg gradient-primary-soft backdrop-blur-sm cursor-pointer hover:bg-white/10 transition-all"
               style={{ animation: 'float 3s ease-in-out infinite 0.5s' }}
+              onClick={() => setShowComplianceDialog(true)}
             >
               <div className="p-2 rounded-lg bg-white/20">
                 <Shield className="w-5 h-5 text-white" />
@@ -1382,6 +1384,92 @@ export default function Dashboard() {
                 )}
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Compliance Breakdown Dialog */}
+      <Dialog open={showComplianceDialog} onOpenChange={setShowComplianceDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Shield className="w-5 h-5 text-primary" />
+              Compliance Breakdown
+            </DialogTitle>
+            <DialogDescription>
+              Overview of document status and compliance metrics
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="flex items-center justify-center">
+              <div className="text-center">
+                <div className="text-5xl font-bold text-primary">{complianceScore}%</div>
+                <p className="text-sm text-muted-foreground mt-1">Overall Compliance Score</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                <div className="flex items-center gap-2 mb-2">
+                  <CheckCircle2 className="w-5 h-5 text-green-600" />
+                  <span className="font-medium text-green-700 dark:text-green-400">Completed</span>
+                </div>
+                <p className="text-3xl font-bold text-green-600">{stats?.approvedDocuments || 0}</p>
+                <p className="text-sm text-muted-foreground">Approved Documents</p>
+              </div>
+              
+              <div className="p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                <div className="flex items-center gap-2 mb-2">
+                  <Clock className="w-5 h-5 text-amber-600" />
+                  <span className="font-medium text-amber-700 dark:text-amber-400">Pending</span>
+                </div>
+                <p className="text-3xl font-bold text-amber-600">{stats?.pendingApprovals || 0}</p>
+                <p className="text-sm text-muted-foreground">Awaiting Approval</p>
+              </div>
+              
+              <div className="p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle className="w-5 h-5 text-yellow-600" />
+                  <span className="font-medium text-yellow-700 dark:text-yellow-400">Expiring Soon</span>
+                </div>
+                <p className="text-3xl font-bold text-yellow-600">{stats?.expiringDocuments || 0}</p>
+                <p className="text-sm text-muted-foreground">Within 30 Days</p>
+              </div>
+              
+              <div className="p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertCircle className="w-5 h-5 text-red-600" />
+                  <span className="font-medium text-red-700 dark:text-red-400">Non-Compliant</span>
+                </div>
+                <p className="text-3xl font-bold text-red-600">{stats?.nonCompliantDocuments || 0}</p>
+                <p className="text-sm text-muted-foreground">Overdue Review</p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-lg bg-muted">
+              <h4 className="font-medium mb-2">Summary</h4>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Total Documents:</span>
+                  <span className="ml-2 font-medium">{stats?.totalDocuments || 0}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">My Pending Tasks:</span>
+                  <span className="ml-2 font-medium">{myTasks?.length || 0}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowComplianceDialog(false)}>
+              Close
+            </Button>
+            <Button onClick={() => { setShowComplianceDialog(false); navigate("/documents"); }}>
+              <FileText className="w-4 h-4 mr-2" />
+              View All Documents
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
