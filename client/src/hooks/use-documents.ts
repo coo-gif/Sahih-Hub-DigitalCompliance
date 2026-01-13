@@ -59,3 +59,17 @@ export function useDeleteDocument() {
     },
   });
 }
+
+export function useSubmitDocumentForReview() {
+  return useMutation({
+    mutationFn: async ({ id, reviewerId, approverId, notes }: { id: number; reviewerId: number; approverId?: number; notes?: string }) => {
+      const res = await apiRequest('POST', `/api/documents/${id}/submit-review`, { reviewerId, approverId, notes });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
+    },
+  });
+}

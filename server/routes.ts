@@ -445,6 +445,76 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  // Document Submit for Review
+  app.post(api.documents.submitForReview.path, requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: 'Invalid document ID' });
+      }
+
+      const input = api.documents.submitForReview.input.parse(req.body);
+      
+      const existing = await storage.getDocument(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+
+      if (existing.status !== DocumentStatus.DRAFT) {
+        return res.status(400).json({ message: 'Document can only be submitted for review from Draft status' });
+      }
+
+      const reviewer = await storage.getUser(input.reviewerId);
+      if (!reviewer) {
+        return res.status(400).json({ message: 'Reviewer not found', field: 'reviewerId' });
+      }
+
+      // Update document status to in_review
+      const updateData: any = {
+        status: DocumentStatus.IN_REVIEW,
+        reviewerId: input.reviewerId,
+      };
+
+      if (input.approverId) {
+        const approver = await storage.getUser(input.approverId);
+        if (!approver) {
+          return res.status(400).json({ message: 'Approver not found', field: 'approverId' });
+        }
+        updateData.approverId = input.approverId;
+      }
+
+      const doc = await storage.updateDocument(id, updateData);
+
+      // Create notification for reviewer
+      await storage.createNotification({
+        userId: input.reviewerId,
+        title: 'Document Requires Review',
+        message: `Document "${doc.title}" (${doc.documentCode}) requires your review.`,
+        urgencyLevel: 'medium',
+      });
+
+      // Audit log
+      await storage.createAuditLog({
+        userId: getCurrentUserId(req),
+        action: AuditAction.SUBMIT_FOR_REVIEW,
+        entityType: 'document',
+        entityId: id,
+        previousValue: JSON.stringify({ status: existing.status }),
+        newValue: JSON.stringify({ status: doc.status, reviewerId: input.reviewerId }),
+      });
+
+      res.json(doc);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join('.'),
+        });
+      }
+      throw err;
+    }
+  });
+
   // ============================================
   // NOTIFICATION ROUTES
   // ============================================

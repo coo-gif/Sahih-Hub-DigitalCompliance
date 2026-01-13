@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { useDocuments, useCreateDocument, useUpdateDocument, useDeleteDocument } from "@/hooks/use-documents";
+import { useDocuments, useCreateDocument, useUpdateDocument, useDeleteDocument, useSubmitDocumentForReview } from "@/hooks/use-documents";
+import { useUsers } from "@/hooks/use-users";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -45,7 +46,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, MoreHorizontal, Pencil, Trash2, AlertCircle, Eye, FileText, Calendar, Clock, FileDown, Download, Loader2 } from "lucide-react";
+import { Plus, MoreHorizontal, Pencil, Trash2, AlertCircle, Eye, FileText, Calendar, Clock, FileDown, Download, Loader2, Send } from "lucide-react";
 import { format } from "date-fns";
 import type { Document } from "@shared/schema";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
@@ -74,6 +75,10 @@ export default function Documents() {
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [showSubmitReviewDialog, setShowSubmitReviewDialog] = useState(false);
+  const [selectedReviewerId, setSelectedReviewerId] = useState<string>("");
+  const [selectedApproverId, setSelectedApproverId] = useState<string>("");
+  const [reviewComment, setReviewComment] = useState("");
   
   const filters = {
     status: statusFilter !== "all" ? statusFilter : undefined,
@@ -86,6 +91,9 @@ export default function Documents() {
   const createMutation = useCreateDocument();
   const updateMutation = useUpdateDocument();
   const deleteMutation = useDeleteDocument();
+  const submitForReviewMutation = useSubmitDocumentForReview();
+  
+  const { data: users = [] } = useUsers();
 
   const [formData, setFormData] = useState({
     documentCode: "",
@@ -249,6 +257,32 @@ export default function Documents() {
     setShowViewDialog(true);
   };
 
+  const openSubmitReviewDialog = (doc: Document) => {
+    setSelectedDocument(doc);
+    setSelectedReviewerId("");
+    setSelectedApproverId("");
+    setReviewComment("");
+    setShowSubmitReviewDialog(true);
+  };
+
+  const handleSubmitForReview = async () => {
+    if (!selectedDocument || !selectedReviewerId) return;
+    
+    try {
+      await submitForReviewMutation.mutateAsync({
+        id: selectedDocument.id,
+        reviewerId: parseInt(selectedReviewerId),
+        approverId: selectedApproverId ? parseInt(selectedApproverId) : undefined,
+        notes: reviewComment || undefined,
+      });
+      toast({ title: "Document submitted for review" });
+      setShowSubmitReviewDialog(false);
+      setSelectedDocument(null);
+    } catch (error: any) {
+      toast({ title: "Error submitting for review", description: error.message, variant: "destructive" });
+    }
+  };
+
   if (isError) {
     return (
       <div className="flex flex-col items-center justify-center py-16 space-y-4">
@@ -365,6 +399,11 @@ export default function Documents() {
                     <DropdownMenuItem onClick={() => navigate(`/documents/${doc.id}/edit`)}>
                       <Pencil className="w-4 h-4 mr-2" /> Edit
                     </DropdownMenuItem>
+                    {doc.status === "draft" && (
+                      <DropdownMenuItem onClick={() => openSubmitReviewDialog(doc)} data-testid={`submit-review-${doc.id}`}>
+                        <Send className="w-4 h-4 mr-2" /> Submit for Review
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuSeparator />
                     {doc.finalPdfUrl ? (
                       <DropdownMenuItem onClick={() => handleViewPdf(doc)}>
@@ -786,6 +825,76 @@ export default function Documents() {
                 <Download className="w-4 h-4 mr-2" /> Download PDF
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Submit for Review Dialog */}
+      <Dialog open={showSubmitReviewDialog} onOpenChange={setShowSubmitReviewDialog}>
+        <DialogContent data-testid="dialog-submit-review">
+          <DialogHeader>
+            <DialogTitle>Submit for Review</DialogTitle>
+            <DialogDescription>
+              Select a reviewer for this document
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="reviewer">Reviewer *</Label>
+              <Select value={selectedReviewerId} onValueChange={setSelectedReviewerId}>
+                <SelectTrigger id="reviewer" data-testid="select-reviewer">
+                  <SelectValue placeholder="Choose a reviewer..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {users.map((user) => (
+                    <SelectItem key={user.id} value={user.id.toString()}>
+                      {user.name} ({user.role})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="approver">Approver (optional)</Label>
+              <Select value={selectedApproverId} onValueChange={setSelectedApproverId}>
+                <SelectTrigger id="approver" data-testid="select-approver">
+                  <SelectValue placeholder="Choose an approver..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">None</SelectItem>
+                  {users.map((user) => (
+                    <SelectItem key={user.id} value={user.id.toString()}>
+                      {user.name} ({user.role})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-muted-foreground">
+                If selected, this user will see the approval task in their dashboard
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="comment">Comments (optional)</Label>
+              <Textarea
+                id="comment"
+                value={reviewComment}
+                onChange={(e) => setReviewComment(e.target.value)}
+                placeholder="Add any notes for the reviewer..."
+                data-testid="input-review-comment"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSubmitReviewDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleSubmitForReview}
+              disabled={!selectedReviewerId || submitForReviewMutation.isPending}
+              data-testid="button-submit-review"
+            >
+              {submitForReviewMutation.isPending ? "Submitting..." : "Submit for Review"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

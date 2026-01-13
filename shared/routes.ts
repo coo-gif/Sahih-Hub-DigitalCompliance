@@ -251,6 +251,20 @@ export const api = {
         404: errorSchemas.notFound,
       },
     },
+    submitForReview: {
+      method: 'POST' as const,
+      path: '/api/documents/:id/submit-review',
+      input: z.object({
+        reviewerId: z.number(),
+        approverId: z.number().optional(),
+        notes: z.string().optional(),
+      }),
+      responses: {
+        200: z.custom<typeof documents.$inferSelect>(),
+        400: errorSchemas.validation,
+        404: errorSchemas.notFound,
+      },
+    },
   },
 
   // Notifications
