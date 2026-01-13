@@ -138,7 +138,7 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
           <div className="hidden lg:flex items-center gap-4">
             <div className="h-12 w-1.5 bg-primary rounded-full"></div>
             <div>
-              <span className="text-2xl font-bold text-foreground">Quality Management System</span>
+              <span className="text-2xl font-bold text-foreground">Sahih Hub - Management System</span>
               <p className="text-base text-muted-foreground">Document Control & Compliance</p>
             </div>
           </div>
