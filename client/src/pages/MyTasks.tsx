@@ -7,17 +7,20 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Clock, AlertTriangle, CheckCircle2, FileText, Target, Eye, Send, ThumbsUp, UserCheck } from "lucide-react";
+import { Clock, AlertTriangle, CheckCircle2, FileText, Target, Eye, Send, ThumbsUp, UserCheck, Download, X } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useMyTasks, useCompleteTask, MyTask } from "@/hooks/use-tasks";
 import { useUsers } from "@/hooks/use-users";
+import { useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 function TaskTypeBadge({ type }: { type: string }) {
   const variants: Record<string, { className: string; label: string }> = {
     review: { className: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200", label: "Review" },
     approve: { className: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200", label: "Approve" },
     prepare: { className: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200", label: "Prepare" },
+    download_approval: { className: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200", label: "Download Request" },
   };
   const config = variants[type] || { className: "", label: type };
   return <Badge className={config.className}>{config.label}</Badge>;
@@ -148,7 +151,31 @@ export default function MyTasks() {
   const { data: users = [] } = useUsers();
   const completeMutation = useCompleteTask();
 
-  const pendingTasks = tasks.filter(t => t.taskType === 'review' || t.taskType === 'approve');
+  const approveDownloadMutation = useMutation({
+    mutationFn: async (requestId: number) => {
+      const res = await apiRequest('POST', `/api/download-requests/${requestId}/approve`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/download-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
+    },
+  });
+
+  const rejectDownloadMutation = useMutation({
+    mutationFn: async (requestId: number) => {
+      const res = await apiRequest('POST', `/api/download-requests/${requestId}/reject`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/download-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
+    },
+  });
+
+  const pendingTasks = tasks.filter(t => t.taskType === 'review' || t.taskType === 'approve' || t.taskType === 'download_approval');
   const completedCount = 0;
 
   const handleCompleteTask = (comments: string, approverId?: number) => {
@@ -284,6 +311,8 @@ export default function MyTasks() {
                       ? 'This document requires your review before it can proceed to approval.'
                       : task.taskType === 'approve'
                       ? 'This document is awaiting your final approval.'
+                      : task.taskType === 'download_approval'
+                      ? `A user has requested permission to download this document.${task.reason ? ` Reason: "${task.reason}"` : ''}`
                       : 'This task requires your attention.'
                     }
                   </CardDescription>
@@ -300,28 +329,88 @@ export default function MyTasks() {
                       <Eye className="h-4 w-4" />
                       View Document
                     </Button>
-                    <Button 
-                      onClick={() => openCompleteDialog(task)}
-                      className="gap-1"
-                      data-testid={`button-complete-${task.id}`}
-                    >
-                      {task.taskType === 'review' ? (
-                        <>
-                          <Send className="h-4 w-4" />
-                          Complete Review
-                        </>
-                      ) : task.taskType === 'approve' ? (
-                        <>
-                          <ThumbsUp className="h-4 w-4" />
-                          Approve
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="h-4 w-4" />
-                          Complete Task
-                        </>
-                      )}
-                    </Button>
+                    {task.taskType === 'download_approval' ? (
+                      <>
+                        <Button 
+                          onClick={() => {
+                            if (task.downloadRequestId) {
+                              approveDownloadMutation.mutate(task.downloadRequestId, {
+                                onSuccess: () => {
+                                  toast({
+                                    title: "Download Approved",
+                                    description: `Download request for ${task.documentCode} has been approved.`,
+                                  });
+                                },
+                                onError: (error: Error) => {
+                                  toast({
+                                    title: "Error",
+                                    description: error.message,
+                                    variant: "destructive",
+                                  });
+                                },
+                              });
+                            }
+                          }}
+                          disabled={approveDownloadMutation.isPending}
+                          className="gap-1"
+                          data-testid={`button-approve-download-${task.id}`}
+                        >
+                          <Download className="h-4 w-4" />
+                          {approveDownloadMutation.isPending ? "Approving..." : "Approve Download"}
+                        </Button>
+                        <Button 
+                          variant="destructive"
+                          onClick={() => {
+                            if (task.downloadRequestId) {
+                              rejectDownloadMutation.mutate(task.downloadRequestId, {
+                                onSuccess: () => {
+                                  toast({
+                                    title: "Download Rejected",
+                                    description: `Download request for ${task.documentCode} has been rejected.`,
+                                  });
+                                },
+                                onError: (error: Error) => {
+                                  toast({
+                                    title: "Error",
+                                    description: error.message,
+                                    variant: "destructive",
+                                  });
+                                },
+                              });
+                            }
+                          }}
+                          disabled={rejectDownloadMutation.isPending}
+                          className="gap-1"
+                          data-testid={`button-reject-download-${task.id}`}
+                        >
+                          <X className="h-4 w-4" />
+                          {rejectDownloadMutation.isPending ? "Rejecting..." : "Reject"}
+                        </Button>
+                      </>
+                    ) : (
+                      <Button 
+                        onClick={() => openCompleteDialog(task)}
+                        className="gap-1"
+                        data-testid={`button-complete-${task.id}`}
+                      >
+                        {task.taskType === 'review' ? (
+                          <>
+                            <Send className="h-4 w-4" />
+                            Complete Review
+                          </>
+                        ) : task.taskType === 'approve' ? (
+                          <>
+                            <ThumbsUp className="h-4 w-4" />
+                            Approve
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 className="h-4 w-4" />
+                            Complete Task
+                          </>
+                        )}
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>

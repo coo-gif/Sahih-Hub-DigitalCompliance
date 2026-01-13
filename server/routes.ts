@@ -521,6 +521,7 @@ export async function registerRoutes(
   app.get('/api/my-tasks', requireAuth, async (req, res) => {
     try {
       const userId = getCurrentUserId(req);
+      const currentUser = await storage.getUser(userId);
       const allDocs = await storage.getDocuments();
       const tasks: any[] = [];
 
@@ -551,6 +552,30 @@ export async function registerRoutes(
             createdAt: doc.updatedAt || doc.createdAt,
             dueDate: doc.nextReviewDate,
           });
+        }
+      }
+
+      // Add pending download requests for Admin and Quality Manager
+      if (currentUser && (currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.QUALITY_MANAGER)) {
+        const pendingDownloadRequests = await storage.getDownloadRequests({ status: DownloadRequestStatus.PENDING });
+        
+        for (const request of pendingDownloadRequests) {
+          const doc = await storage.getDocument(request.documentId);
+          if (doc) {
+            tasks.push({
+              id: request.id * 1000 + 3, // Use different multiplier to avoid ID conflicts
+              documentId: doc.id,
+              documentCode: doc.documentCode,
+              title: doc.title,
+              taskType: 'download_approval',
+              status: 'pending',
+              createdAt: request.createdAt,
+              dueDate: null,
+              downloadRequestId: request.id,
+              requesterId: request.requesterId,
+              reason: request.reason,
+            });
+          }
         }
       }
 
