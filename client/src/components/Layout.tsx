@@ -39,12 +39,25 @@ interface LayoutProps {
   onLogout?: () => void;
 }
 
-const navItems = [
+type NavItem = {
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  adminOnly?: boolean;
+  canAccess?: (user: { role: string; email: string }) => boolean;
+};
+
+const navItems: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/documents", label: "Documents", icon: FileText },
   { href: "/tasks", label: "My Tasks", icon: ClipboardList },
   { href: "/users", label: "Users", icon: Users },
-  { href: "/hr", label: "HR", icon: Network },
+  { 
+    href: "/hr", 
+    label: "HR", 
+    icon: Network,
+    canAccess: (user) => user.role === 'admin' || user.email === 'hr@sahihcertify.com'
+  },
   { href: "/audit-log", label: "Audit Log", icon: History, adminOnly: true },
 ];
 
@@ -73,7 +86,11 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
       
       <nav className="p-3 space-y-1 flex-1">
         {navItems
-          .filter((item) => !item.adminOnly || user?.role === 'admin')
+          .filter((item) => {
+            if (item.adminOnly && user?.role !== 'admin') return false;
+            if (item.canAccess && (!user || !item.canAccess(user))) return false;
+            return true;
+          })
           .map((item) => {
             const isActive = location === item.href;
             return (
