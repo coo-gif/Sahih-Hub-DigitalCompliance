@@ -25,7 +25,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { ArrowLeft, FileText, Save, Eye, Send, Users, Building } from "lucide-react";
+import { ArrowLeft, FileText, Save, Eye, Send, Users, Building, Maximize2, Minimize2 } from "lucide-react";
 import DOMPurify from "dompurify";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
 
@@ -38,9 +38,9 @@ export default function NewDocument() {
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [showReviewerDialog, setShowReviewerDialog] = useState(false);
   const [selectedReviewerId, setSelectedReviewerId] = useState<string>("");
-  const [isSubmitForReview, setIsSubmitForReview] = useState(false);
   const [selectedStaffIds, setSelectedStaffIds] = useState<number[]>([]);
   const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const [formData, setFormData] = useState({
     documentCode: "",
@@ -72,7 +72,7 @@ export default function NewDocument() {
     );
   };
 
-  const handleCreate = async (reviewerId?: number) => {
+  const handleCreateAsDraft = async () => {
     try {
       await createMutation.mutateAsync({
         documentCode: formData.documentCode,
@@ -81,39 +81,46 @@ export default function NewDocument() {
         category: formData.category as "policy" | "manual" | "sop" | "format",
         content: formData.content || undefined,
         nextReviewDate: formData.nextReviewDate || undefined,
-        reviewerId: reviewerId,
-        status: reviewerId ? "in_review" : "draft",
+        status: "draft",
         assignedStaffIds: selectedStaffIds.length > 0 ? selectedStaffIds : undefined,
         assignedDepartments: selectedDepartments.length > 0 ? selectedDepartments : undefined,
       });
-      toast({ 
-        title: reviewerId ? "Document submitted for review" : "Document created successfully" 
-      });
+      toast({ title: "Document saved as draft" });
       navigate("/documents");
     } catch (error: any) {
       toast({ title: "Error creating document", description: error.message, variant: "destructive" });
     }
   };
 
-  const handleCreateButtonClick = () => {
-    setIsSubmitForReview(false);
-    setShowReviewerDialog(true);
-  };
-
   const handleSubmitForReviewClick = () => {
-    setIsSubmitForReview(true);
+    setSelectedReviewerId("");
     setShowReviewerDialog(true);
   };
 
-  const handleCompleteReviewerSelection = () => {
-    const reviewerId = selectedReviewerId ? parseInt(selectedReviewerId) : undefined;
+  const handleCompleteReviewerSelection = async () => {
+    if (!selectedReviewerId) {
+      toast({ title: "Please select a reviewer", variant: "destructive" });
+      return;
+    }
     setShowReviewerDialog(false);
-    handleCreate(reviewerId);
-  };
-
-  const handleSkipReviewer = () => {
-    setShowReviewerDialog(false);
-    handleCreate();
+    try {
+      await createMutation.mutateAsync({
+        documentCode: formData.documentCode,
+        title: formData.title,
+        description: formData.description || undefined,
+        category: formData.category as "policy" | "manual" | "sop" | "format",
+        content: formData.content || undefined,
+        nextReviewDate: formData.nextReviewDate || undefined,
+        reviewerId: parseInt(selectedReviewerId),
+        status: "in_review",
+        assignedStaffIds: selectedStaffIds.length > 0 ? selectedStaffIds : undefined,
+        assignedDepartments: selectedDepartments.length > 0 ? selectedDepartments : undefined,
+      });
+      toast({ title: "Document submitted for review" });
+      navigate("/documents");
+    } catch (error: any) {
+      toast({ title: "Error submitting for review", description: error.message, variant: "destructive" });
+    }
   };
 
   return (
@@ -289,10 +296,21 @@ export default function NewDocument() {
                 <CardTitle>Document Content</CardTitle>
                 <CardDescription>Write the document content using the rich text editor</CardDescription>
               </div>
-              <Button variant="outline" size="sm" onClick={() => setShowPreviewDialog(true)} data-testid="button-preview">
-                <Eye className="w-4 h-4 mr-2" />
-                Preview
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => setShowPreviewDialog(true)} data-testid="button-preview">
+                  <Eye className="w-4 h-4 mr-2" />
+                  Preview
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setIsFullscreen(true)} 
+                  data-testid="button-fullscreen"
+                >
+                  <Maximize2 className="w-4 h-4 mr-2" />
+                  Expand Editor
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="min-h-[400px]" data-testid="input-content">
@@ -306,15 +324,15 @@ export default function NewDocument() {
 
           <div className="flex items-center justify-end gap-3 pt-4 border-t">
             <Button 
-              onClick={handleCreateButtonClick} 
+              variant="outline"
+              onClick={handleCreateAsDraft} 
               disabled={createMutation.isPending || !formData.documentCode || !formData.title}
               data-testid="button-save"
             >
               <Save className="w-4 h-4 mr-2" />
-              {createMutation.isPending ? "Creating..." : "Create Document"}
+              {createMutation.isPending ? "Saving..." : "Save as Draft"}
             </Button>
             <Button 
-              variant="default"
               onClick={handleSubmitForReviewClick} 
               disabled={createMutation.isPending || !formData.documentCode || !formData.title}
               data-testid="button-submit-review"
@@ -362,42 +380,60 @@ export default function NewDocument() {
       <Dialog open={showReviewerDialog} onOpenChange={setShowReviewerDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>
-              {isSubmitForReview ? "Select Reviewer" : "Assign Reviewer (Optional)"}
-            </DialogTitle>
+            <DialogTitle>Submit for Review</DialogTitle>
           </DialogHeader>
-          <div className="py-4">
-            <Label htmlFor="reviewer">Reviewer</Label>
-            <Select value={selectedReviewerId} onValueChange={setSelectedReviewerId}>
-              <SelectTrigger id="reviewer" data-testid="select-reviewer">
-                <SelectValue placeholder="Select a reviewer" />
-              </SelectTrigger>
-              <SelectContent>
-                {users.map((user) => (
-                  <SelectItem key={user.id} value={user.id.toString()}>
-                    {user.name} ({user.role})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-sm text-muted-foreground mt-2">
-              {isSubmitForReview 
-                ? "Select a reviewer to assign this document for review."
-                : "Optionally select a reviewer, or skip to create as draft."}
-            </p>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="reviewer">Select Reviewer *</Label>
+              <Select value={selectedReviewerId} onValueChange={setSelectedReviewerId}>
+                <SelectTrigger id="reviewer" data-testid="select-reviewer">
+                  <SelectValue placeholder="Choose a reviewer..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {users.map((user) => (
+                    <SelectItem key={user.id} value={user.id.toString()}>
+                      {user.name} ({user.role})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-muted-foreground">
+                The reviewer will check and validate this document
+              </p>
+            </div>
           </div>
           <DialogFooter>
-            {!isSubmitForReview && (
-              <Button variant="outline" onClick={handleSkipReviewer} data-testid="button-skip">
-                Skip
-              </Button>
-            )}
+            <Button variant="outline" onClick={() => setShowReviewerDialog(false)}>
+              Cancel
+            </Button>
             <Button 
               onClick={handleCompleteReviewerSelection}
-              disabled={isSubmitForReview && !selectedReviewerId}
+              disabled={!selectedReviewerId || createMutation.isPending}
               data-testid="button-complete"
             >
-              Complete
+              {createMutation.isPending ? "Submitting..." : "Submit for Review"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isFullscreen} onOpenChange={setIsFullscreen}>
+        <DialogContent className="max-w-[95vw] w-[95vw] h-[90vh] flex flex-col">
+          <DialogHeader className="flex-shrink-0">
+            <DialogTitle className="flex items-center justify-between">
+              <span>Document Content - {formData.title || "Untitled"}</span>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-hidden" data-testid="fullscreen-editor">
+            <TiptapEditor
+              content={formData.content}
+              onChange={(content) => setFormData({ ...formData, content })}
+            />
+          </div>
+          <DialogFooter className="flex-shrink-0 border-t pt-4">
+            <Button variant="outline" onClick={() => setIsFullscreen(false)}>
+              <Minimize2 className="w-4 h-4 mr-2" />
+              Close Editor
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -14,8 +14,9 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
-import { ArrowLeft, FileText, Save, Eye } from "lucide-react";
+import { ArrowLeft, FileText, Save, Eye, Maximize2, Minimize2 } from "lucide-react";
 import DOMPurify from "dompurify";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
 
@@ -29,6 +30,7 @@ export default function EditDocument() {
   const updateMutation = useUpdateDocument();
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const document = documents?.find(d => d.id === documentId);
 
@@ -167,15 +169,26 @@ export default function EditDocument() {
           </Card>
 
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-row items-center justify-between gap-2">
               <div>
                 <CardTitle>Document Content</CardTitle>
                 <CardDescription>Edit the document content using the rich text editor</CardDescription>
               </div>
-              <Button variant="outline" size="sm" onClick={() => setShowPreviewDialog(true)} data-testid="button-preview">
-                <Eye className="w-4 h-4 mr-2" />
-                Preview
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => setShowPreviewDialog(true)} data-testid="button-preview">
+                  <Eye className="w-4 h-4 mr-2" />
+                  Preview
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setIsFullscreen(true)} 
+                  data-testid="button-fullscreen"
+                >
+                  <Maximize2 className="w-4 h-4 mr-2" />
+                  Expand Editor
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="min-h-[400px]" data-testid="input-content">
@@ -219,6 +232,28 @@ export default function EditDocument() {
               __html: DOMPurify.sanitize(formData.content || '<p class="text-muted-foreground italic">No content yet</p>') 
             }}
           />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isFullscreen} onOpenChange={setIsFullscreen}>
+        <DialogContent className="max-w-[95vw] w-[95vw] h-[90vh] flex flex-col">
+          <DialogHeader className="flex-shrink-0">
+            <DialogTitle className="flex items-center justify-between">
+              <span>Document Content - {formData.title || "Untitled"}</span>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-hidden" data-testid="fullscreen-editor">
+            <TiptapEditor
+              content={formData.content}
+              onChange={(content) => setFormData({ ...formData, content })}
+            />
+          </div>
+          <DialogFooter className="flex-shrink-0 border-t pt-4">
+            <Button variant="outline" onClick={() => setIsFullscreen(false)}>
+              <Minimize2 className="w-4 h-4 mr-2" />
+              Close Editor
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
