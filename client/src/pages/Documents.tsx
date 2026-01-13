@@ -69,6 +69,7 @@ const categoryColors: Record<string, string> = {
   manual: "bg-indigo-100 text-indigo-700",
   sop: "bg-teal-100 text-teal-700",
   format: "bg-orange-100 text-orange-700",
+  job_description: "bg-blue-100 text-blue-700",
 };
 
 export default function Documents() {
@@ -349,6 +350,7 @@ export default function Documents() {
                   <SelectItem value="manual" data-testid="option-category-manual">Manual</SelectItem>
                   <SelectItem value="sop" data-testid="option-category-sop">SOP</SelectItem>
                   <SelectItem value="format" data-testid="option-category-format">Format</SelectItem>
+                  <SelectItem value="job_description" data-testid="option-category-job_description">Job Description</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -575,6 +577,7 @@ export default function Documents() {
                     <SelectItem value="manual" data-testid="option-create-manual">Manual</SelectItem>
                     <SelectItem value="sop" data-testid="option-create-sop">SOP</SelectItem>
                     <SelectItem value="format" data-testid="option-create-format">Format</SelectItem>
+                    <SelectItem value="job_description" data-testid="option-create-job_description">Job Description</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
