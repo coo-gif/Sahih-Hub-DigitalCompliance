@@ -2,6 +2,8 @@ import { useDashboardStats, useComplianceAlerts, useRecentActivity } from "@/hoo
 import { useMyTasks, useCompleteTask, useAllDocumentTasks, usePokeTask } from "@/hooks/use-tasks";
 import { useUsers } from "@/hooks/use-users";
 import { useAuth } from "@/hooks/use-auth";
+import { useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { 
   Card, 
   CardContent, 
@@ -51,7 +53,10 @@ import {
   BarChart3,
   RefreshCw,
   Bell,
-  Eye
+  Eye,
+  Download,
+  Unlock,
+  X
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
@@ -95,6 +100,56 @@ export default function Dashboard() {
   const completeTaskMutation = useCompleteTask();
   const pokeMutation = usePokeTask();
   const { toast } = useToast();
+  
+  // Download and access approval mutations
+  const approveDownloadMutation = useMutation({
+    mutationFn: async (requestId: number) => {
+      const res = await apiRequest('POST', `/api/download-requests/${requestId}/approve`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/download-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
+    },
+  });
+  
+  const rejectDownloadMutation = useMutation({
+    mutationFn: async (requestId: number) => {
+      const res = await apiRequest('POST', `/api/download-requests/${requestId}/reject`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/download-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
+    },
+  });
+  
+  const approveAccessMutation = useMutation({
+    mutationFn: async (requestId: number) => {
+      const res = await apiRequest('POST', `/api/document-access-requests/${requestId}/approve`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/document-access-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/document-access'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
+    },
+  });
+  
+  const rejectAccessMutation = useMutation({
+    mutationFn: async (requestId: number) => {
+      const res = await apiRequest('POST', `/api/document-access-requests/${requestId}/reject`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/document-access-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
+    },
+  });
 
   const [selectedTask, setSelectedTask] = useState<MyTask | null>(null);
   const [showTaskDialog, setShowTaskDialog] = useState(false);
@@ -181,7 +236,7 @@ export default function Dashboard() {
     try {
       await completeTaskMutation.mutateAsync({
         documentId: selectedTask.documentId,
-        taskType: selectedTask.taskType,
+        taskType: selectedTask.taskType as 'prepare' | 'review' | 'approve',
         comments: taskComments || undefined,
       });
       
@@ -1031,10 +1086,20 @@ export default function Dashboard() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {selectedTask && getTaskIcon(selectedTask.taskType)}
-              Complete Task: {selectedTask?.taskType.charAt(0).toUpperCase()}{selectedTask?.taskType.slice(1)}
+              {selectedTask?.taskType === 'download_approval' 
+                ? 'Download Request'
+                : selectedTask?.taskType === 'access_approval'
+                ? 'Access Request'
+                : `Complete Task: ${selectedTask?.taskType.charAt(0).toUpperCase()}${selectedTask?.taskType.slice(1)}`
+              }
             </DialogTitle>
             <DialogDescription>
-              {selectedTask?.documentCode} - {selectedTask?.title}
+              {selectedTask?.taskType === 'download_approval' 
+                ? `A user has requested permission to download ${selectedTask?.documentCode} - ${selectedTask?.title}`
+                : selectedTask?.taskType === 'access_approval'
+                ? `${selectedTask?.requesterName || 'A user'} has requested access to view ${selectedTask?.documentCode} - ${selectedTask?.title}`
+                : `${selectedTask?.documentCode} - ${selectedTask?.title}`
+              }
             </DialogDescription>
           </DialogHeader>
 
@@ -1074,26 +1139,112 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setShowTaskDialog(false)}>
               Cancel
             </Button>
-            <Button 
-              onClick={handleCompleteTask}
-              disabled={completeTaskMutation.isPending}
-            >
-              {completeTaskMutation.isPending ? (
-                <>
-                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                  Completing...
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="w-4 h-4 mr-2" />
-                  Complete Task
-                </>
-              )}
-            </Button>
+            {selectedTask?.taskType === 'download_approval' ? (
+              <>
+                <Button 
+                  variant="destructive"
+                  onClick={() => {
+                    if (selectedTask?.downloadRequestId) {
+                      rejectDownloadMutation.mutate(selectedTask.downloadRequestId, {
+                        onSuccess: () => {
+                          toast({ title: "Download Rejected", description: `Download request for ${selectedTask.documentCode} has been rejected.` });
+                          setShowTaskDialog(false);
+                        },
+                        onError: (error: Error) => {
+                          toast({ title: "Error", description: error.message, variant: "destructive" });
+                        },
+                      });
+                    }
+                  }}
+                  disabled={rejectDownloadMutation.isPending}
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  {rejectDownloadMutation.isPending ? "Rejecting..." : "Reject"}
+                </Button>
+                <Button 
+                  onClick={() => {
+                    if (selectedTask?.downloadRequestId) {
+                      approveDownloadMutation.mutate(selectedTask.downloadRequestId, {
+                        onSuccess: () => {
+                          toast({ title: "Download Approved", description: `Download request for ${selectedTask.documentCode} has been approved.` });
+                          setShowTaskDialog(false);
+                        },
+                        onError: (error: Error) => {
+                          toast({ title: "Error", description: error.message, variant: "destructive" });
+                        },
+                      });
+                    }
+                  }}
+                  disabled={approveDownloadMutation.isPending}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  {approveDownloadMutation.isPending ? "Approving..." : "Approve Download"}
+                </Button>
+              </>
+            ) : selectedTask?.taskType === 'access_approval' ? (
+              <>
+                <Button 
+                  variant="destructive"
+                  onClick={() => {
+                    if (selectedTask?.accessRequestId) {
+                      rejectAccessMutation.mutate(selectedTask.accessRequestId, {
+                        onSuccess: () => {
+                          toast({ title: "Access Denied", description: `Access request for ${selectedTask.documentCode} has been denied.` });
+                          setShowTaskDialog(false);
+                        },
+                        onError: (error: Error) => {
+                          toast({ title: "Error", description: error.message, variant: "destructive" });
+                        },
+                      });
+                    }
+                  }}
+                  disabled={rejectAccessMutation.isPending}
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  {rejectAccessMutation.isPending ? "Denying..." : "Deny"}
+                </Button>
+                <Button 
+                  onClick={() => {
+                    if (selectedTask?.accessRequestId) {
+                      approveAccessMutation.mutate(selectedTask.accessRequestId, {
+                        onSuccess: () => {
+                          toast({ title: "Access Granted", description: `${selectedTask.requesterName || 'User'} can now view ${selectedTask.documentCode}.` });
+                          setShowTaskDialog(false);
+                        },
+                        onError: (error: Error) => {
+                          toast({ title: "Error", description: error.message, variant: "destructive" });
+                        },
+                      });
+                    }
+                  }}
+                  disabled={approveAccessMutation.isPending}
+                >
+                  <Unlock className="w-4 h-4 mr-2" />
+                  {approveAccessMutation.isPending ? "Granting..." : "Grant Access"}
+                </Button>
+              </>
+            ) : (
+              <Button 
+                onClick={handleCompleteTask}
+                disabled={completeTaskMutation.isPending}
+              >
+                {completeTaskMutation.isPending ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    Completing...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 mr-2" />
+                    Complete Task
+                  </>
+                )}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
