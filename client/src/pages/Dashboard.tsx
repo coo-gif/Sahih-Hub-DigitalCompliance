@@ -57,7 +57,10 @@ import {
   Eye,
   Download,
   Unlock,
-  X
+  X,
+  BookOpen,
+  Lightbulb,
+  GraduationCap
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
@@ -73,6 +76,453 @@ const motivationalQuotes = [
   { quote: "Every document tells a story of excellence.", author: "QMS Principles" },
   { quote: "Precision in process, perfection in outcome.", author: "ISO 17021" },
   { quote: "Your commitment to quality is your signature of excellence.", author: "Unknown" },
+];
+
+const iso17021Clauses = [
+  {
+    clause: "4.1",
+    title: "General Principles",
+    shortTip: "Impartiality is the foundation of certification credibility.",
+    article: `**Understanding ISO 17021-1:2015 Clause 4.1 - General Principles**
+
+The foundation of any certification body's credibility rests upon its adherence to general principles that ensure trust and reliability in the certification process.
+
+**Key Requirements:**
+- Certification bodies must be impartial and objective in all certification activities
+- Decisions must be based on objective evidence of conformity
+- The certification process must be consistent, fair, and transparent
+
+**Implementation Tips from Sahih Certifications:**
+1. Establish clear policies that demonstrate commitment to impartiality
+2. Document all decisions with supporting evidence
+3. Ensure all staff understand their role in maintaining objectivity
+4. Regular training on ethical conduct and conflict of interest
+
+**Why This Matters:**
+When clients and stakeholders trust your certification decisions, they trust your entire organization. This clause sets the ethical foundation for everything else in ISO 17021.
+
+*Prepared by Sahih Certifications Quality Assurance Team*`,
+  },
+  {
+    clause: "4.2",
+    title: "Impartiality",
+    shortTip: "Identify and manage threats to impartiality before they compromise decisions.",
+    article: `**Understanding ISO 17021-1:2015 Clause 4.2 - Impartiality**
+
+Impartiality is not just a principle—it's a continuous commitment that requires active management and vigilance.
+
+**Key Requirements:**
+- Identify threats to impartiality on an ongoing basis
+- Analyze and document risks to impartiality
+- Eliminate or minimize threats through appropriate safeguards
+- Maintain a committee to safeguard impartiality
+
+**Implementation Tips from Sahih Certifications:**
+1. Conduct annual impartiality risk assessments
+2. Maintain a register of potential conflicts of interest
+3. Train all personnel on recognizing impartiality threats
+4. Establish an independent Impartiality Committee with external representation
+
+**Common Threats to Watch:**
+- Self-interest (financial pressures)
+- Self-review (auditing your own consultancy work)
+- Familiarity (long-term relationships with clients)
+- Intimidation (pressure from powerful clients)
+
+*Prepared by Sahih Certifications Quality Assurance Team*`,
+  },
+  {
+    clause: "5.1",
+    title: "Legal & Contractual Matters",
+    shortTip: "Your certification body must be a legally identifiable entity with proper authority.",
+    article: `**Understanding ISO 17021-1:2015 Clause 5.1 - Legal & Contractual Matters**
+
+A certification body must operate within a clear legal framework that defines its authority and responsibilities.
+
+**Key Requirements:**
+- Be a legal entity or defined part of a legal entity
+- Have legally enforceable arrangements with clients
+- Maintain responsibility for all certification decisions
+- Clearly define the certification scope and conditions
+
+**Implementation Tips from Sahih Certifications:**
+1. Ensure your organization's legal status is clearly documented
+2. Use standardized contracts that meet ISO 17021 requirements
+3. Include clear terms for suspension, withdrawal, and scope changes
+4. Maintain proper insurance and liability coverage
+
+**Contract Essentials:**
+- Rights and obligations of both parties
+- Conditions for use of certification marks
+- Surveillance and recertification requirements
+- Handling of complaints and appeals
+
+*Prepared by Sahih Certifications Quality Assurance Team*`,
+  },
+  {
+    clause: "5.2",
+    title: "Management of Impartiality",
+    shortTip: "Top management must commit to impartiality—it's not just a policy, it's a culture.",
+    article: `**Understanding ISO 17021-1:2015 Clause 5.2 - Management of Impartiality**
+
+Leadership commitment to impartiality must be visible, documented, and actively demonstrated throughout the organization.
+
+**Key Requirements:**
+- Top management commitment to impartiality
+- Public accessibility of impartiality statements
+- Revenue sources that don't compromise objectivity
+- Actions to respond to threats identified
+
+**Implementation Tips from Sahih Certifications:**
+1. Include impartiality in your quality policy and objectives
+2. Review impartiality at management review meetings
+3. Ensure no single client represents more than a threshold of revenue
+4. Publish your impartiality commitment on your website
+
+**Leadership Actions:**
+- Set the tone from the top
+- Allocate resources for impartiality management
+- Recognize and reward ethical behavior
+- Take swift action when threats are identified
+
+*Prepared by Sahih Certifications Quality Assurance Team*`,
+  },
+  {
+    clause: "6.1",
+    title: "Organizational Structure",
+    shortTip: "Clear organizational charts prevent role confusion and ensure accountability.",
+    article: `**Understanding ISO 17021-1:2015 Clause 6.1 - Organizational Structure**
+
+A well-defined organizational structure ensures clarity of roles, responsibilities, and reporting lines.
+
+**Key Requirements:**
+- Document the organizational structure
+- Define responsibilities and authorities
+- Identify personnel who make certification decisions
+- Ensure competence at all levels
+
+**Implementation Tips from Sahih Certifications:**
+1. Create detailed organizational charts updated annually
+2. Define job descriptions for all certification roles
+3. Establish clear delegation of authority procedures
+4. Ensure backup personnel for critical functions
+
+**Structure Considerations:**
+- Separation of audit and certification decision functions
+- Independence of the certification decision-maker
+- Clear escalation paths for complex decisions
+- Defined interfaces between departments
+
+*Prepared by Sahih Certifications Quality Assurance Team*`,
+  },
+  {
+    clause: "7.1",
+    title: "Competence of Personnel",
+    shortTip: "Competent auditors are your most valuable asset—invest in their development.",
+    article: `**Understanding ISO 17021-1:2015 Clause 7.1 - Competence of Personnel**
+
+The quality of certification depends directly on the competence of the personnel involved in the process.
+
+**Key Requirements:**
+- Define competence criteria for each function
+- Evaluate personnel against defined criteria
+- Maintain records of competence evaluations
+- Address competence gaps through training
+
+**Implementation Tips from Sahih Certifications:**
+1. Develop a competence matrix for all certification roles
+2. Conduct initial and ongoing competence evaluations
+3. Implement a witness audit program
+4. Create individual development plans
+
+**Competence Areas:**
+- Technical knowledge of management systems
+- Understanding of ISO 17021 requirements
+- Audit skills and techniques
+- Sector-specific knowledge
+
+*Prepared by Sahih Certifications Quality Assurance Team*`,
+  },
+  {
+    clause: "7.2",
+    title: "Personnel Involved in Certification",
+    shortTip: "Every person in the certification process needs defined competence criteria.",
+    article: `**Understanding ISO 17021-1:2015 Clause 7.2 - Personnel Involved in Certification**
+
+All personnel involved in certification activities must meet specific competence requirements appropriate to their role.
+
+**Key Requirements:**
+- Define competence for auditors, technical experts, and decision-makers
+- Ensure knowledge of certification schemes operated
+- Maintain records of initial and ongoing monitoring
+- Conduct performance evaluations
+
+**Implementation Tips from Sahih Certifications:**
+1. Categorize personnel by certification function
+2. Develop role-specific training programs
+3. Implement peer reviews and feedback mechanisms
+4. Track continuing professional development
+
+**Personnel Categories:**
+- Lead auditors and audit team members
+- Technical experts and observers
+- Certification decision-makers
+- Administrative and support personnel
+
+*Prepared by Sahih Certifications Quality Assurance Team*`,
+  },
+  {
+    clause: "7.3",
+    title: "Use of Auditors & Technical Experts",
+    shortTip: "Match auditor expertise to client industry for meaningful assessments.",
+    article: `**Understanding ISO 17021-1:2015 Clause 7.3 - Use of Auditors & Technical Experts**
+
+Proper selection and assignment of audit teams ensures effective and credible certification audits.
+
+**Key Requirements:**
+- Select auditors with appropriate competence
+- Assign technical experts when specialized knowledge is needed
+- Communicate team composition to clients
+- Address client objections appropriately
+
+**Implementation Tips from Sahih Certifications:**
+1. Maintain a database of auditor competencies by sector
+2. Use technical experts for high-risk or specialized audits
+3. Give clients reasonable opportunity to object to team composition
+4. Document rationale for team selection decisions
+
+**Team Composition Factors:**
+- Industry sector experience
+- Language capabilities
+- Previous audit history with client
+- Potential conflicts of interest
+
+*Prepared by Sahih Certifications Quality Assurance Team*`,
+  },
+  {
+    clause: "8.2",
+    title: "Initial Audit",
+    shortTip: "Stage 1 audits identify issues early—use them to set clients up for success.",
+    article: `**Understanding ISO 17021-1:2015 Clause 8.2 - Initial Audit**
+
+The initial certification audit is conducted in two stages to ensure thorough evaluation and client readiness.
+
+**Key Requirements:**
+- Stage 1: Evaluate documentation and readiness
+- Stage 2: Evaluate implementation effectiveness
+- Document findings from both stages
+- Make certification decision based on complete evidence
+
+**Implementation Tips from Sahih Certifications:**
+1. Use Stage 1 to build understanding of the client's context
+2. Identify potential problem areas before Stage 2
+3. Verify internal audits and management review have been conducted
+4. Allow appropriate time between stages for client preparation
+
+**Stage 1 Focus Areas:**
+- Policy and objectives documentation
+- Internal audit program and results
+- Management review records
+- Legal and regulatory compliance status
+
+*Prepared by Sahih Certifications Quality Assurance Team*`,
+  },
+  {
+    clause: "8.3",
+    title: "Surveillance Activities",
+    shortTip: "Surveillance maintains certification integrity—it's not just a formality.",
+    article: `**Understanding ISO 17021-1:2015 Clause 8.3 - Surveillance Activities**
+
+Ongoing surveillance ensures that certified organizations maintain conformity throughout the certification cycle.
+
+**Key Requirements:**
+- Conduct surveillance at planned intervals
+- Cover the full management system scope over the cycle
+- Address nonconformities from previous audits
+- Verify continued conformity and effectiveness
+
+**Implementation Tips from Sahih Certifications:**
+1. Plan surveillance to cover all management system elements
+2. Focus on areas of change or previous concerns
+3. Review client's handling of complaints
+4. Verify corrective actions remain effective
+
+**Surveillance Considerations:**
+- Internal audits and management reviews
+- Actions on nonconformities from previous audits
+- Handling of complaints
+- Use of certification marks and references
+
+*Prepared by Sahih Certifications Quality Assurance Team*`,
+  },
+  {
+    clause: "8.4",
+    title: "Recertification",
+    shortTip: "Recertification confirms continued conformity—review the full cycle performance.",
+    article: `**Understanding ISO 17021-1:2015 Clause 8.4 - Recertification**
+
+Recertification confirms the continued effectiveness of the management system as a whole over the certification cycle.
+
+**Key Requirements:**
+- Plan recertification to maintain certification continuity
+- Evaluate full system effectiveness over the cycle
+- Review changes since last recertification
+- Consider past surveillance findings
+
+**Implementation Tips from Sahih Certifications:**
+1. Start recertification planning 6 months before expiry
+2. Review performance trends across the certification cycle
+3. Evaluate achievement of management system objectives
+4. Consider if a Stage 1 is needed for significant changes
+
+**Recertification Review:**
+- Effectiveness of the management system as a whole
+- Commitment to continual improvement
+- Achievement of objectives
+- Contribution to client's strategic objectives
+
+*Prepared by Sahih Certifications Quality Assurance Team*`,
+  },
+  {
+    clause: "9.1",
+    title: "Certification Decision",
+    shortTip: "Certification decisions must be made by competent personnel independent of the audit.",
+    article: `**Understanding ISO 17021-1:2015 Clause 9.1 - Certification Decision**
+
+The certification decision is the culmination of the audit process and must be made with appropriate rigor and independence.
+
+**Key Requirements:**
+- Decision-makers must not have participated in the audit
+- Decisions based on review of audit findings and evidence
+- Ensure all nonconformities are addressed
+- Document the decision and rationale
+
+**Implementation Tips from Sahih Certifications:**
+1. Establish clear certification decision criteria
+2. Maintain a qualified pool of decision-makers
+3. Use checklists to ensure consistent decision review
+4. Allow adequate time for thorough review
+
+**Decision Considerations:**
+- Adequacy of evidence for conformity
+- Classification and significance of nonconformities
+- Effectiveness of corrective actions
+- Auditor recommendations and conclusions
+
+*Prepared by Sahih Certifications Quality Assurance Team*`,
+  },
+  {
+    clause: "9.4",
+    title: "Suspending, Withdrawing Certification",
+    shortTip: "Have clear criteria for when to suspend or withdraw—and communicate them to clients upfront.",
+    article: `**Understanding ISO 17021-1:2015 Clause 9.4 - Suspending, Withdrawing Certification**
+
+Certification bodies must have clear processes for suspending or withdrawing certification when warranted.
+
+**Key Requirements:**
+- Define conditions for suspension and withdrawal
+- Suspend when there are serious failures or misuse of marks
+- Limit suspension period to six months maximum
+- Withdraw when issues are not resolved
+
+**Implementation Tips from Sahih Certifications:**
+1. Include suspension/withdrawal conditions in client contracts
+2. Establish graduated response procedures
+3. Communicate consequences clearly before taking action
+4. Maintain records of all suspension/withdrawal decisions
+
+**Triggers for Action:**
+- Persistent failure to address nonconformities
+- Misuse of certification marks or claims
+- Failure to permit scheduled audits
+- Voluntary request by client
+
+*Prepared by Sahih Certifications Quality Assurance Team*`,
+  },
+  {
+    clause: "9.6",
+    title: "Complaints & Appeals",
+    shortTip: "Handling complaints fairly builds trust—even when findings are upheld.",
+    article: `**Understanding ISO 17021-1:2015 Clause 9.6 - Complaints & Appeals**
+
+A fair and transparent process for handling complaints and appeals is essential for certification body credibility.
+
+**Key Requirements:**
+- Document and validate all complaints
+- Investigate using personnel independent of the subject
+- Provide opportunity for appeal of decisions
+- Track and trend complaints for improvement
+
+**Implementation Tips from Sahih Certifications:**
+1. Acknowledge complaints within 48 hours
+2. Set and communicate resolution timelines
+3. Use complaints as improvement opportunities
+4. Report complaint trends to management review
+
+**Process Steps:**
+- Receipt and acknowledgment
+- Investigation by independent personnel
+- Decision and communication
+- Follow-up on corrective actions
+
+*Prepared by Sahih Certifications Quality Assurance Team*`,
+  },
+  {
+    clause: "9.7",
+    title: "Records of Applicants & Clients",
+    shortTip: "Good records are your defense during accreditation assessments—keep them complete.",
+    article: `**Understanding ISO 17021-1:2015 Clause 9.7 - Records of Applicants & Clients**
+
+Comprehensive records support certification decisions and demonstrate conformity to accreditation requirements.
+
+**Key Requirements:**
+- Maintain records for each client organization
+- Include audit reports, certificates, and correspondence
+- Ensure secure storage and accessibility
+- Define retention periods
+
+**Implementation Tips from Sahih Certifications:**
+1. Use a document management system for consistency
+2. Include all communication in client files
+3. Regular backup and archive procedures
+4. Ensure confidentiality while maintaining accessibility
+
+**Essential Records:**
+- Application and contract documents
+- Audit plans and reports
+- Nonconformity reports and corrective actions
+- Certification decisions and certificates issued
+
+*Prepared by Sahih Certifications Quality Assurance Team*`,
+  },
+  {
+    clause: "10",
+    title: "Management System Requirements",
+    shortTip: "Your own management system must meet the same standards you certify others against.",
+    article: `**Understanding ISO 17021-1:2015 Clause 10 - Management System Requirements**
+
+Certification bodies must implement their own management system to ensure consistent operations and continual improvement.
+
+**Key Requirements:**
+- Implement a documented management system
+- Include all ISO 17021 requirements
+- Conduct internal audits and management reviews
+- Pursue continual improvement
+
+**Implementation Tips from Sahih Certifications:**
+1. Align your system with ISO 9001 structure if helpful
+2. Conduct thorough internal audits annually
+3. Use management review to drive improvement
+4. Set and monitor quality objectives
+
+**System Elements:**
+- Documented policies and procedures
+- Internal audit program
+- Management review process
+- Continual improvement mechanism
+
+*Prepared by Sahih Certifications Quality Assurance Team*`,
+  },
 ];
 
 const getTimeGreeting = (): { greeting: string; icon: JSX.Element; period: string } => {
@@ -166,8 +616,14 @@ export default function Dashboard() {
   const [showPokeDialog, setShowPokeDialog] = useState(false);
   const [showComplianceDialog, setShowComplianceDialog] = useState(false);
   const [showTasksFocusDialog, setShowTasksFocusDialog] = useState(false);
+  const [showIsoTipDialog, setShowIsoTipDialog] = useState(false);
   const [location, navigate] = useLocation();
   const [activeTab, setActiveTab] = useState("dashboard");
+
+  const dailyIsoTip = useMemo(() => {
+    const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
+    return iso17021Clauses[dayOfYear % iso17021Clauses.length];
+  }, []);
 
   const handlePoke = async () => {
     if (!pokeTaskId) return;
@@ -395,6 +851,47 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* ISO 17021 Daily Tip Card */}
+      <Card 
+        className="overflow-hidden cursor-pointer hover:shadow-lg transition-all group border-2 border-amber-200/50 dark:border-amber-800/50"
+        onClick={() => setShowIsoTipDialog(true)}
+        data-testid="card-iso-tip"
+      >
+        <div className="flex flex-col lg:flex-row">
+          <div className="lg:w-48 p-4 bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center">
+            <div className="text-center">
+              <GraduationCap className="w-10 h-10 text-white mx-auto mb-2" />
+              <p className="text-white font-bold text-sm">ISO 17021</p>
+              <p className="text-white/80 text-xs">Daily Insight</p>
+            </div>
+          </div>
+          <div className="flex-1 p-4 bg-gradient-to-r from-amber-50 to-white dark:from-amber-950/30 dark:to-card">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 font-mono">
+                    Clause {dailyIsoTip.clause}
+                  </Badge>
+                  <span className="text-sm font-semibold text-amber-800 dark:text-amber-300">{dailyIsoTip.title}</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Lightbulb className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                  <p className="text-foreground font-medium">{dailyIsoTip.shortTip}</p>
+                </div>
+                <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+                  <BookOpen className="w-3 h-3" />
+                  Click to read the full article from Sahih Certifications
+                </p>
+              </div>
+              <div className="hidden lg:flex items-center gap-2 text-amber-600 group-hover:translate-x-1 transition-transform">
+                <span className="text-sm font-medium">Read More</span>
+                <ArrowRight className="w-4 h-4" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </Card>
 
       {/* Quick Navigation Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -655,6 +1152,110 @@ export default function Dashboard() {
             >
               <Bell className="h-4 w-4" />
               {pokeMutation.isPending ? "Sending..." : "Send Reminder"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ISO 17021 Daily Tip Dialog */}
+      <Dialog open={showIsoTipDialog} onOpenChange={setShowIsoTipDialog}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col" data-testid="dialog-iso-tip">
+          <DialogHeader className="bg-gradient-to-r from-amber-500 to-amber-600 -mx-6 -mt-6 px-6 py-5 rounded-t-lg">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-white/20">
+                <GraduationCap className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <DialogTitle className="text-white text-xl">ISO 17021-1:2015 Awareness</DialogTitle>
+                <DialogDescription className="text-white/80">
+                  Clause {dailyIsoTip.clause} - {dailyIsoTip.title}
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto py-4 space-y-4">
+            <div className="bg-amber-50 dark:bg-amber-950/30 rounded-lg p-4 border border-amber-200 dark:border-amber-800">
+              <div className="flex items-start gap-3">
+                <Lightbulb className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-amber-800 dark:text-amber-300 text-sm">Today's Quick Tip</p>
+                  <p className="text-foreground">{dailyIsoTip.shortTip}</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="prose prose-sm dark:prose-invert max-w-none">
+              {dailyIsoTip.article.split('\n\n').map((paragraph, idx) => {
+                if (paragraph.startsWith('**') && paragraph.endsWith('**')) {
+                  return (
+                    <h3 key={idx} className="text-lg font-bold text-foreground mt-4 mb-2">
+                      {paragraph.replace(/\*\*/g, '')}
+                    </h3>
+                  );
+                }
+                if (paragraph.startsWith('**')) {
+                  const parts = paragraph.split('**');
+                  return (
+                    <div key={idx} className="mb-3">
+                      <h4 className="font-semibold text-foreground">{parts[1]}</h4>
+                      <p className="text-muted-foreground">{parts[2]}</p>
+                    </div>
+                  );
+                }
+                if (paragraph.startsWith('- ')) {
+                  return (
+                    <ul key={idx} className="list-disc list-inside text-muted-foreground space-y-1">
+                      {paragraph.split('\n').map((item, i) => (
+                        <li key={i}>{item.replace('- ', '')}</li>
+                      ))}
+                    </ul>
+                  );
+                }
+                if (paragraph.match(/^\d\./)) {
+                  return (
+                    <ol key={idx} className="list-decimal list-inside text-muted-foreground space-y-1">
+                      {paragraph.split('\n').map((item, i) => (
+                        <li key={i}>{item.replace(/^\d+\.\s*/, '')}</li>
+                      ))}
+                    </ol>
+                  );
+                }
+                if (paragraph.startsWith('*') && paragraph.endsWith('*')) {
+                  return (
+                    <p key={idx} className="text-sm italic text-amber-700 dark:text-amber-400 mt-4 border-t pt-4">
+                      {paragraph.replace(/\*/g, '')}
+                    </p>
+                  );
+                }
+                return (
+                  <p key={idx} className="text-muted-foreground">
+                    {paragraph}
+                  </p>
+                );
+              })}
+            </div>
+            
+            <div className="bg-gradient-to-r from-primary/10 to-primary/5 dark:from-primary/20 dark:to-primary/10 rounded-lg p-4 mt-4">
+              <div className="flex items-center gap-3">
+                <img 
+                  src="/attached_assets/sahih_logo-1.png" 
+                  alt="Sahih Certifications" 
+                  className="h-12 w-auto"
+                />
+                <div>
+                  <p className="font-bold text-primary">Sahih Certifications</p>
+                  <p className="text-xs text-muted-foreground">Quality Assurance & Compliance Excellence</p>
+                  <p className="text-xs text-muted-foreground">Doha, Qatar</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="border-t pt-4">
+            <p className="text-xs text-muted-foreground flex-1">
+              New insights daily - Check back tomorrow for more ISO 17021 awareness content
+            </p>
+            <Button onClick={() => setShowIsoTipDialog(false)} data-testid="button-close-iso-tip">
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>
