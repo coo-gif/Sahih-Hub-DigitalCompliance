@@ -22,6 +22,8 @@ function TaskTypeBadge({ type }: { type: string }) {
     prepare: { className: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200", label: "Prepare" },
     download_approval: { className: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200", label: "Download Request" },
     access_approval: { className: "bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200", label: "Access Request" },
+    employee_review: { className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200", label: "Employee Review" },
+    employee_approve: { className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200", label: "Employee Approval" },
   };
   const config = variants[type] || { className: "", label: type };
   return <Badge className={config.className}>{config.label}</Badge>;
@@ -201,11 +203,11 @@ export default function MyTasks() {
     },
   });
 
-  const pendingTasks = tasks.filter(t => t.taskType === 'review' || t.taskType === 'approve' || t.taskType === 'download_approval' || t.taskType === 'access_approval');
+  const pendingTasks = tasks.filter(t => t.taskType === 'review' || t.taskType === 'approve' || t.taskType === 'download_approval' || t.taskType === 'access_approval' || t.taskType === 'employee_review' || t.taskType === 'employee_approve');
   const completedCount = 0;
 
   const handleCompleteTask = (comments: string, approverId?: number) => {
-    if (!selectedTask) return;
+    if (!selectedTask || !selectedTask.documentId) return;
     
     completeMutation.mutate(
       { 
@@ -319,16 +321,27 @@ export default function MyTasks() {
                 <CardHeader className="pb-2">
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-sm bg-muted px-2 py-1 rounded" data-testid={`task-code-${task.id}`}>
-                        {task.documentCode}
-                      </span>
+                      {task.documentCode && (
+                        <span className="font-mono text-sm bg-muted px-2 py-1 rounded" data-testid={`task-code-${task.id}`}>
+                          {task.documentCode}
+                        </span>
+                      )}
+                      {task.employeeName && (
+                        <span className="font-mono text-sm bg-muted px-2 py-1 rounded" data-testid={`task-code-${task.id}`}>
+                          {task.employeeName}
+                        </span>
+                      )}
                       <TaskTypeBadge type={task.taskType} />
                       <StatusBadge status={task.status} />
                     </div>
                   </div>
                   <CardTitle className="text-lg mt-2">
                     <div className="flex items-center gap-2">
-                      <FileText className="h-5 w-5 text-muted-foreground" />
+                      {(task.taskType === 'employee_review' || task.taskType === 'employee_approve') ? (
+                        <UserCheck className="h-5 w-5 text-muted-foreground" />
+                      ) : (
+                        <FileText className="h-5 w-5 text-muted-foreground" />
+                      )}
                       <span data-testid={`task-title-${task.id}`}>{task.title}</span>
                     </div>
                   </CardTitle>
@@ -341,6 +354,10 @@ export default function MyTasks() {
                       ? `A user has requested permission to download this document.${task.reason ? ` Reason: "${task.reason}"` : ''}`
                       : task.taskType === 'access_approval'
                       ? `${task.requesterName || 'A user'} has requested access to view this document.${task.reason ? ` Reason: "${task.reason}"` : ''}`
+                      : task.taskType === 'employee_review'
+                      ? 'This employee record requires your review before it can proceed to approval.'
+                      : task.taskType === 'employee_approve'
+                      ? 'This employee record is awaiting your final approval.'
                       : 'This task requires your attention.'
                     }
                   </CardDescription>
@@ -348,15 +365,27 @@ export default function MyTasks() {
                 <CardContent>
                   <Separator className="my-4" />
                   <div className="flex flex-wrap gap-2">
-                    <Button 
-                      variant="outline"
-                      onClick={() => navigate(`/documents/${task.documentId}/view`)}
-                      className="gap-1"
-                      data-testid={`button-view-${task.id}`}
-                    >
-                      <Eye className="h-4 w-4" />
-                      View Document
-                    </Button>
+                    {(task.taskType === 'employee_review' || task.taskType === 'employee_approve') ? (
+                      <Button 
+                        variant="outline"
+                        onClick={() => navigate(`/hr`)}
+                        className="gap-1"
+                        data-testid={`button-view-${task.id}`}
+                      >
+                        <UserCheck className="h-4 w-4" />
+                        View Employee Record
+                      </Button>
+                    ) : (
+                      <Button 
+                        variant="outline"
+                        onClick={() => navigate(`/documents/${task.documentId}/view`)}
+                        className="gap-1"
+                        data-testid={`button-view-${task.id}`}
+                      >
+                        <Eye className="h-4 w-4" />
+                        View Document
+                      </Button>
+                    )}
                     {task.taskType === 'download_approval' ? (
                       <>
                         <Button 

@@ -3,10 +3,12 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 
 export interface MyTask {
   id: number;
-  documentId: number;
-  documentCode: string;
+  documentId?: number;
+  documentCode?: string;
+  employeeId?: number;
+  employeeName?: string;
   title: string;
-  taskType: 'prepare' | 'review' | 'approve' | 'download_approval' | 'access_approval';
+  taskType: 'prepare' | 'review' | 'approve' | 'download_approval' | 'access_approval' | 'employee_review' | 'employee_approve';
   status: string;
   createdAt: string | null;
   dueDate: string | null;

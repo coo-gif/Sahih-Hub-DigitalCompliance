@@ -13,6 +13,7 @@ import {
   DocumentTaskStatus,
   DocumentImportance,
   DocumentAccessRequestStatus,
+  EmployeeRecordStatus,
 } from "@shared/schema";
 import { z } from "zod";
 import puppeteer from "puppeteer";
@@ -552,6 +553,38 @@ export async function registerRoutes(
             status: 'pending',
             createdAt: doc.updatedAt || doc.createdAt,
             dueDate: doc.nextReviewDate,
+          });
+        }
+      }
+
+      // Add employee review/approval tasks
+      const allEmployees = await storage.getEmployees();
+      for (const emp of allEmployees) {
+        // Employee review task: User is reviewer and employee is in_review
+        if (emp.reviewerId === userId && emp.workflowStatus === EmployeeRecordStatus.IN_REVIEW) {
+          tasks.push({
+            id: emp.id * 1000 + 5,
+            employeeId: emp.id,
+            employeeName: emp.name,
+            title: `Review Employee Record: ${emp.name}`,
+            taskType: 'employee_review',
+            status: 'pending',
+            createdAt: emp.submittedForReviewAt || emp.createdAt,
+            dueDate: null,
+          });
+        }
+        
+        // Employee approval task: User is approver and employee is pending_approval
+        if (emp.approverId === userId && emp.workflowStatus === EmployeeRecordStatus.PENDING_APPROVAL) {
+          tasks.push({
+            id: emp.id * 1000 + 6,
+            employeeId: emp.id,
+            employeeName: emp.name,
+            title: `Approve Employee Record: ${emp.name}`,
+            taskType: 'employee_approve',
+            status: 'pending',
+            createdAt: emp.submittedForApprovalAt || emp.createdAt,
+            dueDate: null,
           });
         }
       }
