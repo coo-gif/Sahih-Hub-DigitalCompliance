@@ -963,7 +963,7 @@ export default function Documents() {
                   <SelectValue placeholder="Choose an approver..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
+                  <SelectItem value="none">None</SelectItem>
                   {users.map((user) => (
                     <SelectItem key={user.id} value={user.id.toString()}>
                       {user.name} ({user.role})
