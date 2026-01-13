@@ -64,7 +64,7 @@ export default function AuditLog() {
                 <TableHead>Action</TableHead>
                 <TableHead>Entity Type</TableHead>
                 <TableHead>Entity ID</TableHead>
-                <TableHead>User ID</TableHead>
+                <TableHead>User</TableHead>
                 <TableHead>Details</TableHead>
               </TableRow>
             </TableHeader>
@@ -100,7 +100,7 @@ export default function AuditLog() {
                     </TableCell>
                     <TableCell className="capitalize" data-testid={`text-entity-type-${log.id}`}>{log.entityType}</TableCell>
                     <TableCell data-testid={`text-entity-id-${log.id}`}>{log.entityId || "-"}</TableCell>
-                    <TableCell data-testid={`text-user-id-${log.id}`}>{log.userId}</TableCell>
+                    <TableCell data-testid={`text-user-${log.id}`}>{log.userName || 'System'}</TableCell>
                     <TableCell className="max-w-xs truncate" data-testid={`text-details-${log.id}`}>
                       {log.newValue ? (
                         <span className="text-xs text-muted-foreground font-mono">
