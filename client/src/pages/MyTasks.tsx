@@ -3,12 +3,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Clock, AlertTriangle, CheckCircle2, FileText, Target, Eye, Send, ThumbsUp } from "lucide-react";
+import { Clock, AlertTriangle, CheckCircle2, FileText, Target, Eye, Send, ThumbsUp, UserCheck } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useMyTasks, useCompleteTask, MyTask } from "@/hooks/use-tasks";
+import { useUsers } from "@/hooks/use-users";
 
 function TaskTypeBadge({ type }: { type: string }) {
   const variants: Record<string, { className: string; label: string }> = {
@@ -31,52 +34,102 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge className={config.className}>{config.label}</Badge>;
 }
 
+interface UserOption {
+  id: number;
+  name: string;
+  role: string;
+}
+
 function CompleteTaskDialog({ 
   task, 
   open, 
   onOpenChange, 
   onComplete,
-  isPending
+  isPending,
+  users = []
 }: { 
   task: MyTask; 
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onComplete: (comments: string) => void;
+  onComplete: (comments: string, approverId?: number) => void;
   isPending: boolean;
+  users?: UserOption[];
 }) {
   const [comments, setComments] = useState("");
+  const [selectedApproverId, setSelectedApproverId] = useState<string>("");
 
   const handleComplete = () => {
-    onComplete(comments);
+    const approverId = selectedApproverId ? parseInt(selectedApproverId) : undefined;
+    onComplete(comments, approverId);
     setComments("");
+    setSelectedApproverId("");
   };
 
-  const actionLabel = task.taskType === 'review' ? 'Complete Review' : 
+  const actionLabel = task.taskType === 'review' ? 'Complete Review & Send for Approval' : 
                       task.taskType === 'approve' ? 'Approve Document' : 'Complete Task';
+
+  const approverCandidates = users.filter(u => 
+    u.role === 'admin' || u.role === 'quality_manager'
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{actionLabel}</DialogTitle>
+          <DialogTitle>{task.taskType === 'review' ? 'Complete Review' : actionLabel}</DialogTitle>
           <DialogDescription>
             {task.taskType === 'review' 
-              ? `Review and approve ${task.documentCode} - ${task.title}` 
+              ? `Review completed for ${task.documentCode} - ${task.title}. Select who should approve this document.` 
               : task.taskType === 'approve'
               ? `Final approval for ${task.documentCode} - ${task.title}`
               : `Complete task for ${task.documentCode}`
             }
           </DialogDescription>
         </DialogHeader>
-        <Textarea
-          placeholder="Add comments (optional)..."
-          value={comments}
-          onChange={(e) => setComments(e.target.value)}
-          className="min-h-[100px]"
-        />
+        
+        <div className="space-y-4">
+          {task.taskType === 'review' && (
+            <div className="space-y-2">
+              <Label htmlFor="approver" className="flex items-center gap-2">
+                <UserCheck className="w-4 h-4 text-primary" />
+                Select Approver <span className="text-destructive">*</span>
+              </Label>
+              <Select value={selectedApproverId} onValueChange={setSelectedApproverId}>
+                <SelectTrigger id="approver" data-testid="select-approver">
+                  <SelectValue placeholder="Choose who will approve this document" />
+                </SelectTrigger>
+                <SelectContent>
+                  {approverCandidates.map(user => (
+                    <SelectItem key={user.id} value={user.id.toString()}>
+                      {user.name} ({user.role.replace('_', ' ')})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                The selected person will receive a notification to approve this document.
+              </p>
+            </div>
+          )}
+          
+          <div className="space-y-2">
+            <Label htmlFor="comments">Comments (optional)</Label>
+            <Textarea
+              id="comments"
+              placeholder="Add any notes or comments..."
+              value={comments}
+              onChange={(e) => setComments(e.target.value)}
+              className="min-h-[80px]"
+            />
+          </div>
+        </div>
+        
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleComplete} disabled={isPending}>
+          <Button 
+            onClick={handleComplete} 
+            disabled={isPending || (task.taskType === 'review' && !selectedApproverId)}
+          >
             {isPending ? "Processing..." : actionLabel}
           </Button>
         </DialogFooter>
@@ -92,25 +145,30 @@ export default function MyTasks() {
   const [showCompleteDialog, setShowCompleteDialog] = useState(false);
 
   const { data: tasks = [], isLoading } = useMyTasks();
+  const { data: users = [] } = useUsers();
   const completeMutation = useCompleteTask();
 
   const pendingTasks = tasks.filter(t => t.taskType === 'review' || t.taskType === 'approve');
   const completedCount = 0;
 
-  const handleCompleteTask = (comments: string) => {
+  const handleCompleteTask = (comments: string, approverId?: number) => {
     if (!selectedTask) return;
     
     completeMutation.mutate(
       { 
         documentId: selectedTask.documentId, 
         taskType: selectedTask.taskType,
-        comments 
+        comments,
+        approverId 
       },
       {
         onSuccess: () => {
+          const message = selectedTask.taskType === 'review' 
+            ? `Review completed and sent for approval` 
+            : `Approval completed for ${selectedTask.documentCode}`;
           toast({
             title: "Task completed",
-            description: `${selectedTask.taskType === 'review' ? 'Review' : 'Approval'} completed for ${selectedTask.documentCode}`,
+            description: message,
           });
           setShowCompleteDialog(false);
           setSelectedTask(null);
@@ -279,6 +337,7 @@ export default function MyTasks() {
           onOpenChange={setShowCompleteDialog}
           onComplete={handleCompleteTask}
           isPending={completeMutation.isPending}
+          users={users}
         />
       )}
     </div>

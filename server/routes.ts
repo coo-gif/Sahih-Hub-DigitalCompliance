@@ -566,7 +566,7 @@ export async function registerRoutes(
     try {
       const documentId = Number(req.params.documentId);
       const userId = getCurrentUserId(req);
-      const { taskType, comments } = req.body;
+      const { taskType, comments, approverId } = req.body;
 
       const doc = await storage.getDocument(documentId);
       if (!doc) {
@@ -581,15 +581,23 @@ export async function registerRoutes(
           return res.status(400).json({ message: 'Document is not in review status' });
         }
 
-        // Move to pending approval
-        const updated = await storage.updateDocument(documentId, {
+        // Move to pending approval and optionally set new approver
+        const updateData: any = {
           status: DocumentStatus.PENDING_APPROVAL,
-        });
+        };
+        
+        // If a new approver is selected, update the approver
+        const finalApproverId = approverId || doc.approverId;
+        if (approverId) {
+          updateData.approverId = approverId;
+        }
+
+        const updated = await storage.updateDocument(documentId, updateData);
 
         // Notify approver if set
-        if (doc.approverId) {
+        if (finalApproverId) {
           await storage.createNotification({
-            userId: doc.approverId,
+            userId: finalApproverId,
             title: 'Document Requires Approval',
             message: `Document "${doc.title}" (${doc.documentCode}) has been reviewed and requires your approval.`,
             urgencyLevel: 'high',

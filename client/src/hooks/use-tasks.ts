@@ -66,14 +66,16 @@ export function useDocumentTasksForDocument(documentId: number | null) {
 
 export function useCompleteTask() {
   return useMutation({
-    mutationFn: async ({ documentId, taskType, comments }: { 
+    mutationFn: async ({ documentId, taskType, comments, approverId }: { 
       documentId: number; 
       taskType: 'prepare' | 'review' | 'approve';
       comments?: string;
+      approverId?: number;
     }) => {
       const res = await apiRequest('POST', `/api/my-tasks/${documentId}/complete`, {
         taskType,
         comments,
+        approverId,
       });
       return res.json();
     },
