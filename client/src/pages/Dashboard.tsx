@@ -2,6 +2,7 @@ import { useDashboardStats, useComplianceAlerts, useRecentActivity } from "@/hoo
 import { useMyTasks, useCompleteTask, useAllDocumentTasks, usePokeTask } from "@/hooks/use-tasks";
 import { useUsers } from "@/hooks/use-users";
 import { useAuth } from "@/hooks/use-auth";
+import { useApproveEmployee, useRejectEmployee, useSubmitEmployeeForApproval } from "@/hooks/use-employees";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { 
@@ -150,6 +151,11 @@ export default function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
     },
   });
+  
+  // Employee approval mutations
+  const approveEmployeeMutation = useApproveEmployee();
+  const rejectEmployeeMutation = useRejectEmployee();
+  const submitEmployeeForApprovalMutation = useSubmitEmployeeForApproval();
 
   const [selectedTask, setSelectedTask] = useState<MyTask | null>(null);
   const [showTaskDialog, setShowTaskDialog] = useState(false);
@@ -1267,6 +1273,94 @@ export default function Dashboard() {
                 >
                   <Unlock className="w-4 h-4 mr-2" />
                   {approveAccessMutation.isPending ? "Granting..." : "Grant Access"}
+                </Button>
+              </>
+            ) : selectedTask?.taskType === 'employee_review' ? (
+              <>
+                <Button 
+                  variant="destructive"
+                  onClick={() => {
+                    if (selectedTask?.employeeId) {
+                      rejectEmployeeMutation.mutate({ id: selectedTask.employeeId, notes: taskComments || undefined }, {
+                        onSuccess: () => {
+                          toast({ title: "Employee Rejected", description: `Employee record for ${selectedTask.employeeName} has been rejected.` });
+                          setShowTaskDialog(false);
+                          queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+                        },
+                        onError: (error: Error) => {
+                          toast({ title: "Error", description: error.message, variant: "destructive" });
+                        },
+                      });
+                    }
+                  }}
+                  disabled={rejectEmployeeMutation.isPending}
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  {rejectEmployeeMutation.isPending ? "Rejecting..." : "Reject"}
+                </Button>
+                <Button 
+                  onClick={() => {
+                    if (selectedTask?.employeeId && currentUser) {
+                      submitEmployeeForApprovalMutation.mutate({ id: selectedTask.employeeId, approverId: currentUser.id, notes: taskComments || undefined }, {
+                        onSuccess: () => {
+                          toast({ title: "Review Complete", description: `Employee record for ${selectedTask.employeeName} has been submitted for approval.` });
+                          setShowTaskDialog(false);
+                          queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+                        },
+                        onError: (error: Error) => {
+                          toast({ title: "Error", description: error.message, variant: "destructive" });
+                        },
+                      });
+                    }
+                  }}
+                  disabled={submitEmployeeForApprovalMutation.isPending}
+                >
+                  <CheckCircle2 className="w-4 h-4 mr-2" />
+                  {submitEmployeeForApprovalMutation.isPending ? "Completing..." : "Complete Review"}
+                </Button>
+              </>
+            ) : selectedTask?.taskType === 'employee_approve' ? (
+              <>
+                <Button 
+                  variant="destructive"
+                  onClick={() => {
+                    if (selectedTask?.employeeId) {
+                      rejectEmployeeMutation.mutate({ id: selectedTask.employeeId, notes: taskComments || undefined }, {
+                        onSuccess: () => {
+                          toast({ title: "Employee Rejected", description: `Employee record for ${selectedTask.employeeName} has been rejected.` });
+                          setShowTaskDialog(false);
+                          queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+                        },
+                        onError: (error: Error) => {
+                          toast({ title: "Error", description: error.message, variant: "destructive" });
+                        },
+                      });
+                    }
+                  }}
+                  disabled={rejectEmployeeMutation.isPending}
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  {rejectEmployeeMutation.isPending ? "Rejecting..." : "Reject"}
+                </Button>
+                <Button 
+                  onClick={() => {
+                    if (selectedTask?.employeeId) {
+                      approveEmployeeMutation.mutate({ id: selectedTask.employeeId, notes: taskComments || undefined }, {
+                        onSuccess: () => {
+                          toast({ title: "Employee Approved", description: `Employee record for ${selectedTask.employeeName} has been approved.` });
+                          setShowTaskDialog(false);
+                          queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+                        },
+                        onError: (error: Error) => {
+                          toast({ title: "Error", description: error.message, variant: "destructive" });
+                        },
+                      });
+                    }
+                  }}
+                  disabled={approveEmployeeMutation.isPending}
+                >
+                  <CheckCircle2 className="w-4 h-4 mr-2" />
+                  {approveEmployeeMutation.isPending ? "Approving..." : "Approve Employee"}
                 </Button>
               </>
             ) : (
