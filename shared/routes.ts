@@ -333,7 +333,7 @@ export const api = {
         jobTitle: z.string().min(1),
         department: z.string().min(1),
         employmentType: z.enum([EmploymentType.FULL_TIME, EmploymentType.PART_TIME, EmploymentType.CONTRACT, EmploymentType.PROBATION]),
-        supervisorId: z.number().optional(),
+        supervisorId: z.number().nullable().optional(),
         hireDate: z.string(),
         status: z.enum([EmployeeStatus.ACTIVE, EmployeeStatus.INACTIVE, EmployeeStatus.ON_LEAVE, EmployeeStatus.TERMINATED]).optional(),
       }),

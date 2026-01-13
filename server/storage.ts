@@ -2,6 +2,7 @@ import { db } from "./db";
 import {
   users, documents, documentVersions, workflowLogs, notifications, auditLogs,
   employees, employeeTasks, downloadRequests, documentFeedback, documentTasks, taskPokes,
+  documentAccessRequests, documentAccess,
   type User, type InsertUser,
   type Document, type InsertDocument,
   type DocumentVersion, type InsertDocumentVersion,
@@ -14,8 +15,10 @@ import {
   type DocumentFeedback, type InsertDocumentFeedback,
   type DocumentTask, type InsertDocumentTask,
   type TaskPoke, type InsertTaskPoke,
+  type DocumentAccessRequest, type InsertDocumentAccessRequest,
+  type DocumentAccess, type InsertDocumentAccess,
   DocumentStatus, InductionStatus, TaskStatus, FeedbackStatus, DocumentTaskStatus,
-  EmployeeRecordStatus,
+  EmployeeRecordStatus, DocumentAccessRequestStatus,
 } from "@shared/schema";
 import { eq, desc, and, lt, gt, or, sql } from "drizzle-orm";
 import bcrypt from "bcrypt";
@@ -152,6 +155,18 @@ export interface IStorage {
     totalPoints: number;
     averageCompletionHours: number;
   }>;
+
+  // Document Access Requests
+  getDocumentAccessRequests(filters?: { documentId?: number; requesterId?: number; status?: string }): Promise<DocumentAccessRequest[]>;
+  getDocumentAccessRequest(id: number): Promise<DocumentAccessRequest | undefined>;
+  createDocumentAccessRequest(request: InsertDocumentAccessRequest): Promise<DocumentAccessRequest>;
+  updateDocumentAccessRequest(id: number, updates: Partial<DocumentAccessRequest>): Promise<DocumentAccessRequest>;
+
+  // Document Access (granted permissions)
+  getDocumentAccess(filters?: { documentId?: number; userId?: number }): Promise<DocumentAccess[]>;
+  hasDocumentAccess(documentId: number, userId: number): Promise<boolean>;
+  grantDocumentAccess(access: InsertDocumentAccess): Promise<DocumentAccess>;
+  revokeDocumentAccess(documentId: number, userId: number, revokedById: number): Promise<DocumentAccess | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -902,6 +917,114 @@ export class DatabaseStorage implements IStorage {
       totalPoints,
       averageCompletionHours,
     };
+  }
+
+  // ============================================
+  // DOCUMENT ACCESS REQUESTS
+  // ============================================
+  async getDocumentAccessRequests(filters?: { documentId?: number; requesterId?: number; status?: string }): Promise<DocumentAccessRequest[]> {
+    let query = db.select().from(documentAccessRequests);
+    const conditions = [];
+    
+    if (filters?.documentId) {
+      conditions.push(eq(documentAccessRequests.documentId, filters.documentId));
+    }
+    if (filters?.requesterId) {
+      conditions.push(eq(documentAccessRequests.requesterId, filters.requesterId));
+    }
+    if (filters?.status) {
+      conditions.push(eq(documentAccessRequests.status, filters.status));
+    }
+    
+    if (conditions.length > 0) {
+      return await db.select().from(documentAccessRequests)
+        .where(and(...conditions))
+        .orderBy(desc(documentAccessRequests.createdAt));
+    }
+    
+    return await db.select().from(documentAccessRequests)
+      .orderBy(desc(documentAccessRequests.createdAt));
+  }
+
+  async getDocumentAccessRequest(id: number): Promise<DocumentAccessRequest | undefined> {
+    const [request] = await db.select().from(documentAccessRequests)
+      .where(eq(documentAccessRequests.id, id));
+    return request;
+  }
+
+  async createDocumentAccessRequest(request: InsertDocumentAccessRequest): Promise<DocumentAccessRequest> {
+    const [created] = await db.insert(documentAccessRequests).values(request).returning();
+    return created;
+  }
+
+  async updateDocumentAccessRequest(id: number, updates: Partial<DocumentAccessRequest>): Promise<DocumentAccessRequest> {
+    const [updated] = await db.update(documentAccessRequests)
+      .set(updates)
+      .where(eq(documentAccessRequests.id, id))
+      .returning();
+    return updated;
+  }
+
+  // ============================================
+  // DOCUMENT ACCESS (Granted Permissions)
+  // ============================================
+  async getDocumentAccess(filters?: { documentId?: number; userId?: number }): Promise<DocumentAccess[]> {
+    const conditions = [];
+    
+    if (filters?.documentId) {
+      conditions.push(eq(documentAccess.documentId, filters.documentId));
+    }
+    if (filters?.userId) {
+      conditions.push(eq(documentAccess.userId, filters.userId));
+    }
+    // Only return non-revoked access
+    conditions.push(eq(documentAccess.isRevoked, false));
+    
+    return await db.select().from(documentAccess)
+      .where(and(...conditions))
+      .orderBy(desc(documentAccess.grantedAt));
+  }
+
+  async hasDocumentAccess(documentId: number, userId: number): Promise<boolean> {
+    const [access] = await db.select().from(documentAccess)
+      .where(and(
+        eq(documentAccess.documentId, documentId),
+        eq(documentAccess.userId, userId),
+        eq(documentAccess.isRevoked, false)
+      ));
+    return !!access;
+  }
+
+  async grantDocumentAccess(access: InsertDocumentAccess): Promise<DocumentAccess> {
+    // Check if access already exists
+    const existing = await db.select().from(documentAccess)
+      .where(and(
+        eq(documentAccess.documentId, access.documentId),
+        eq(documentAccess.userId, access.userId),
+        eq(documentAccess.isRevoked, false)
+      ));
+    
+    if (existing.length > 0) {
+      return existing[0];
+    }
+    
+    const [created] = await db.insert(documentAccess).values(access).returning();
+    return created;
+  }
+
+  async revokeDocumentAccess(documentId: number, userId: number, revokedById: number): Promise<DocumentAccess | undefined> {
+    const [revoked] = await db.update(documentAccess)
+      .set({ 
+        isRevoked: true, 
+        revokedAt: new Date() 
+      })
+      .where(and(
+        eq(documentAccess.documentId, documentId),
+        eq(documentAccess.userId, userId),
+        eq(documentAccess.isRevoked, false)
+      ))
+      .returning();
+    return revoked;
   }
 }
 
