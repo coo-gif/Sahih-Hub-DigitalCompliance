@@ -313,7 +313,7 @@ export default function Dashboard() {
           transition: stroke-dashoffset 1s ease-in-out;
         }
         .ticker-scroll {
-          animation: ticker 30s linear infinite;
+          animation: ticker 60s linear infinite;
         }
         @keyframes ticker {
           0% { transform: translateX(0); }
@@ -930,6 +930,7 @@ export default function Dashboard() {
               {tickerItems.map((log, idx) => (
                 <span key={idx} className="flex items-center gap-2 text-sm text-muted-foreground">
                   <span className="w-1.5 h-1.5 rounded-full bg-primary"></span>
+                  <span className="font-semibold text-foreground">{log.userName || 'System'}</span>
                   <span className="font-medium">{log.action.replace('_', ' ')}</span>
                   <span>on {log.entityType}</span>
                   <span className="text-xs opacity-70">
@@ -1073,7 +1074,7 @@ export default function Dashboard() {
                     <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate" data-testid={`text-activity-action-${log.id}`}>
-                        {log.action.replace('_', ' ')} on {log.entityType}
+                        <span className="text-primary">{log.userName || 'System'}</span> {log.action.replace('_', ' ')} on {log.entityType}
                       </p>
                       <p className="text-xs text-muted-foreground" data-testid={`text-activity-time-${log.id}`}>
                         {log.createdAt ? format(new Date(log.createdAt), 'MMM d, h:mm a') : ''}

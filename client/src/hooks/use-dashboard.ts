@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import type { DashboardStats, ComplianceAlert } from "@shared/routes";
 import type { AuditLog } from "@shared/schema";
 
+export type ActivityLog = AuditLog & { userName?: string };
+
 export function useDashboardStats() {
   return useQuery<DashboardStats>({
     queryKey: ['/api/dashboard/stats'],
@@ -15,7 +17,7 @@ export function useComplianceAlerts() {
 }
 
 export function useRecentActivity() {
-  return useQuery<AuditLog[]>({
+  return useQuery<ActivityLog[]>({
     queryKey: ['/api/dashboard/activity'],
   });
 }

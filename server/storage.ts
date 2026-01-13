@@ -64,7 +64,7 @@ export interface IStorage {
   markAllNotificationsRead(userId: number): Promise<number>;
 
   // Audit Logs
-  getAuditLogs(limit?: number): Promise<AuditLog[]>;
+  getAuditLogs(limit?: number): Promise<(AuditLog & { userName?: string })[]>;
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
 
   // Dashboard
@@ -345,10 +345,17 @@ export class DatabaseStorage implements IStorage {
   // ============================================
   // AUDIT LOGS
   // ============================================
-  async getAuditLogs(limit: number = 50): Promise<AuditLog[]> {
-    return await db.select().from(auditLogs)
+  async getAuditLogs(limit: number = 50): Promise<(AuditLog & { userName?: string })[]> {
+    const logs = await db.select()
+      .from(auditLogs)
+      .leftJoin(users, eq(auditLogs.userId, users.id))
       .orderBy(desc(auditLogs.createdAt))
       .limit(limit);
+    
+    return logs.map(row => ({
+      ...row.audit_logs,
+      userName: row.users?.name || undefined,
+    }));
   }
 
   async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
