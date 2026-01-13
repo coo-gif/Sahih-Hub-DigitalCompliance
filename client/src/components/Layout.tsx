@@ -54,7 +54,7 @@ const navItems: NavItem[] = [
   { href: "/users", label: "Users", icon: Users },
   { 
     href: "/hr", 
-    label: "HR", 
+    label: "HR dept", 
     icon: Network,
     canAccess: (user) => user.role === 'admin' || user.email === 'hr@sahihcertify.com'
   },
