@@ -9,98 +9,122 @@
   --font-display: 'Outfit', sans-serif;
   --font-sans: 'Inter', sans-serif;
 
-  /* Professional White & Maroon Theme */
-  --background: 0 0% 99%;
-  --foreground: 0 0% 10%;
+  /* Aqua Breeze Theme - Light & Fresh */
+  --background: 180 20% 98%;
+  --foreground: 200 25% 15%;
 
   --card: 0 0% 100%;
-  --card-foreground: 0 0% 10%;
-  --card-border: 0 0% 90%;
+  --card-foreground: 200 25% 15%;
+  --card-border: 180 20% 88%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 0 0% 10%;
-  --popover-border: 0 0% 90%;
+  --popover-foreground: 200 25% 15%;
+  --popover-border: 180 20% 88%;
 
-  /* Primary: Rich Maroon - Professional, Authoritative */
-  --primary: 345 80% 32%;
+  /* Primary: Aqua Blue - Fresh, Modern */
+  --primary: 188 65% 45%;
   --primary-foreground: 0 0% 100%;
+  --primary-dark: 188 70% 35%;
+  --primary-soft: 188 50% 92%;
 
-  --secondary: 345 15% 96%;
-  --secondary-foreground: 345 60% 25%;
+  --secondary: 168 25% 95%;
+  --secondary-foreground: 168 50% 30%;
 
-  --muted: 0 0% 96%;
-  --muted-foreground: 0 0% 45%;
+  --muted: 180 15% 95%;
+  --muted-foreground: 200 15% 45%;
 
-  --accent: 345 20% 95%;
-  --accent-foreground: 345 70% 28%;
+  --accent: 168 45% 93%;
+  --accent-foreground: 168 60% 30%;
+  --accent-soft: 168 40% 90%;
+  --accent-muted: 175 35% 75%;
 
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 100%;
 
-  --border: 0 0% 90%;
-  --input: 0 0% 90%;
-  --ring: 345 80% 32%;
+  --border: 180 20% 88%;
+  --input: 180 20% 88%;
+  --ring: 188 65% 45%;
 
-  /* Sidebar - Deep Maroon */
-  --sidebar: 345 75% 18%;
+  /* Gradient colors */
+  --gradient-start: 188 65% 45%;
+  --gradient-end: 168 55% 50%;
+  --gradient-soft-start: 188 50% 92%;
+  --gradient-soft-end: 168 45% 90%;
+
+  /* Sidebar - Gradient Aqua */
+  --sidebar: 188 55% 25%;
   --sidebar-foreground: 0 0% 98%;
-  --sidebar-border: 345 70% 25%;
-  --sidebar-primary: 345 50% 70%;
-  --sidebar-primary-foreground: 345 75% 12%;
-  --sidebar-accent: 345 70% 25%;
+  --sidebar-border: 188 50% 35%;
+  --sidebar-primary: 168 55% 70%;
+  --sidebar-primary-foreground: 188 60% 15%;
+  --sidebar-accent: 188 50% 32%;
   --sidebar-accent-foreground: 0 0% 98%;
-  --sidebar-ring: 345 50% 70%;
+  --sidebar-ring: 168 55% 70%;
 
-  /* Charts - Complementary Colors */
-  --chart-1: 345 80% 32%;
-  --chart-2: 345 60% 50%;
-  --chart-3: 35 85% 50%;
-  --chart-4: 173 58% 39%;
-  --chart-5: 220 60% 50%;
+  /* Charts - Aqua Spectrum */
+  --chart-1: 188 65% 45%;
+  --chart-2: 168 55% 50%;
+  --chart-3: 200 60% 55%;
+  --chart-4: 155 50% 45%;
+  --chart-5: 220 55% 55%;
+
+  --success: 155 60% 45%;
 
   --radius: 0.5rem;
 }
 
 .dark {
-  --background: 0 0% 7%;
-  --foreground: 0 0% 95%;
+  --background: 200 25% 8%;
+  --foreground: 180 15% 95%;
 
-  --card: 0 0% 10%;
-  --card-foreground: 0 0% 95%;
-  --card-border: 0 0% 18%;
+  --card: 200 20% 12%;
+  --card-foreground: 180 15% 95%;
+  --card-border: 200 20% 20%;
 
-  --popover: 0 0% 10%;
-  --popover-foreground: 0 0% 95%;
-  --popover-border: 0 0% 18%;
+  --popover: 200 20% 12%;
+  --popover-foreground: 180 15% 95%;
+  --popover-border: 200 20% 20%;
 
-  --primary: 345 70% 55%;
-  --primary-foreground: 0 0% 100%;
+  --primary: 188 70% 55%;
+  --primary-foreground: 200 30% 10%;
+  --primary-dark: 188 65% 45%;
+  --primary-soft: 188 40% 20%;
 
-  --secondary: 0 0% 15%;
-  --secondary-foreground: 0 0% 90%;
+  --secondary: 200 20% 18%;
+  --secondary-foreground: 180 20% 85%;
 
-  --muted: 0 0% 15%;
-  --muted-foreground: 0 0% 60%;
+  --muted: 200 15% 18%;
+  --muted-foreground: 180 15% 60%;
 
-  --accent: 345 30% 18%;
-  --accent-foreground: 345 50% 75%;
+  --accent: 168 35% 18%;
+  --accent-foreground: 168 50% 75%;
+  --accent-soft: 168 30% 15%;
+  --accent-muted: 175 25% 30%;
 
   --destructive: 0 62% 50%;
   --destructive-foreground: 0 0% 100%;
 
-  --border: 0 0% 18%;
-  --input: 0 0% 18%;
-  --ring: 345 70% 55%;
+  --border: 200 20% 20%;
+  --input: 200 20% 20%;
+  --ring: 188 70% 55%;
 
-  /* Sidebar dark */
-  --sidebar: 0 0% 5%;
-  --sidebar-foreground: 0 0% 95%;
-  --sidebar-border: 0 0% 15%;
-  --sidebar-primary: 345 70% 55%;
+  /* Gradient colors dark */
+  --gradient-start: 188 70% 55%;
+  --gradient-end: 168 60% 50%;
+  --gradient-soft-start: 188 40% 20%;
+  --gradient-soft-end: 168 35% 18%;
+
+  /* Sidebar dark - Aqua */
+  --sidebar: 200 30% 8%;
+  --sidebar-foreground: 180 15% 95%;
+  --sidebar-border: 200 25% 18%;
+  --sidebar-primary: 188 70% 55%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 345 40% 18%;
-  --sidebar-accent-foreground: 0 0% 95%;
-  --sidebar-ring: 345 70% 55%;
+  --sidebar-accent: 188 45% 20%;
+  --sidebar-accent-foreground: 180 15% 95%;
+  --sidebar-ring: 188 70% 55%;
+
+  --success: 155 55% 50%;
 }
 
 @layer base {
