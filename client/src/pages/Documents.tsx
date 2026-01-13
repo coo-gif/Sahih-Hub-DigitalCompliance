@@ -12,6 +12,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import TiptapEditor from "@/components/TiptapEditor";
 import DOMPurify from "dompurify";
 import {
@@ -341,99 +349,193 @@ export default function Documents() {
         </CardContent>
       </Card>
 
-      {/* Document Cards - responsive grid layout for all devices */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" data-testid="documents-card-list">
-        {isLoading ? (
-          Array.from({ length: 6 }).map((_, i) => (
-            <Card key={i} className="p-4">
-              <Skeleton className="h-6 w-3/4 mb-2" />
-              <Skeleton className="h-4 w-1/2 mb-3" />
-              <Skeleton className="h-4 w-1/3" />
-            </Card>
-          ))
-        ) : documents && documents.length > 0 ? (
-          documents.map((doc) => (
-            <Card key={doc.id} className="overflow-hidden" data-testid={`mobile-card-${doc.id}`}>
-              <button
-                onClick={() => openViewDialog(doc)}
-                className="w-full text-left p-4 hover:bg-muted/50 transition-colors active:bg-muted"
-                data-testid={`mobile-title-${doc.id}`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-mono text-sm text-muted-foreground">{doc.documentCode}</span>
+      {/* Document Table */}
+      <Card data-testid="documents-table-card">
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="p-4 space-y-4">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex gap-4">
+                  <Skeleton className="h-6 w-24" />
+                  <Skeleton className="h-6 flex-1" />
+                  <Skeleton className="h-6 w-16" />
+                  <Skeleton className="h-6 w-20" />
+                  <Skeleton className="h-6 w-16" />
+                  <Skeleton className="h-6 w-24" />
+                  <Skeleton className="h-6 w-32" />
+                </div>
+              ))}
+            </div>
+          ) : documents && documents.length > 0 ? (
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/50">
+                  <TableHead className="font-semibold">Code</TableHead>
+                  <TableHead className="font-semibold">Title</TableHead>
+                  <TableHead className="font-semibold">Category</TableHead>
+                  <TableHead className="font-semibold">Edition/Rev</TableHead>
+                  <TableHead className="font-semibold">Status</TableHead>
+                  <TableHead className="font-semibold">Review Date</TableHead>
+                  <TableHead className="font-semibold text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {documents.map((doc) => (
+                  <TableRow key={doc.id} data-testid={`table-row-${doc.id}`}>
+                    <TableCell className="font-mono text-sm" data-testid={`cell-code-${doc.id}`}>
+                      {doc.documentCode}
+                    </TableCell>
+                    <TableCell className="font-medium max-w-[200px] truncate" data-testid={`cell-title-${doc.id}`}>
+                      {doc.title}
+                    </TableCell>
+                    <TableCell data-testid={`cell-category-${doc.id}`}>
                       <Badge className={categoryColors[doc.category] || ""} variant="secondary">
                         {doc.category.toUpperCase()}
                       </Badge>
-                    </div>
-                    <h3 className="font-semibold text-base truncate">{doc.title}</h3>
-                    <div className="flex items-center gap-3 mt-2 text-sm text-muted-foreground">
-                      <span>Ed.{doc.editionNumber || 1} Rev.{doc.revisionNumber || 0}</span>
-                      <Badge className={statusColors[doc.status] || "bg-muted text-slate-700"} variant="secondary">
-                        {doc.status.replace('_', ' ')}
+                    </TableCell>
+                    <TableCell className="text-sm" data-testid={`cell-edition-${doc.id}`}>
+                      Ed.{doc.editionNumber || 1} Rev.{doc.revisionNumber || 0}
+                    </TableCell>
+                    <TableCell data-testid={`cell-status-${doc.id}`}>
+                      <Badge 
+                        className={
+                          doc.status === "draft" ? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" :
+                          doc.status === "in_review" ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" :
+                          doc.status === "pending_approval" ? "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300" :
+                          doc.status === "approved" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300" :
+                          doc.status === "obsolete" ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300" :
+                          "bg-muted text-muted-foreground"
+                        } 
+                        variant="secondary"
+                      >
+                        {doc.status === "in_review" ? "In Review" :
+                         doc.status === "pending_approval" ? "Pending Approval" :
+                         doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
                       </Badge>
-                    </div>
-                  </div>
-                  <Eye className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-1" />
-                </div>
-              </button>
-              <div className="border-t px-4 py-3 flex items-center justify-between bg-muted/30">
-                <span className="text-xs text-muted-foreground">
-                  {doc.nextReviewDate 
-                    ? `Review: ${format(new Date(doc.nextReviewDate), "MMM d, yyyy")}`
-                    : "No review date"
-                  }
-                </span>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" className="h-10 px-4" data-testid={`mobile-actions-${doc.id}`}>
-                      <MoreHorizontal className="w-4 h-4 mr-2" />
-                      Actions
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => openViewDialog(doc)}>
-                      <Eye className="w-4 h-4 mr-2" /> View Document
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => navigate(`/documents/${doc.id}/edit`)}>
-                      <Pencil className="w-4 h-4 mr-2" /> Edit
-                    </DropdownMenuItem>
-                    {doc.status === "draft" && (
-                      <DropdownMenuItem onClick={() => openSubmitReviewDialog(doc)} data-testid={`submit-review-${doc.id}`}>
-                        <Send className="w-4 h-4 mr-2" /> Submit for Review
-                      </DropdownMenuItem>
-                    )}
-                    <DropdownMenuSeparator />
-                    {doc.finalPdfUrl ? (
-                      <DropdownMenuItem onClick={() => handleViewPdf(doc)}>
-                        <FileDown className="w-4 h-4 mr-2" /> View Final Draft
-                      </DropdownMenuItem>
-                    ) : (
-                      <DropdownMenuItem onClick={() => handleGeneratePdf(doc)}>
-                        <FileDown className="w-4 h-4 mr-2" /> Generate PDF
-                      </DropdownMenuItem>
-                    )}
-                    {doc.downloadRequiresApproval && (
-                      <DropdownMenuItem onClick={() => handleRequestDownload(doc)}>
-                        <Download className="w-4 h-4 mr-2" /> Request Download
-                      </DropdownMenuItem>
-                    )}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => openDeleteDialog(doc)} className="text-red-600">
-                      <Trash2 className="w-4 h-4 mr-2" /> Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </Card>
-          ))
-        ) : (
-          <Card className="p-8 text-center text-muted-foreground col-span-full">
-            No documents found
-          </Card>
-        )}
-      </div>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground" data-testid={`cell-review-${doc.id}`}>
+                      {doc.nextReviewDate 
+                        ? format(new Date(doc.nextReviewDate), "MMM d, yyyy")
+                        : "-"
+                      }
+                    </TableCell>
+                    <TableCell className="text-right" data-testid={`cell-actions-${doc.id}`}>
+                      <div className="flex items-center justify-end gap-1 flex-wrap">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openViewDialog(doc)}
+                          data-testid={`button-view-${doc.id}`}
+                        >
+                          <Eye className="w-4 h-4 mr-1" />
+                          View
+                        </Button>
+                        
+                        {doc.status === "draft" && (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => navigate(`/documents/${doc.id}/edit`)}
+                              data-testid={`button-edit-${doc.id}`}
+                            >
+                              <Pencil className="w-4 h-4 mr-1" />
+                              Edit
+                            </Button>
+                            <Button
+                              variant="default"
+                              size="sm"
+                              onClick={() => openSubmitReviewDialog(doc)}
+                              data-testid={`button-submit-review-${doc.id}`}
+                            >
+                              <Send className="w-4 h-4 mr-1" />
+                              Submit
+                            </Button>
+                          </>
+                        )}
+                        
+                        {(doc.status === "in_review" || doc.status === "pending_approval") && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleViewPdf(doc)}
+                            data-testid={`button-pdf-${doc.id}`}
+                          >
+                            <FileDown className="w-4 h-4 mr-1" />
+                            PDF
+                          </Button>
+                        )}
+                        
+                        {doc.status === "approved" && (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleViewPdf(doc)}
+                              data-testid={`button-view-pdf-${doc.id}`}
+                            >
+                              <FileDown className="w-4 h-4 mr-1" />
+                              View PDF
+                            </Button>
+                            {doc.downloadRequiresApproval ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleRequestDownload(doc)}
+                                data-testid={`button-request-download-${doc.id}`}
+                              >
+                                <Download className="w-4 h-4 mr-1" />
+                                Request
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleViewPdf(doc)}
+                                data-testid={`button-download-${doc.id}`}
+                              >
+                                <Download className="w-4 h-4 mr-1" />
+                                Download
+                              </Button>
+                            )}
+                          </>
+                        )}
+                        
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" data-testid={`button-more-${doc.id}`}>
+                              <MoreHorizontal className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {doc.finalPdfUrl ? (
+                              <DropdownMenuItem onClick={() => handleViewPdf(doc)}>
+                                <FileDown className="w-4 h-4 mr-2" /> View Final Draft
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem onClick={() => handleGeneratePdf(doc)}>
+                                <FileDown className="w-4 h-4 mr-2" /> Generate PDF
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => openDeleteDialog(doc)} className="text-red-600">
+                              <Trash2 className="w-4 h-4 mr-2" /> Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <div className="p-8 text-center text-muted-foreground">
+              No documents found
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Create Document Dialog */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
