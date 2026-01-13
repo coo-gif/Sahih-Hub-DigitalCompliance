@@ -262,6 +262,40 @@ export const downloadRequests = pgTable("download_requests", {
 });
 
 // ============================================
+// DOCUMENT ACCESS REQUESTS
+// ============================================
+export const DocumentAccessRequestStatus = {
+  PENDING: "pending",
+  APPROVED: "approved",
+  REJECTED: "rejected",
+} as const;
+
+export const documentAccessRequests = pgTable("document_access_requests", {
+  id: serial("id").primaryKey(),
+  documentId: integer("document_id").notNull(),
+  requesterId: integer("requester_id").notNull(),
+  status: text("status").notNull().default(DocumentAccessRequestStatus.PENDING),
+  requestReason: text("request_reason"),
+  decidedById: integer("decided_by_id"),
+  decidedAt: timestamp("decided_at"),
+  decisionNote: text("decision_note"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// ============================================
+// DOCUMENT ACCESS (Who has access to view approved documents)
+// ============================================
+export const documentAccess = pgTable("document_access", {
+  id: serial("id").primaryKey(),
+  documentId: integer("document_id").notNull(),
+  userId: integer("user_id").notNull(),
+  grantedById: integer("granted_by_id").notNull(),
+  grantedAt: timestamp("granted_at").defaultNow(),
+  revokedAt: timestamp("revoked_at"),
+  isRevoked: boolean("is_revoked").default(false),
+});
+
+// ============================================
 // TASK POKES (Buzz/Reminder Notifications)
 // ============================================
 export const taskPokes = pgTable("task_pokes", {
@@ -512,6 +546,18 @@ export const insertTaskPokeSchema = createInsertSchema(taskPokes).omit({
   createdAt: true,
 });
 
+export const insertDocumentAccessRequestSchema = createInsertSchema(documentAccessRequests).omit({ 
+  id: true, 
+  createdAt: true,
+  decidedAt: true,
+});
+
+export const insertDocumentAccessSchema = createInsertSchema(documentAccess).omit({ 
+  id: true, 
+  grantedAt: true,
+  revokedAt: true,
+});
+
 // ============================================
 // TYPES
 // ============================================
@@ -550,6 +596,12 @@ export type InsertDocumentTask = z.infer<typeof insertDocumentTaskSchema>;
 
 export type TaskPoke = typeof taskPokes.$inferSelect;
 export type InsertTaskPoke = z.infer<typeof insertTaskPokeSchema>;
+
+export type DocumentAccessRequest = typeof documentAccessRequests.$inferSelect;
+export type InsertDocumentAccessRequest = z.infer<typeof insertDocumentAccessRequestSchema>;
+
+export type DocumentAccess = typeof documentAccess.$inferSelect;
+export type InsertDocumentAccess = z.infer<typeof insertDocumentAccessSchema>;
 
 // ============================================
 // API REQUEST/RESPONSE TYPES
