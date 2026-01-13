@@ -75,7 +75,7 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
           <img 
             src={sahihLogoPath} 
             alt="Sahih Certifications" 
-            className="h-[260px] w-auto object-contain"
+            className="h-60 w-auto object-contain"
           />
           <div className="text-center">
             <span className="font-bold text-lg tracking-tight text-[#7A0C1A]">Sahih Hub</span>
