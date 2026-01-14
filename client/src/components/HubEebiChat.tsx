@@ -217,7 +217,7 @@ export function HubEebiChat() {
         data-testid="button-open-hubeebi-chat"
       >
         <div className="h-8 w-6 overflow-hidden">
-          <img src={dailyOutfit} alt="Hub-eebi" className="h-full w-full object-contain mix-blend-screen" />
+          <img src={dailyOutfit} alt="Hub-eebi" className="h-full w-full object-contain" />
         </div>
         <span className="font-medium text-sm">Chat with Hub-eebi</span>
         <MessageCircle className="w-5 h-5" />
@@ -235,7 +235,7 @@ export function HubEebiChat() {
             <div className="bg-gradient-to-r from-cyan-500 to-teal-500 p-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="h-12 w-10 bg-white/20 rounded-lg overflow-hidden">
-                  <img src={dailyOutfit} alt="Hub-eebi" className="h-full w-full object-contain mix-blend-screen" />
+                  <img src={dailyOutfit} alt="Hub-eebi" className="h-full w-full object-contain" />
                 </div>
                 <div>
                   <h3 className="font-bold text-white">Hub-eebi</h3>
@@ -284,7 +284,7 @@ export function HubEebiChat() {
                       >
                         {msg.type === 'hubeebi' && (
                           <div className="h-8 w-6 flex-shrink-0 overflow-hidden rounded bg-muted">
-                            <img src={dailyOutfit} alt="Hub-eebi" className="h-full w-full object-contain mix-blend-multiply dark:mix-blend-screen" />
+                            <img src={dailyOutfit} alt="Hub-eebi" className="h-full w-full object-contain" />
                           </div>
                         )}
                         <div

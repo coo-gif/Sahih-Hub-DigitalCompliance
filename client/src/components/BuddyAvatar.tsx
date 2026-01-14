@@ -90,31 +90,17 @@ export function HubEebiFullBody({ className }: { className?: string }) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <motion.div
-        className="relative"
-        animate={
-          compliance.score < 60
-            ? { y: [0, -5, 0] }
-            : compliance.score >= 90
-            ? { scale: [1, 1.02, 1] }
-            : {}
-        }
-        transition={{ repeat: Infinity, duration: 2 }}
-      >
+      <div className="relative">
         <img 
           src={dailyOutfit} 
           alt="Hub-eebi" 
-          className="h-32 sm:h-40 lg:h-48 w-auto object-contain drop-shadow-lg mix-blend-multiply dark:mix-blend-screen"
+          className="h-32 sm:h-40 lg:h-48 w-auto object-contain drop-shadow-lg"
         />
         
         {compliance.score >= 90 && (
-          <motion.div
-            className="absolute -top-2 left-1/2 -translate-x-1/2"
-            animate={{ scale: [1, 1.3, 1], rotate: [0, 10, -10, 0] }}
-            transition={{ repeat: Infinity, duration: 1.5 }}
-          >
+          <div className="absolute -top-2 left-1/2 -translate-x-1/2">
             <Sparkles className="h-6 w-6 text-yellow-400 drop-shadow-lg" />
-          </motion.div>
+          </div>
         )}
         
         <div className={cn(
@@ -130,7 +116,7 @@ export function HubEebiFullBody({ className }: { className?: string }) {
             <AlertCircle className="w-3.5 h-3.5 text-white" />
           )}
         </div>
-      </motion.div>
+      </div>
       
       <div className="mt-2 text-center">
         <p className="font-bold text-sm text-white drop-shadow-md">Hub-eebi</p>
@@ -213,50 +199,32 @@ export function BuddyAvatar({ compact = false }: { compact?: boolean }) {
 
   if (compact) {
     return (
-      <motion.div
-        className="relative"
-        animate={compliance.score < 60 ? { scale: [1, 1.05, 1] } : {}}
-        transition={{ repeat: Infinity, duration: 2 }}
-      >
-        <div className={cn("h-12 w-10 overflow-hidden", compliance.score < 70 && "animate-pulse")}>
-          <img src={dailyOutfit} alt="Hub-eebi" className="h-full w-full object-contain mix-blend-multiply dark:mix-blend-screen" />
+      <div className="relative">
+        <div className="h-12 w-10 overflow-hidden">
+          <img src={dailyOutfit} alt="Hub-eebi" className="h-full w-full object-contain" />
         </div>
         {pendingDialogues.length > 0 && (
           <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
             {pendingDialogues.length}
           </span>
         )}
-      </motion.div>
+      </div>
     );
   }
 
   return (
     <div className="p-3 space-y-3">
       <div className="flex items-start gap-3">
-        <motion.div
-          className="relative flex-shrink-0"
-          animate={
-            compliance.score < 60
-              ? { y: [0, -3, 0] }
-              : compliance.score >= 90
-              ? { scale: [1, 1.03, 1] }
-              : {}
-          }
-          transition={{ repeat: Infinity, duration: compliance.score < 60 ? 1.5 : 2 }}
-        >
+        <div className="relative flex-shrink-0">
           <div className={cn("h-20 w-16 overflow-hidden rounded-lg border-2 bg-gradient-to-b from-sidebar/80 to-sidebar/40 shadow-lg", getBorderColor())}>
-            <img src={dailyOutfit} alt="Hub-eebi" className="h-full w-full object-contain mix-blend-multiply dark:mix-blend-screen" />
+            <img src={dailyOutfit} alt="Hub-eebi" className="h-full w-full object-contain" />
           </div>
           {compliance.score >= 90 && (
-            <motion.div
-              className="absolute -top-2 -right-2"
-              animate={{ scale: [1, 1.2, 1], rotate: [0, 15, -15, 0] }}
-              transition={{ repeat: Infinity, duration: 2 }}
-            >
+            <div className="absolute -top-2 -right-2">
               <Sparkles className="h-5 w-5 text-yellow-400 drop-shadow" />
-            </motion.div>
+            </div>
           )}
-        </motion.div>
+        </div>
 
         <div className="flex-1 min-w-0">
           <h4 className="font-bold text-sm truncate">{buddyName}</h4>
