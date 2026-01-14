@@ -3,6 +3,7 @@ import { useMyTasks, useCompleteTask } from "@/hooks/use-tasks";
 import { useUsers, useActiveUsers, useActivityHeartbeat } from "@/hooks/use-users";
 import { useAuth } from "@/hooks/use-auth";
 import { useApproveEmployee, useRejectEmployee, useSubmitEmployeeForApproval } from "@/hooks/use-employees";
+import { useDocuments } from "@/hooks/use-documents";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { 
@@ -762,6 +763,7 @@ export default function Dashboard() {
   const { data: allUsers } = useUsers();
   const { data: currentUser } = useAuth();
   const { data: activeUsers } = useActiveUsers();
+  const { data: allDocuments, isLoading: documentsLoading } = useDocuments();
   const heartbeatMutation = useActivityHeartbeat();
   
   // Send activity heartbeat every 5 minutes
@@ -868,6 +870,7 @@ export default function Dashboard() {
   const [showEmployeeReassignDialog, setShowEmployeeReassignDialog] = useState(false);
   const [employeeReassigneeId, setEmployeeReassigneeId] = useState<string>("");
   const [employeeReassignComment, setEmployeeReassignComment] = useState("");
+  const [complianceTab, setComplianceTab] = useState<"overview" | "completed" | "pending">("overview");
 
   // Get CEO user for default approver
   const ceoUser = useMemo(() => allUsers?.find(u => u.email === 'ceo@sahihcertify.com'), [allUsers]);
@@ -900,6 +903,13 @@ export default function Dashboard() {
     if (!stats?.totalDocuments) return 0;
     return Math.round(((stats.approvedDocuments || 0) / stats.totalDocuments) * 100);
   }, [stats]);
+
+  const documentBreakdown = useMemo(() => {
+    if (!allDocuments) return { completed: [], pending: [] };
+    const completed = allDocuments.filter(d => d.status === 'approved');
+    const pending = allDocuments.filter(d => d.status !== 'approved');
+    return { completed, pending };
+  }, [allDocuments]);
 
   const gradientId = useId();
   
@@ -2527,145 +2537,238 @@ export default function Dashboard() {
       </Dialog>
 
       {/* My Performance & Compliance Dialog */}
-      <Dialog open={showComplianceDialog} onOpenChange={setShowComplianceDialog}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+      <Dialog open={showComplianceDialog} onOpenChange={(open) => {
+        setShowComplianceDialog(open);
+        if (!open) setComplianceTab("overview");
+      }}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader className="bg-gradient-to-r from-primary to-primary/80 -mx-6 -mt-6 px-6 py-5 rounded-t-lg">
             <DialogTitle className="flex items-center gap-2 text-white text-xl">
               <Award className="w-6 h-6" />
-              My Performance
+              Compliance Dashboard
             </DialogTitle>
             <DialogDescription className="text-white/80">
-              Your personal metrics and team compliance overview
+              Track all documents - completed and pending
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex-1 overflow-y-auto space-y-6 py-4">
-            <div className="text-center p-4 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20">
-              <p className="text-sm text-muted-foreground mb-1">Overall Compliance Score</p>
-              <div className="text-5xl font-bold text-primary">{complianceScore}%</div>
-              <div className="flex justify-center gap-1 mt-2">
-                {[...Array(5)].map((_, i) => (
-                  <div 
-                    key={i} 
-                    className={`w-8 h-2 rounded-full ${i < Math.ceil(complianceScore / 20) ? 'bg-primary' : 'bg-muted'}`}
-                  />
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <h4 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
-                <Target className="w-4 h-4" />
-                My Task Performance
-              </h4>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-center">
-                  <ClipboardList className="w-6 h-6 text-blue-600 mx-auto mb-2" />
-                  <p className="text-2xl font-bold text-blue-600">{myTasks?.length || 0}</p>
-                  <p className="text-xs text-muted-foreground">Pending Tasks</p>
-                </div>
-                <div className="p-4 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 text-center">
-                  <FilePen className="w-6 h-6 text-purple-600 mx-auto mb-2" />
-                  <p className="text-2xl font-bold text-purple-600">
-                    {myTasks?.filter(t => t.taskType === 'prepare').length || 0}
-                  </p>
-                  <p className="text-xs text-muted-foreground">To Prepare</p>
-                </div>
-                <div className="p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-center">
-                  <FileCheck className="w-6 h-6 text-amber-600 mx-auto mb-2" />
-                  <p className="text-2xl font-bold text-amber-600">
-                    {myTasks?.filter(t => t.taskType === 'review').length || 0}
-                  </p>
-                  <p className="text-xs text-muted-foreground">To Review</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3 mt-3">
-                <div className="p-4 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-center">
-                  <FileSignature className="w-6 h-6 text-emerald-600 mx-auto mb-2" />
-                  <p className="text-2xl font-bold text-emerald-600">
-                    {myTasks?.filter(t => t.taskType === 'approve').length || 0}
-                  </p>
-                  <p className="text-xs text-muted-foreground">To Approve</p>
-                </div>
-                <div className="p-4 rounded-lg bg-pink-50 dark:bg-pink-900/20 border border-pink-200 dark:border-pink-800 text-center">
-                  <Download className="w-6 h-6 text-pink-600 mx-auto mb-2" />
-                  <p className="text-2xl font-bold text-pink-600">
-                    {myTasks?.filter(t => t.taskType === 'download_approval' || t.taskType === 'access_approval').length || 0}
-                  </p>
-                  <p className="text-xs text-muted-foreground">Access Requests</p>
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <h4 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
+          <Tabs value={complianceTab} onValueChange={(v) => setComplianceTab(v as typeof complianceTab)} className="mt-4">
+            <TabsList className="grid grid-cols-3 w-full">
+              <TabsTrigger value="overview" className="flex items-center gap-2">
                 <BarChart3 className="w-4 h-4" />
-                Team Document Status
-              </h4>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
-                  <div className="flex items-center gap-2 mb-2">
-                    <CheckCircle2 className="w-5 h-5 text-green-600" />
-                    <span className="font-medium text-green-700 dark:text-green-400">Approved</span>
-                  </div>
-                  <p className="text-3xl font-bold text-green-600">{stats?.approvedDocuments || 0}</p>
-                  <p className="text-xs text-muted-foreground">Documents</p>
-                </div>
-                
-                <div className="p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Clock className="w-5 h-5 text-amber-600" />
-                    <span className="font-medium text-amber-700 dark:text-amber-400">Pending</span>
-                  </div>
-                  <p className="text-3xl font-bold text-amber-600">{stats?.pendingApprovals || 0}</p>
-                  <p className="text-xs text-muted-foreground">Awaiting Approval</p>
-                </div>
-                
-                <div className="p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
-                  <div className="flex items-center gap-2 mb-2">
-                    <AlertTriangle className="w-5 h-5 text-yellow-600" />
-                    <span className="font-medium text-yellow-700 dark:text-yellow-400">Expiring Soon</span>
-                  </div>
-                  <p className="text-3xl font-bold text-yellow-600">{stats?.expiringDocuments || 0}</p>
-                  <p className="text-xs text-muted-foreground">Within 30 Days</p>
-                </div>
-                
-                <div className="p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-                  <div className="flex items-center gap-2 mb-2">
-                    <AlertCircle className="w-5 h-5 text-red-600" />
-                    <span className="font-medium text-red-700 dark:text-red-400">Non-Compliant</span>
-                  </div>
-                  <p className="text-3xl font-bold text-red-600">{stats?.nonCompliantDocuments || 0}</p>
-                  <p className="text-xs text-muted-foreground">Overdue Review</p>
-                </div>
-              </div>
-            </div>
+                Overview
+              </TabsTrigger>
+              <TabsTrigger value="completed" className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4" />
+                Completed ({documentBreakdown.completed.length})
+              </TabsTrigger>
+              <TabsTrigger value="pending" className="flex items-center gap-2">
+                <Clock className="w-4 h-4" />
+                Pending ({documentBreakdown.pending.length})
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
 
-            <div className="p-4 rounded-lg bg-muted">
-              <h4 className="font-medium mb-2 flex items-center gap-2">
-                <FileText className="w-4 h-4" />
-                Quick Summary
-              </h4>
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Total Documents:</span>
-                  <span className="font-medium">{stats?.totalDocuments || 0}</span>
+          <div className="flex-1 overflow-y-auto py-4">
+            {complianceTab === "overview" && (
+              <div className="space-y-6">
+                <div className="text-center p-4 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20">
+                  <p className="text-sm text-muted-foreground mb-1">Overall Compliance Score</p>
+                  <div className="text-5xl font-bold text-primary">{complianceScore}%</div>
+                  <div className="flex justify-center gap-1 mt-2">
+                    {[...Array(5)].map((_, i) => (
+                      <div 
+                        key={i} 
+                        className={`w-8 h-2 rounded-full ${i < Math.ceil(complianceScore / 20) ? 'bg-primary' : 'bg-muted'}`}
+                      />
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-3">
+                    {documentBreakdown.completed.length} of {allDocuments?.length || 0} documents approved
+                  </p>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">My Pending:</span>
-                  <span className="font-medium">{myTasks?.length || 0}</span>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div 
+                    className="p-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 cursor-pointer hover:shadow-md transition-all"
+                    onClick={() => setComplianceTab("completed")}
+                    data-testid="card-completed-documents"
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle2 className="w-5 h-5 text-green-600" />
+                      <span className="font-medium text-green-700 dark:text-green-400">Completed</span>
+                    </div>
+                    <p className="text-3xl font-bold text-green-600">{documentBreakdown.completed.length}</p>
+                    <p className="text-xs text-muted-foreground">Click to view list</p>
+                  </div>
+                  
+                  <div 
+                    className="p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 cursor-pointer hover:shadow-md transition-all"
+                    onClick={() => setComplianceTab("pending")}
+                    data-testid="card-pending-documents"
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <Clock className="w-5 h-5 text-amber-600" />
+                      <span className="font-medium text-amber-700 dark:text-amber-400">Pending</span>
+                    </div>
+                    <p className="text-3xl font-bold text-amber-600">{documentBreakdown.pending.length}</p>
+                    <p className="text-xs text-muted-foreground">Click to view & complete</p>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
+                    <Target className="w-4 h-4" />
+                    My Pending Tasks
+                  </h4>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="p-3 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 text-center">
+                      <FilePen className="w-5 h-5 text-purple-600 mx-auto mb-1" />
+                      <p className="text-xl font-bold text-purple-600">
+                        {myTasks?.filter(t => t.taskType === 'prepare').length || 0}
+                      </p>
+                      <p className="text-xs text-muted-foreground">To Prepare</p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-center">
+                      <FileCheck className="w-5 h-5 text-amber-600 mx-auto mb-1" />
+                      <p className="text-xl font-bold text-amber-600">
+                        {myTasks?.filter(t => t.taskType === 'review').length || 0}
+                      </p>
+                      <p className="text-xs text-muted-foreground">To Review</p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-center">
+                      <FileSignature className="w-5 h-5 text-emerald-600 mx-auto mb-1" />
+                      <p className="text-xl font-bold text-emerald-600">
+                        {myTasks?.filter(t => t.taskType === 'approve').length || 0}
+                      </p>
+                      <p className="text-xs text-muted-foreground">To Approve</p>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
+
+            {complianceTab === "completed" && (
+              <div className="space-y-3">
+                {documentsLoading ? (
+                  <div className="space-y-2">
+                    {[1, 2, 3].map(i => (
+                      <Skeleton key={i} className="h-16 w-full" />
+                    ))}
+                  </div>
+                ) : documentBreakdown.completed.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <CheckCircle2 className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                    <p>No completed documents yet</p>
+                  </div>
+                ) : (
+                  documentBreakdown.completed.map((doc) => (
+                    <div 
+                      key={doc.id}
+                      className="p-3 rounded-lg border bg-green-50/50 dark:bg-green-900/10 border-green-200 dark:border-green-800/50 cursor-pointer hover:shadow-md transition-all group"
+                      onClick={() => {
+                        setShowComplianceDialog(false);
+                        navigate(`/documents`);
+                      }}
+                      data-testid={`completed-doc-${doc.id}`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30">
+                            <CheckCircle2 className="w-4 h-4 text-green-600" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-medium text-sm truncate">{doc.title}</p>
+                            <p className="text-xs text-muted-foreground">{doc.documentCode}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="bg-green-100 text-green-700 border-green-300 dark:bg-green-900/30 dark:text-green-400 dark:border-green-700">
+                            Approved
+                          </Badge>
+                          <ArrowRight className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {complianceTab === "pending" && (
+              <div className="space-y-3">
+                {documentsLoading ? (
+                  <div className="space-y-2">
+                    {[1, 2, 3].map(i => (
+                      <Skeleton key={i} className="h-16 w-full" />
+                    ))}
+                  </div>
+                ) : documentBreakdown.pending.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <CheckCircle2 className="w-12 h-12 mx-auto mb-3 text-green-500" />
+                    <p className="font-medium text-green-600">All documents are completed!</p>
+                    <p className="text-sm">100% compliance achieved</p>
+                  </div>
+                ) : (
+                  documentBreakdown.pending.map((doc) => {
+                    const statusColors: Record<string, string> = {
+                      draft: 'bg-gray-100 text-gray-700 border-gray-300 dark:bg-gray-900/30 dark:text-gray-400',
+                      in_review: 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-400',
+                      pending_approval: 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-400',
+                      rejected: 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/30 dark:text-red-400',
+                    };
+                    const statusLabels: Record<string, string> = {
+                      draft: 'Draft',
+                      in_review: 'In Review',
+                      pending_approval: 'Pending Approval',
+                      rejected: 'Rejected',
+                    };
+                    return (
+                      <div 
+                        key={doc.id}
+                        className="p-3 rounded-lg border hover:border-primary cursor-pointer hover:shadow-md transition-all group"
+                        onClick={() => {
+                          setShowComplianceDialog(false);
+                          navigate(`/documents`);
+                        }}
+                        data-testid={`pending-doc-${doc.id}`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="p-2 rounded-lg bg-amber-100 dark:bg-amber-900/30">
+                              <Clock className="w-4 h-4 text-amber-600" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-medium text-sm truncate">{doc.title}</p>
+                              <p className="text-xs text-muted-foreground">{doc.documentCode}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className={statusColors[doc.status] || ''}>
+                              {statusLabels[doc.status] || doc.status}
+                            </Badge>
+                            <ArrowRight className="w-4 h-4 text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
           </div>
 
-          <DialogFooter className="border-t pt-4">
+          <DialogFooter className="border-t pt-4 flex-wrap gap-2">
             <Button variant="outline" onClick={() => setShowComplianceDialog(false)}>
               Close
             </Button>
+            <Button variant="outline" onClick={() => { setShowComplianceDialog(false); navigate("/documents"); }}>
+              <FileText className="w-4 h-4 mr-2" />
+              All Documents
+            </Button>
             <Button onClick={() => { setShowComplianceDialog(false); navigate("/tasks"); }}>
               <ClipboardList className="w-4 h-4 mr-2" />
-              View My Tasks
+              My Tasks
             </Button>
           </DialogFooter>
         </DialogContent>
