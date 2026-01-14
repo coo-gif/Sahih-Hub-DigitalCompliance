@@ -29,6 +29,7 @@ import {
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
+import sahihCertifyBanner from "@assets/WhatsApp_Image_2026-01-14_at_14.49.11_(1)_1768391647558.jpeg";
 import { BuddySidebarWidget } from "@/components/BuddyAvatar";
 
 interface LayoutProps {
@@ -153,9 +154,8 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
                 <SidebarContent />
               </SheetContent>
             </Sheet>
-            <div className="flex items-center gap-3">
-              <img src={sahihLogoPath} alt="Logo" className="h-16 w-16 object-contain" />
-              <span className="font-extrabold text-3xl text-primary">Sahih-Hub</span>
+            <div className="flex items-center">
+              <img src={sahihCertifyBanner} alt="Sahih Certifications" className="h-20 sm:h-24 object-contain" />
             </div>
           </div>
 
