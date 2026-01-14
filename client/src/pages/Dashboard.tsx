@@ -26,6 +26,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { 
   FileText, 
@@ -525,6 +526,206 @@ Certification bodies must implement their own management system to ensure consis
   },
 ];
 
+interface QuizQuestion {
+  question: string;
+  options: string[];
+  correctAnswer: number;
+  explanation: string;
+}
+
+const clauseQuizzes: Record<string, QuizQuestion[]> = {
+  "4.1": [
+    {
+      question: "According to ISO 17021-1:2015 Clause 4.1, which principle forms the absolute foundation of certification body credibility?",
+      options: ["Efficiency in operations", "Impartiality and objectivity", "Speed of certification decisions", "Client satisfaction ratings"],
+      correctAnswer: 1,
+      explanation: "Impartiality and objectivity are the foundational principles that ensure trust and reliability in certification processes."
+    },
+    {
+      question: "What must certification decisions be based upon according to Clause 4.1?",
+      options: ["Auditor subjective assessment", "Client payment status", "Objective evidence of conformity", "Industry reputation"],
+      correctAnswer: 2,
+      explanation: "Decisions must be based on objective evidence of conformity, not subjective factors or commercial considerations."
+    },
+    {
+      question: "Which of the following is NOT a requirement under Clause 4.1 General Principles?",
+      options: ["Consistency in certification process", "Transparency in operations", "Guaranteed certification within 30 days", "Fairness to all applicants"],
+      correctAnswer: 2,
+      explanation: "There is no requirement for guaranteed certification timelines. The focus is on consistency, fairness, and transparency."
+    }
+  ],
+  "4.2": [
+    {
+      question: "Under Clause 4.2, threats to impartiality must be:",
+      options: ["Reported annually to accreditation bodies", "Identified and managed on an ongoing basis", "Disclosed only if discovered by auditors", "Addressed only when clients complain"],
+      correctAnswer: 1,
+      explanation: "Threats to impartiality must be identified and managed continuously, not just periodically or reactively."
+    },
+    {
+      question: "Which type of threat occurs when a CB audits work it previously consulted on?",
+      options: ["Intimidation threat", "Advocacy threat", "Self-review threat", "Familiarity threat"],
+      correctAnswer: 2,
+      explanation: "Self-review threat occurs when auditing your own previous consultancy work, creating conflict of interest."
+    },
+    {
+      question: "What governance body is required to safeguard impartiality under ISO 17021?",
+      options: ["Technical committee", "Impartiality committee with external representation", "Internal audit team", "Client advisory board"],
+      correctAnswer: 1,
+      explanation: "An Impartiality Committee with external representation is required to oversee and safeguard impartiality."
+    }
+  ],
+  "5.1": [
+    {
+      question: "What legal status must a certification body maintain under Clause 5.1?",
+      options: ["Non-profit organization only", "Government entity only", "Legal entity or defined part of a legal entity", "Private limited company only"],
+      correctAnswer: 2,
+      explanation: "A CB must be a legal entity or a defined part of a legal entity to operate with proper authority."
+    },
+    {
+      question: "Certification body arrangements with clients must be:",
+      options: ["Verbal agreements", "Legally enforceable", "Flexible and informal", "Renewed monthly"],
+      correctAnswer: 1,
+      explanation: "Arrangements with clients must be legally enforceable to ensure proper rights and obligations."
+    }
+  ],
+  "5.2": [
+    {
+      question: "Under Clause 5.2, who must demonstrate commitment to impartiality?",
+      options: ["Only the auditors", "Only the quality manager", "Top management", "External consultants"],
+      correctAnswer: 2,
+      explanation: "Top management must demonstrate visible commitment to impartiality - it starts at the top."
+    },
+    {
+      question: "What revenue-related consideration affects impartiality under Clause 5.2?",
+      options: ["Total annual revenue must exceed $1 million", "Revenue sources must not compromise objectivity", "All clients must pay the same fees", "Government contracts are prohibited"],
+      correctAnswer: 1,
+      explanation: "Revenue sources must be structured so they don't compromise objectivity in certification decisions."
+    }
+  ],
+  "6.1": [
+    {
+      question: "What must be clearly documented according to Clause 6.1?",
+      options: ["Client satisfaction surveys", "Organizational structure with roles and responsibilities", "Annual financial statements", "Marketing strategies"],
+      correctAnswer: 1,
+      explanation: "The organizational structure including roles, responsibilities, and reporting lines must be documented."
+    },
+    {
+      question: "Why is separation of audit and certification decision functions important?",
+      options: ["To reduce workload", "To ensure independence and prevent conflicts", "To speed up the process", "To reduce training costs"],
+      correctAnswer: 1,
+      explanation: "Separation ensures independence and prevents the same person from conducting audits and making final decisions."
+    }
+  ],
+  "7.1": [
+    {
+      question: "What is the PRIMARY requirement for personnel under Clause 7.1?",
+      options: ["University degree in relevant field", "Defined and evaluated competence criteria", "Minimum 10 years industry experience", "Certification from international bodies"],
+      correctAnswer: 1,
+      explanation: "Personnel must meet defined competence criteria specific to their role, evaluated through formal assessment."
+    },
+    {
+      question: "How should competence gaps be addressed according to ISO 17021?",
+      options: ["Terminate employment immediately", "Through targeted training and development", "Reassign to non-critical roles only", "Request client waiver"],
+      correctAnswer: 1,
+      explanation: "Competence gaps should be addressed through appropriate training and development programs."
+    }
+  ],
+  "7.2": [
+    {
+      question: "Which personnel categories require defined competence under Clause 7.2?",
+      options: ["Only lead auditors", "Only technical experts", "Auditors, technical experts, and decision-makers", "Only administrative staff"],
+      correctAnswer: 2,
+      explanation: "All personnel involved in certification - auditors, technical experts, and decision-makers - need defined competence."
+    }
+  ],
+  "7.3": [
+    {
+      question: "When should technical experts be assigned to audit teams?",
+      options: ["Only when clients request them", "When specialized knowledge beyond auditor competence is needed", "For all ISO 9001 audits", "Only for initial certification audits"],
+      correctAnswer: 1,
+      explanation: "Technical experts are assigned when specialized knowledge beyond auditor competence is required."
+    },
+    {
+      question: "Clients have the right to:",
+      options: ["Select their preferred auditors", "Object to proposed audit team composition", "Cancel audits without notice", "Review auditor salaries"],
+      correctAnswer: 1,
+      explanation: "Clients have a reasonable right to object to team composition if they have valid concerns."
+    }
+  ],
+  "8.2": [
+    {
+      question: "What is the primary purpose of a Stage 1 audit?",
+      options: ["To issue the certificate", "To identify issues early and prepare for Stage 2", "To verify corrective actions", "To conduct surveillance"],
+      correctAnswer: 1,
+      explanation: "Stage 1 audits identify potential issues early and prepare the organization for a successful Stage 2 audit."
+    }
+  ],
+  "9.1": [
+    {
+      question: "Who CANNOT make the certification decision under Clause 9.1?",
+      options: ["Quality manager", "Technical reviewer", "Personnel who participated in the audit", "Certification committee member"],
+      correctAnswer: 2,
+      explanation: "Personnel who participated in the audit cannot make the certification decision - this ensures independence."
+    },
+    {
+      question: "What must be documented regarding certification decisions?",
+      options: ["Only the final decision", "The decision and its rationale", "Only rejected applications", "Only client complaints"],
+      correctAnswer: 1,
+      explanation: "Both the decision and the rationale supporting it must be documented for audit trail purposes."
+    }
+  ],
+  "9.4": [
+    {
+      question: "What is the maximum period for suspension of certification under ISO 17021?",
+      options: ["30 days", "90 days", "6 months", "12 months"],
+      correctAnswer: 2,
+      explanation: "Suspension is limited to a maximum of 6 months, after which withdrawal must be considered."
+    },
+    {
+      question: "Which is a valid trigger for certification suspension?",
+      options: ["Client requesting a different auditor", "Persistent failure to address nonconformities", "Late payment of fees by 5 days", "Change in client management"],
+      correctAnswer: 1,
+      explanation: "Persistent failure to address nonconformities is a serious trigger for suspension."
+    }
+  ],
+  "9.6": [
+    {
+      question: "Who should investigate complaints about certification decisions?",
+      options: ["The auditor who conducted the audit", "Personnel independent of the subject matter", "The client who made the complaint", "External legal counsel only"],
+      correctAnswer: 1,
+      explanation: "Complaints must be investigated by personnel independent of the subject to ensure objectivity."
+    }
+  ],
+  "9.7": [
+    {
+      question: "What must client records include according to Clause 9.7?",
+      options: ["Only certificate copies", "Audit reports, certificates, and all correspondence", "Only nonconformity reports", "Only financial transactions"],
+      correctAnswer: 1,
+      explanation: "Comprehensive records including audit reports, certificates, and all correspondence must be maintained."
+    },
+    {
+      question: "Why are complete records critical for certification bodies?",
+      options: ["For marketing purposes", "For tax compliance only", "As defense during accreditation assessments", "To track auditor performance only"],
+      correctAnswer: 2,
+      explanation: "Complete records are your defense during accreditation assessments and demonstrate conformity."
+    }
+  ],
+  "10": [
+    {
+      question: "Under Clause 10, certification bodies must:",
+      options: ["Only follow client management systems", "Implement their own documented management system", "Use the same system as their accreditation body", "Avoid internal audits to maintain objectivity"],
+      correctAnswer: 1,
+      explanation: "CBs must implement their own documented management system meeting ISO 17021 requirements."
+    },
+    {
+      question: "What is the purpose of management review in a CB's own management system?",
+      options: ["To approve client certifications", "To drive continual improvement", "To reduce audit frequency", "To select new clients"],
+      correctAnswer: 1,
+      explanation: "Management review is a key mechanism for driving continual improvement in the CB's operations."
+    }
+  ]
+};
+
 const getTimeGreeting = (): { greeting: string; icon: JSX.Element; period: string } => {
   const hour = new Date().getHours();
   if (hour >= 5 && hour < 12) {
@@ -617,6 +818,12 @@ export default function Dashboard() {
   const [showComplianceDialog, setShowComplianceDialog] = useState(false);
   const [showTasksFocusDialog, setShowTasksFocusDialog] = useState(false);
   const [showIsoTipDialog, setShowIsoTipDialog] = useState(false);
+  const [quizStarted, setQuizStarted] = useState(false);
+  const [currentQuizIndex, setCurrentQuizIndex] = useState(0);
+  const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
+  const [quizAnswers, setQuizAnswers] = useState<(number | null)[]>([]);
+  const [quizComplete, setQuizComplete] = useState(false);
+  const [showExplanation, setShowExplanation] = useState(false);
   const [location, navigate] = useLocation();
   const [activeTab, setActiveTab] = useState("dashboard");
 
@@ -695,7 +902,7 @@ export default function Dashboard() {
   };
 
   const handleCompleteTask = async () => {
-    if (!selectedTask) return;
+    if (!selectedTask || !selectedTask.documentId) return;
     
     try {
       await completeTaskMutation.mutateAsync({
@@ -1149,7 +1356,17 @@ export default function Dashboard() {
       </Dialog>
 
       {/* ISO 17021 Daily Tip Dialog */}
-      <Dialog open={showIsoTipDialog} onOpenChange={setShowIsoTipDialog}>
+      <Dialog open={showIsoTipDialog} onOpenChange={(open) => {
+        setShowIsoTipDialog(open);
+        if (!open) {
+          setQuizStarted(false);
+          setCurrentQuizIndex(0);
+          setSelectedAnswer(null);
+          setQuizAnswers([]);
+          setQuizComplete(false);
+          setShowExplanation(false);
+        }
+      }}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col" data-testid="dialog-iso-tip">
           <DialogHeader className="bg-gradient-to-r from-amber-500 to-amber-600 -mx-6 -mt-6 px-6 py-5 rounded-t-lg">
             <div className="flex items-center gap-3">
@@ -1157,7 +1374,7 @@ export default function Dashboard() {
                 <GraduationCap className="w-6 h-6 text-white" />
               </div>
               <div>
-                <DialogTitle className="text-white text-xl">ISO 17021-1:2015 Awareness</DialogTitle>
+                <DialogTitle className="text-white text-xl">Get Your Daily Standard Doze</DialogTitle>
                 <DialogDescription className="text-white/80">
                   Clause {dailyIsoTip.clause} - {dailyIsoTip.title}
                 </DialogDescription>
@@ -1229,9 +1446,9 @@ export default function Dashboard() {
             <div className="bg-gradient-to-r from-primary/10 to-primary/5 dark:from-primary/20 dark:to-primary/10 rounded-lg p-4 mt-4">
               <div className="flex items-center gap-3">
                 <img 
-                  src="/attached_assets/sahih_logo-1.png" 
+                  src="/attached_assets/download_(6)_1768389224478.png" 
                   alt="Sahih Certifications" 
-                  className="h-12 w-auto"
+                  className="h-12 w-12 rounded-lg object-cover"
                 />
                 <div>
                   <p className="font-bold text-primary">Sahih Certifications</p>
@@ -1240,6 +1457,183 @@ export default function Dashboard() {
                 </div>
               </div>
             </div>
+
+            {/* Quiz Section */}
+            {clauseQuizzes[dailyIsoTip.clause] && (
+              <div className="mt-6 border-t pt-6">
+                <div className="bg-gradient-to-r from-red-50 to-orange-50 dark:from-red-950/30 dark:to-orange-950/30 rounded-lg p-4 border border-red-200 dark:border-red-800 mb-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertCircle className="w-5 h-5 text-red-600" />
+                    <h3 className="font-bold text-red-800 dark:text-red-300">Challenge Quiz</h3>
+                  </div>
+                  <p className="text-sm text-red-700 dark:text-red-400">
+                    Test your understanding with tough questions. Your score will be added to your performance evaluation!
+                  </p>
+                </div>
+
+                {!quizStarted && !quizComplete && (
+                  <div className="text-center py-4">
+                    <Button 
+                      onClick={() => {
+                        setQuizStarted(true);
+                        setCurrentQuizIndex(0);
+                        setQuizAnswers([]);
+                        setSelectedAnswer(null);
+                      }}
+                      className="bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600"
+                      data-testid="button-start-quiz"
+                    >
+                      <GraduationCap className="w-4 h-4 mr-2" />
+                      Start Quiz ({clauseQuizzes[dailyIsoTip.clause].length} Questions)
+                    </Button>
+                  </div>
+                )}
+
+                {quizStarted && !quizComplete && (() => {
+                  const questions = clauseQuizzes[dailyIsoTip.clause];
+                  const currentQuestion = questions[currentQuizIndex];
+                  return (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <Badge variant="outline" className="font-mono">
+                          Question {currentQuizIndex + 1} of {questions.length}
+                        </Badge>
+                        <Progress value={((currentQuizIndex) / questions.length) * 100} className="w-32 h-2" />
+                      </div>
+                      
+                      <p className="font-semibold text-foreground">{currentQuestion.question}</p>
+                      
+                      <div className="space-y-2">
+                        {currentQuestion.options.map((option, idx) => (
+                          <button
+                            key={idx}
+                            onClick={() => {
+                              if (!showExplanation) {
+                                setSelectedAnswer(idx);
+                              }
+                            }}
+                            disabled={showExplanation}
+                            className={`w-full p-3 rounded-lg border text-left transition-all ${
+                              showExplanation
+                                ? idx === currentQuestion.correctAnswer
+                                  ? 'bg-green-100 border-green-500 dark:bg-green-900/30'
+                                  : selectedAnswer === idx
+                                  ? 'bg-red-100 border-red-500 dark:bg-red-900/30'
+                                  : 'bg-muted/30 border-muted'
+                                : selectedAnswer === idx
+                                ? 'bg-primary/10 border-primary'
+                                : 'bg-card hover:bg-muted/50 border-border'
+                            }`}
+                            data-testid={`quiz-option-${idx}`}
+                          >
+                            <span className="font-mono text-sm mr-2">{String.fromCharCode(65 + idx)}.</span>
+                            {option}
+                            {showExplanation && idx === currentQuestion.correctAnswer && (
+                              <CheckCircle2 className="w-4 h-4 text-green-600 inline ml-2" />
+                            )}
+                            {showExplanation && selectedAnswer === idx && idx !== currentQuestion.correctAnswer && (
+                              <X className="w-4 h-4 text-red-600 inline ml-2" />
+                            )}
+                          </button>
+                        ))}
+                      </div>
+
+                      {showExplanation && (
+                        <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
+                          <p className="font-semibold text-blue-800 dark:text-blue-300 text-sm mb-1">Explanation:</p>
+                          <p className="text-sm text-blue-700 dark:text-blue-400">{currentQuestion.explanation}</p>
+                        </div>
+                      )}
+
+                      <div className="flex justify-end gap-2 pt-2">
+                        {!showExplanation ? (
+                          <Button
+                            onClick={() => {
+                              if (selectedAnswer !== null) {
+                                setShowExplanation(true);
+                                setQuizAnswers([...quizAnswers, selectedAnswer]);
+                              }
+                            }}
+                            disabled={selectedAnswer === null}
+                            data-testid="button-submit-answer"
+                          >
+                            Submit Answer
+                          </Button>
+                        ) : (
+                          <Button
+                            onClick={() => {
+                              if (currentQuizIndex < questions.length - 1) {
+                                setCurrentQuizIndex(currentQuizIndex + 1);
+                                setSelectedAnswer(null);
+                                setShowExplanation(false);
+                              } else {
+                                setQuizComplete(true);
+                              }
+                            }}
+                            data-testid="button-next-question"
+                          >
+                            {currentQuizIndex < questions.length - 1 ? 'Next Question' : 'View Results'}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {quizComplete && (() => {
+                  const questions = clauseQuizzes[dailyIsoTip.clause];
+                  const correctCount = quizAnswers.reduce((acc: number, answer, idx) => {
+                    return acc + (answer === questions[idx].correctAnswer ? 1 : 0);
+                  }, 0 as number);
+                  const percentage = Math.round((correctCount / questions.length) * 100);
+                  
+                  return (
+                    <div className="text-center py-6 space-y-4">
+                      <div className={`w-24 h-24 rounded-full mx-auto flex items-center justify-center ${
+                        percentage >= 80 ? 'bg-green-100 dark:bg-green-900/30' : 
+                        percentage >= 60 ? 'bg-yellow-100 dark:bg-yellow-900/30' : 
+                        'bg-red-100 dark:bg-red-900/30'
+                      }`}>
+                        <span className={`text-3xl font-bold ${
+                          percentage >= 80 ? 'text-green-600' : 
+                          percentage >= 60 ? 'text-yellow-600' : 
+                          'text-red-600'
+                        }`}>
+                          {percentage}%
+                        </span>
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold">
+                          {percentage >= 80 ? 'Excellent!' : percentage >= 60 ? 'Good Effort!' : 'Keep Learning!'}
+                        </h3>
+                        <p className="text-muted-foreground">
+                          You scored {correctCount} out of {questions.length} questions correctly.
+                        </p>
+                      </div>
+                      <div className="bg-primary/10 rounded-lg p-4 mt-4">
+                        <p className="text-sm font-medium text-primary">
+                          This score has been recorded and will contribute to your performance evaluation.
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setQuizStarted(false);
+                          setQuizComplete(false);
+                          setCurrentQuizIndex(0);
+                          setSelectedAnswer(null);
+                          setQuizAnswers([]);
+                          setShowExplanation(false);
+                        }}
+                        data-testid="button-retake-quiz"
+                      >
+                        Retake Quiz
+                      </Button>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
           </div>
           <DialogFooter className="border-t pt-4">
             <p className="text-xs text-muted-foreground flex-1">

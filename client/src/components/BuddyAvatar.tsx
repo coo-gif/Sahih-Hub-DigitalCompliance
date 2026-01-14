@@ -35,7 +35,7 @@ interface BuddyStatusData {
   lastUpdated: string;
 }
 
-const stateEmojis: Record<string, { icon: typeof Bot; label: string }> = {
+const stateEmojis: Record<string, { icon: typeof CheckCircle; label: string }> = {
   flexing: { icon: Sparkles, label: "Excellent!" },
   healthy: { icon: CheckCircle, label: "Good job!" },
   tired: { icon: AlertTriangle, label: "Needs attention" },
@@ -51,9 +51,7 @@ export function BuddyAvatar({ compact = false }: { compact?: boolean }) {
 
   const acknowledgeMutation = useMutation({
     mutationFn: async (dialogueId: number) => {
-      return apiRequest(`/api/buddy/dialogues/${dialogueId}/acknowledge`, {
-        method: "POST",
-      });
+      return apiRequest("POST", `/api/buddy/dialogues/${dialogueId}/acknowledge`, {});
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/buddy/status"] });
@@ -100,12 +98,15 @@ export function BuddyAvatar({ compact = false }: { compact?: boolean }) {
       >
         <div
           className={cn(
-            "h-9 w-9 rounded-full bg-gradient-to-br flex items-center justify-center shadow-md",
-            getAvatarGradient(),
+            "h-9 w-9 rounded-full overflow-hidden shadow-md ring-2",
+            compliance.score >= 90 ? "ring-emerald-400" :
+            compliance.score >= 80 ? "ring-green-400" :
+            compliance.score >= 70 ? "ring-yellow-400" :
+            compliance.score >= 60 ? "ring-orange-400" : "ring-red-400",
             compliance.score < 70 && "animate-pulse"
           )}
         >
-          <Bot className="h-5 w-5 text-white" />
+          <img src={sahihLogo} alt="Buddy" className="h-full w-full object-cover" />
         </div>
         {pendingDialogues.length > 0 && (
           <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
@@ -132,11 +133,14 @@ export function BuddyAvatar({ compact = false }: { compact?: boolean }) {
         >
           <div
             className={cn(
-              "h-12 w-12 rounded-full bg-gradient-to-br flex items-center justify-center shadow-lg",
-              getAvatarGradient()
+              "h-12 w-12 rounded-full overflow-hidden shadow-lg ring-2",
+              compliance.score >= 90 ? "ring-emerald-400" :
+              compliance.score >= 80 ? "ring-green-400" :
+              compliance.score >= 70 ? "ring-yellow-400" :
+              compliance.score >= 60 ? "ring-orange-400" : "ring-red-400"
             )}
           >
-            <Bot className="h-7 w-7 text-white" />
+            <img src={sahihLogo} alt="Buddy" className="h-full w-full object-cover" />
           </div>
           {compliance.score >= 90 && (
             <motion.div

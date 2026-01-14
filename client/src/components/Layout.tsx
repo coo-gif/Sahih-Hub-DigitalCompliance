@@ -28,6 +28,7 @@ import {
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
+import { BuddySidebarWidget } from "@/components/BuddyAvatar";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -113,6 +114,8 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
             );
           })}
       </nav>
+
+      <BuddySidebarWidget />
 
       <div className="p-4 border-t border-sidebar-border">
         <div className="flex items-center justify-center gap-2 text-[10px] text-sidebar-foreground/60">
