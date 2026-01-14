@@ -226,19 +226,14 @@ export function HubEebiChat() {
 
   return (
     <>
-      <motion.button
+      <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 z-50 flex items-center gap-2 bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-600 hover:to-teal-600 text-white px-4 py-3 rounded-full shadow-lg"
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
+        className="fixed bottom-6 right-6 z-50 flex items-center gap-2 bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-600 hover:to-teal-600 text-white px-4 py-3 rounded-full shadow-lg transition-colors"
         data-testid="button-open-hubeebi-chat"
       >
-        <div className="h-8 w-6 overflow-hidden">
-          <img src={dailyOutfit} alt="Hub-eebi" className="h-full w-full object-contain" />
-        </div>
-        <span className="font-medium text-sm">Chat with Hub-eebi</span>
         <MessageCircle className="w-5 h-5" />
-      </motion.button>
+        <span className="font-medium text-sm">Chat with Hub-eebi</span>
+      </button>
 
       <AnimatePresence>
         {isOpen && (
