@@ -962,7 +962,7 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="space-y-6 pb-8">
+    <div className="space-y-6 pb-8 overflow-x-hidden">
       <style>{`
         @keyframes pulse-glow {
           0%, 100% { box-shadow: 0 0 20px rgba(139, 0, 0, 0.1); }
@@ -1026,91 +1026,85 @@ export default function Dashboard() {
           <div className="absolute top-1/2 left-1/2 w-64 h-64 bg-accent-muted rounded-full blur-3xl opacity-20 -translate-x-1/2 -translate-y-1/2"></div>
         </div>
         
-        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-          <div className="space-y-4">
-            <div className="flex items-center gap-3">
+        <div className="relative z-10 flex flex-col gap-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
               {timeInfo.icon}
-              <div>
-                <h1 className="text-2xl lg:text-3xl font-bold text-white drop-shadow-lg" data-testid="text-greeting">
+              <div className="min-w-0">
+                <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-white drop-shadow-lg truncate" data-testid="text-greeting">
                   {timeInfo.greeting}!
                 </h1>
-                <p className="text-white/80 text-sm font-medium">
-                  {format(currentTime, "EEEE, MMMM d, yyyy")} • {format(currentTime, "h:mm a")}
+                <p className="text-white/80 text-xs sm:text-sm font-medium truncate">
+                  {format(currentTime, "EEE, MMM d")} • {format(currentTime, "h:mm a")}
                 </p>
-              </div>
-            </div>
-            
-            <div className="max-w-lg flex items-center gap-4">
-              <div className="hidden md:block flex-shrink-0">
-                <div className="w-20 h-20 rounded-xl overflow-hidden border-2 border-white/30 shadow-lg">
-                  <img 
-                    src={dailyQuote.image} 
-                    alt="Quote illustration" 
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              </div>
-              <div>
-                <p className="text-white italic text-lg drop-shadow-md" data-testid="text-quote">
-                  "{dailyQuote.quote}"
-                </p>
-                <p className="text-white/70 text-sm mt-1 font-medium">— Sahih-Hub</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-6">
-            <div className="flex flex-wrap gap-3">
-              <div 
-                className="rounded-xl px-4 py-3 flex items-center gap-3 border border-white/20 shadow-lg gradient-primary-soft backdrop-blur-sm cursor-pointer hover:bg-white/10 transition-all"
-                style={{ animation: 'float 3s ease-in-out infinite' }}
-                onClick={() => setShowTasksFocusDialog(true)}
-              >
-                <div className="p-2 rounded-lg bg-white/20">
-                  <Target className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <p className="text-white/70 text-xs font-medium">Today's Focus</p>
-                  <p className="text-white font-semibold" data-testid="text-focus">
-                    {(myTasks?.length || 0) > 0 ? `${myTasks?.length} Tasks Pending` : 'All Clear!'}
-                  </p>
-                </div>
-              </div>
-              
-              <div 
-                className="rounded-xl px-4 py-3 flex items-center gap-3 border border-white/20 shadow-lg gradient-primary-soft backdrop-blur-sm cursor-pointer hover:bg-white/10 transition-all"
-                style={{ animation: 'float 3s ease-in-out infinite 0.5s' }}
-                onClick={() => setShowComplianceDialog(true)}
-              >
-                <div className="p-2 rounded-lg bg-white/20">
-                  <Shield className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <p className="text-white/70 text-xs font-medium">Compliance Score</p>
-                  <p className="text-white font-semibold" data-testid="text-score">{complianceScore}%</p>
-                </div>
               </div>
             </div>
             
             <div 
-              className="flex flex-col items-center"
-              style={{ animation: 'float 3s ease-in-out infinite 1s' }}
+              className="flex-shrink-0 flex flex-col items-center"
               data-testid="hub-eebi-avatar"
             >
               <div className="relative">
-                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full overflow-hidden border-2 border-white/40 shadow-xl bg-white/10 backdrop-blur-sm">
+                <div className="w-14 h-14 sm:w-16 sm:h-16 lg:w-20 lg:h-20 rounded-full overflow-hidden border-2 border-white/40 shadow-xl bg-white/10 backdrop-blur-sm">
                   <img 
                     src={sahihLogoPath} 
                     alt="Hub-eebi" 
                     className="w-full h-full object-contain p-1"
                   />
                 </div>
-                <div className="absolute -bottom-1 -right-1 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-green-500 border-2 border-white flex items-center justify-center">
-                  <Sparkles className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-white" />
+                <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 sm:w-5 sm:h-5 lg:w-6 lg:h-6 rounded-full bg-green-500 border-2 border-white flex items-center justify-center">
+                  <Sparkles className="w-2 h-2 sm:w-2.5 sm:h-2.5 lg:w-3 lg:h-3 text-white" />
                 </div>
               </div>
-              <p className="text-white font-bold text-xs sm:text-sm mt-2 drop-shadow-md">Hub-eebi</p>
-              <p className="text-white/70 text-[10px] sm:text-xs">Your Compliance Buddy</p>
+              <p className="text-white font-bold text-[10px] sm:text-xs lg:text-sm mt-1 drop-shadow-md">Hub-eebi</p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-3 overflow-hidden">
+            <div className="hidden md:block flex-shrink-0">
+              <div className="w-16 h-16 lg:w-20 lg:h-20 rounded-xl overflow-hidden border-2 border-white/30 shadow-lg">
+                <img 
+                  src={dailyQuote.image} 
+                  alt="Quote illustration" 
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-white italic text-sm sm:text-base lg:text-lg drop-shadow-md line-clamp-2" data-testid="text-quote">
+                "{dailyQuote.quote}"
+              </p>
+              <p className="text-white/70 text-xs sm:text-sm mt-1 font-medium">— Sahih-Hub</p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2 sm:gap-3">
+            <div 
+              className="rounded-xl px-3 py-2 sm:px-4 sm:py-3 flex items-center gap-2 sm:gap-3 border border-white/20 shadow-lg gradient-primary-soft backdrop-blur-sm cursor-pointer hover:bg-white/10 transition-all flex-1 min-w-[140px]"
+              onClick={() => setShowTasksFocusDialog(true)}
+            >
+              <div className="p-1.5 sm:p-2 rounded-lg bg-white/20">
+                <Target className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-white/70 text-[10px] sm:text-xs font-medium">Today's Focus</p>
+                <p className="text-white font-semibold text-xs sm:text-sm truncate" data-testid="text-focus">
+                  {(myTasks?.length || 0) > 0 ? `${myTasks?.length} Tasks Pending` : 'All Clear!'}
+                </p>
+              </div>
+            </div>
+            
+            <div 
+              className="rounded-xl px-3 py-2 sm:px-4 sm:py-3 flex items-center gap-2 sm:gap-3 border border-white/20 shadow-lg gradient-primary-soft backdrop-blur-sm cursor-pointer hover:bg-white/10 transition-all flex-1 min-w-[140px]"
+              onClick={() => setShowComplianceDialog(true)}
+            >
+              <div className="p-1.5 sm:p-2 rounded-lg bg-white/20">
+                <Shield className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-white/70 text-[10px] sm:text-xs font-medium">Compliance Score</p>
+                <p className="text-white font-semibold text-xs sm:text-sm" data-testid="text-score">{complianceScore}%</p>
+              </div>
             </div>
           </div>
         </div>

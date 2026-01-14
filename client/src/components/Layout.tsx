@@ -262,7 +262,7 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
         </header>
 
         {/* Page Content */}
-        <div className="flex-1 p-4 lg:p-6">
+        <div className="flex-1 p-4 lg:p-6 overflow-x-hidden">
           {children}
         </div>
       </main>
