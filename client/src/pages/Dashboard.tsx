@@ -1048,30 +1048,29 @@ export default function Dashboard() {
             <div className="absolute bottom-0 left-0 w-48 h-48 bg-accent-soft rounded-full blur-3xl opacity-30 translate-y-1/2 -translate-x-1/2"></div>
           </div>
           
-          <div className="relative z-10 flex flex-col gap-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                {timeInfo.icon}
-                <div className="min-w-0">
-                  <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-white drop-shadow-lg truncate" data-testid="text-greeting">
+          <div className="relative z-10 flex flex-col gap-2">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1 min-w-0 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  {timeInfo.icon}
+                  <h1 className="text-lg sm:text-xl font-bold text-white drop-shadow-lg truncate" data-testid="text-greeting">
                     {timeInfo.greeting}!
                   </h1>
-                  <p className="text-white/80 text-[10px] sm:text-xs font-medium truncate">
-                    {format(currentTime, "EEE, MMM d")} • {format(currentTime, "h:mm a")}
+                </div>
+                <p className="text-white/80 text-[10px] sm:text-xs font-medium">
+                  {format(currentTime, "EEE, MMM d")} • {format(currentTime, "h:mm a")}
+                </p>
+                <div className="bg-white/10 backdrop-blur-sm rounded-md px-2 py-1.5 border border-white/20">
+                  <p className="text-white italic text-[10px] sm:text-xs drop-shadow-md line-clamp-2" data-testid="text-quote">
+                    "{dailyQuote.quote}"
                   </p>
+                  <p className="text-white/60 text-[9px] sm:text-[10px] mt-0.5 font-medium">— Sahih-Hub</p>
                 </div>
               </div>
               
               <div data-testid="hub-eebi-avatar" className="flex-shrink-0">
                 <HubEebiFullBody />
               </div>
-            </div>
-            
-            <div className="min-w-0">
-              <p className="text-white italic text-xs sm:text-sm drop-shadow-md line-clamp-2" data-testid="text-quote">
-                "{dailyQuote.quote}"
-              </p>
-              <p className="text-white/70 text-[10px] sm:text-xs mt-1 font-medium">— Sahih-Hub</p>
             </div>
 
             <div className="flex flex-wrap gap-2">
