@@ -62,7 +62,7 @@ const navItems: NavItem[] = [
     href: "/hr", 
     label: "HR dept", 
     icon: Network,
-    canAccess: (user) => user.role === 'admin' || user.email === 'hr@sahihcertify.com'
+    canAccess: (user) => user.role === 'admin' || user.email === 'hr@sahihcertify.com' || user.email === 'ceo@sahihcertify.com'
   },
   { href: "/performance-reports", label: "Performance Reports", icon: BarChart3, adminOnly: true },
   { 
