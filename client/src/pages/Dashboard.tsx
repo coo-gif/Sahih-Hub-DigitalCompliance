@@ -1093,24 +1093,24 @@ export default function Dashboard() {
             </div>
             
             <div 
-              className="hidden lg:flex flex-col items-center"
+              className="flex flex-col items-center"
               style={{ animation: 'float 3s ease-in-out infinite 1s' }}
               data-testid="hub-eebi-avatar"
             >
               <div className="relative">
-                <div className="w-20 h-20 rounded-full overflow-hidden border-3 border-white/40 shadow-xl bg-white/10 backdrop-blur-sm">
+                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full overflow-hidden border-2 border-white/40 shadow-xl bg-white/10 backdrop-blur-sm">
                   <img 
                     src={sahihLogoPath} 
                     alt="Hub-eebi" 
                     className="w-full h-full object-contain p-1"
                   />
                 </div>
-                <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-green-500 border-2 border-white flex items-center justify-center">
-                  <Sparkles className="w-3 h-3 text-white" />
+                <div className="absolute -bottom-1 -right-1 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-green-500 border-2 border-white flex items-center justify-center">
+                  <Sparkles className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-white" />
                 </div>
               </div>
-              <p className="text-white font-bold text-sm mt-2 drop-shadow-md">Hub-eebi</p>
-              <p className="text-white/70 text-xs">Your Compliance Buddy</p>
+              <p className="text-white font-bold text-xs sm:text-sm mt-2 drop-shadow-md">Hub-eebi</p>
+              <p className="text-white/70 text-[10px] sm:text-xs">Your Compliance Buddy</p>
             </div>
           </div>
         </div>
