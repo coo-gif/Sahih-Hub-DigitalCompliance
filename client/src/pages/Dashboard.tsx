@@ -67,16 +67,21 @@ import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import { useState, useEffect, useMemo, useId } from "react";
 import type { MyTask } from "@/hooks/use-tasks";
+import quoteImage1 from "@assets/generated_images/quality_certification_rings_abstract.png";
+import quoteImage2 from "@assets/generated_images/excellence_network_visualization.png";
+import quoteImage3 from "@assets/generated_images/continuous_improvement_ribbons.png";
+import quoteImage4 from "@assets/generated_images/quality_standards_shield.png";
+import quoteImage5 from "@assets/generated_images/global_standards_globe.png";
 
 const motivationalQuotes = [
-  { quote: "Quality is not an act, it is a habit.", author: "Aristotle" },
-  { quote: "Excellence is not a destination but a continuous journey.", author: "Brian Tracy" },
-  { quote: "The quality of our work reflects the quality of ourselves.", author: "Unknown" },
-  { quote: "Standards are not made to be broken, but to be exceeded.", author: "ISO Philosophy" },
-  { quote: "Compliance today means confidence tomorrow.", author: "Quality Wisdom" },
-  { quote: "Every document tells a story of excellence.", author: "QMS Principles" },
-  { quote: "Precision in process, perfection in outcome.", author: "ISO 17021" },
-  { quote: "Your commitment to quality is your signature of excellence.", author: "Unknown" },
+  { quote: "Quality is not an act, it is a habit.", image: quoteImage1 },
+  { quote: "Excellence is not a destination but a continuous journey.", image: quoteImage2 },
+  { quote: "The quality of our work reflects the quality of ourselves.", image: quoteImage3 },
+  { quote: "Standards are not made to be broken, but to be exceeded.", image: quoteImage4 },
+  { quote: "Compliance today means confidence tomorrow.", image: quoteImage5 },
+  { quote: "Every document tells a story of excellence.", image: quoteImage1 },
+  { quote: "Precision in process, perfection in outcome.", image: quoteImage2 },
+  { quote: "Your commitment to quality is your signature of excellence.", image: quoteImage3 },
 ];
 
 const iso17021Clauses = [
@@ -1017,11 +1022,22 @@ export default function Dashboard() {
               </div>
             </div>
             
-            <div className="max-w-lg">
-              <p className="text-white italic text-lg drop-shadow-md" data-testid="text-quote">
-                "{dailyQuote.quote}"
-              </p>
-              <p className="text-white/70 text-sm mt-1 font-medium">— {dailyQuote.author}</p>
+            <div className="max-w-lg flex items-center gap-4">
+              <div className="hidden md:block flex-shrink-0">
+                <div className="w-20 h-20 rounded-xl overflow-hidden border-2 border-white/30 shadow-lg">
+                  <img 
+                    src={dailyQuote.image} 
+                    alt="Quote illustration" 
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              </div>
+              <div>
+                <p className="text-white italic text-lg drop-shadow-md" data-testid="text-quote">
+                  "{dailyQuote.quote}"
+                </p>
+                <p className="text-white/70 text-sm mt-1 font-medium">— Sahih-Hub</p>
+              </div>
             </div>
           </div>
 
