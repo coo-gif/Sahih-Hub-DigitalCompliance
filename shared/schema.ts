@@ -142,6 +142,60 @@ export const DocumentImportance = {
   CRITICAL: "critical",
 } as const;
 
+// Certification Process Enums
+export const CertificationApplicationStatus = {
+  SUBMITTED: "submitted",
+  UNDER_REVIEW: "under_review",
+  AUDIT_SCHEDULED: "audit_scheduled",
+  STAGE1_COMPLETE: "stage1_complete",
+  STAGE2_SCHEDULED: "stage2_scheduled",
+  STAGE2_COMPLETE: "stage2_complete",
+  PENDING_DECISION: "pending_decision",
+  APPROVED: "approved",
+  CERTIFICATE_ISSUED: "certificate_issued",
+  REJECTED: "rejected",
+  SUSPENDED: "suspended",
+  WITHDRAWN: "withdrawn",
+} as const;
+
+export const ISOStandard = {
+  ISO_9001: "ISO 9001:2015",
+  ISO_14001: "ISO 14001:2015",
+  ISO_45001: "ISO 45001:2018",
+  ISO_22000: "ISO 22000:2018",
+  ISO_27001: "ISO 27001:2022",
+  ISO_50001: "ISO 50001:2018",
+} as const;
+
+export const AuditType = {
+  STAGE1: "stage1",
+  STAGE2: "stage2",
+  SURVEILLANCE1: "surveillance1",
+  SURVEILLANCE2: "surveillance2",
+  RECERTIFICATION: "recertification",
+  SPECIAL: "special",
+} as const;
+
+export const AuditStatus = {
+  PLANNED: "planned",
+  IN_PROGRESS: "in_progress",
+  COMPLETED: "completed",
+  CANCELLED: "cancelled",
+} as const;
+
+export const FindingType = {
+  MAJOR_NC: "major_nc",
+  MINOR_NC: "minor_nc",
+  OBSERVATION: "observation",
+  OPPORTUNITY: "opportunity",
+} as const;
+
+export const FindingStatus = {
+  OPEN: "open",
+  PENDING_VERIFICATION: "pending_verification",
+  CLOSED: "closed",
+} as const;
+
 // ============================================
 // USERS TABLE
 // ============================================
@@ -874,6 +928,138 @@ export const insertBugReportSchema = createInsertSchema(bugReports).omit({
 
 export type BugReport = typeof bugReports.$inferSelect;
 export type InsertBugReport = z.infer<typeof insertBugReportSchema>;
+
+// ============================================
+// CERTIFICATION APPLICATIONS TABLE
+// ============================================
+export const certificationApplications = pgTable("certification_applications", {
+  id: serial("id").primaryKey(),
+  applicationNumber: text("application_number").notNull().unique(),
+  clientName: text("client_name").notNull(),
+  clientLocation: text("client_location").notNull(),
+  clientContactName: text("client_contact_name"),
+  clientContactEmail: text("client_contact_email"),
+  clientContactPhone: text("client_contact_phone"),
+  isoStandard: text("iso_standard").notNull(),
+  standardName: text("standard_name").notNull(),
+  sectorCode: text("sector_code"),
+  certificationScope: text("certification_scope").notNull(),
+  status: text("status").notNull().default(CertificationApplicationStatus.SUBMITTED),
+  assignedAuditorId: integer("assigned_auditor_id"),
+  leadAuditorId: integer("lead_auditor_id"),
+  submittedAt: timestamp("submitted_at").defaultNow(),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewedById: integer("reviewed_by_id"),
+  reviewNotes: text("review_notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ============================================
+// CERTIFICATION AUDITS TABLE
+// ============================================
+export const certificationAudits = pgTable("certification_audits", {
+  id: serial("id").primaryKey(),
+  applicationId: integer("application_id").notNull(),
+  auditType: text("audit_type").notNull(),
+  scheduledDate: timestamp("scheduled_date"),
+  completedDate: timestamp("completed_date"),
+  status: text("status").notNull().default(AuditStatus.PLANNED),
+  leadAuditorId: integer("lead_auditor_id"),
+  auditTeamIds: text("audit_team_ids"),
+  auditPlanUrl: text("audit_plan_url"),
+  auditReportUrl: text("audit_report_url"),
+  recommendation: text("recommendation"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ============================================
+// AUDIT FINDINGS TABLE
+// ============================================
+export const auditFindings = pgTable("audit_findings", {
+  id: serial("id").primaryKey(),
+  auditId: integer("audit_id").notNull(),
+  findingNumber: text("finding_number").notNull(),
+  findingType: text("finding_type").notNull(),
+  clauseReference: text("clause_reference"),
+  description: text("description").notNull(),
+  objectiveEvidence: text("objective_evidence"),
+  status: text("status").notNull().default(FindingStatus.OPEN),
+  correctiveAction: text("corrective_action"),
+  targetClosureDate: timestamp("target_closure_date"),
+  verifiedAt: timestamp("verified_at"),
+  verifiedById: integer("verified_by_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ============================================
+// CERTIFICATES TABLE
+// ============================================
+export const certificates = pgTable("certificates", {
+  id: serial("id").primaryKey(),
+  applicationId: integer("application_id").notNull(),
+  certificateNumber: text("certificate_number").notNull().unique(),
+  clientName: text("client_name").notNull(),
+  clientLocation: text("client_location"),
+  isoStandard: text("iso_standard").notNull(),
+  standardName: text("standard_name").notNull(),
+  sectorCode: text("sector_code"),
+  certificationScope: text("certification_scope").notNull(),
+  issueDate: timestamp("issue_date").notNull(),
+  expiryDate: timestamp("expiry_date").notNull(),
+  firstSurveillanceDate: timestamp("first_surveillance_date"),
+  secondSurveillanceDate: timestamp("second_surveillance_date"),
+  status: text("status").notNull().default("active"),
+  certificateImageUrl: text("certificate_image_url"),
+  certificatePdfUrl: text("certificate_pdf_url"),
+  leftBackgroundImage: text("left_background_image"),
+  rightBackgroundImage: text("right_background_image"),
+  issuedById: integer("issued_by_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Insert schemas for certification tables
+export const insertCertificationApplicationSchema = createInsertSchema(certificationApplications).omit({
+  id: true,
+  applicationNumber: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertCertificationAuditSchema = createInsertSchema(certificationAudits).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertAuditFindingSchema = createInsertSchema(auditFindings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertCertificateSchema = createInsertSchema(certificates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+// Types for certification tables
+export type CertificationApplication = typeof certificationApplications.$inferSelect;
+export type InsertCertificationApplication = z.infer<typeof insertCertificationApplicationSchema>;
+
+export type CertificationAudit = typeof certificationAudits.$inferSelect;
+export type InsertCertificationAudit = z.infer<typeof insertCertificationAuditSchema>;
+
+export type AuditFinding = typeof auditFindings.$inferSelect;
+export type InsertAuditFinding = z.infer<typeof insertAuditFindingSchema>;
+
+export type Certificate = typeof certificates.$inferSelect;
+export type InsertCertificate = z.infer<typeof insertCertificateSchema>;
 
 // ============================================
 // API REQUEST/RESPONSE TYPES
