@@ -66,8 +66,7 @@ export default function BugReports() {
   });
 
   const isCOO = currentUser?.email === 'coo@sahihcertify.com';
-  const isAdmin = currentUser?.role === 'admin';
-  const canManage = isCOO || isAdmin;
+  const canManage = isCOO;
 
   const resolveMutation = useMutation({
     mutationFn: async ({ id, resolutionNotes }: { id: number; resolutionNotes: string }) => {
@@ -173,7 +172,7 @@ export default function BugReports() {
             <AlertCircle className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
             <h2 className="text-xl font-semibold mb-2">Access Restricted</h2>
             <p className="text-muted-foreground">
-              This page is only accessible to COO and Admin users. 
+              This page is only accessible to the COO. 
               Use the Hub-eebi chat to submit and view your own bug reports.
             </p>
           </CardContent>

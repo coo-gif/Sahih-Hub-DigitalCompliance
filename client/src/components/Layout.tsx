@@ -69,7 +69,7 @@ const navItems: NavItem[] = [
     href: "/bug-reports", 
     label: "Bug Reports", 
     icon: Bug,
-    canAccess: (user) => user.role === 'admin' || user.email === 'coo@sahihcertify.com'
+    canAccess: (user) => user.email === 'coo@sahihcertify.com'
   },
   { href: "/audit-log", label: "Audit Log", icon: History, adminOnly: true },
 ];
