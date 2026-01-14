@@ -1,6 +1,7 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
+import Draggable from "react-draggable";
 import { 
   MessageCircle, X, Send, Bug, Upload, Camera, 
   CheckCircle, Clock, AlertCircle, Sparkles, ThumbsUp
@@ -224,16 +225,22 @@ export function HubEebiChat() {
     }
   };
 
+  const nodeRef = useRef<HTMLDivElement>(null);
+
   return (
     <>
-      <button
-        onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 z-50 flex items-center gap-2 bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-600 hover:to-teal-600 text-white px-4 py-3 rounded-full shadow-lg transition-colors"
-        data-testid="button-open-hubeebi-chat"
-      >
-        <MessageCircle className="w-5 h-5" />
-        <span className="font-medium text-sm">Chat with Hub-eebi</span>
-      </button>
+      <Draggable nodeRef={nodeRef} bounds="parent">
+        <div ref={nodeRef} className="fixed top-20 right-4 z-50 cursor-move">
+          <button
+            onClick={() => setIsOpen(true)}
+            className="flex items-center gap-1.5 bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-600 hover:to-teal-600 text-white px-3 py-2 rounded-full shadow-lg transition-colors"
+            data-testid="button-open-hubeebi-chat"
+          >
+            <MessageCircle className="w-4 h-4" />
+            <span className="font-medium text-xs">Hub-eebi</span>
+          </button>
+        </div>
+      </Draggable>
 
       <AnimatePresence>
         {isOpen && (
@@ -241,7 +248,7 @@ export function HubEebiChat() {
             initial={{ opacity: 0, y: 20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
-            className="fixed bottom-24 right-6 z-50 w-96 max-w-[calc(100vw-3rem)] bg-background border rounded-xl shadow-2xl overflow-hidden"
+            className="fixed top-32 right-4 z-50 w-96 max-w-[calc(100vw-3rem)] bg-background border rounded-xl shadow-2xl overflow-hidden"
             data-testid="hubeebi-chat-dialog"
           >
             <div className="bg-gradient-to-r from-cyan-500 to-teal-500 p-4 flex items-center justify-between">
