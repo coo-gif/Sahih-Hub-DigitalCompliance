@@ -302,7 +302,18 @@ export default function Employees() {
   const openWorkflowDialog = (employee: Employee, action: 'submit_review' | 'submit_approval' | 'approve' | 'reject') => {
     setSelectedEmployee(employee);
     setWorkflowAction(action);
-    setSelectedUserId("");
+    
+    // Auto-select COO for review and CEO for approval
+    if (action === 'submit_review') {
+      const cooUser = users?.find(u => u.email === 'coo@sahihcertify.com');
+      setSelectedUserId(cooUser ? String(cooUser.id) : "");
+    } else if (action === 'submit_approval') {
+      const ceoUser = users?.find(u => u.email === 'ceo@sahihcertify.com');
+      setSelectedUserId(ceoUser ? String(ceoUser.id) : "");
+    } else {
+      setSelectedUserId("");
+    }
+    
     setWorkflowNotes("");
     setShowWorkflowDialog(true);
   };
@@ -1109,8 +1120,8 @@ export default function Employees() {
           <DialogHeader>
             <DialogTitle>{getWorkflowDialogTitle()}</DialogTitle>
             <DialogDescription>
-              {workflowAction === 'submit_review' && `Submit ${selectedEmployee?.name}'s record for review`}
-              {workflowAction === 'submit_approval' && `Send ${selectedEmployee?.name}'s record to an approver`}
+              {workflowAction === 'submit_review' && `Submit ${selectedEmployee?.name}'s record to COO for review`}
+              {workflowAction === 'submit_approval' && `Send ${selectedEmployee?.name}'s record to CEO for final approval`}
               {workflowAction === 'approve' && `Approve ${selectedEmployee?.name}'s employee record`}
               {workflowAction === 'reject' && `Reject ${selectedEmployee?.name}'s employee record`}
             </DialogDescription>

@@ -26,6 +26,13 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { 
@@ -850,6 +857,17 @@ export default function Dashboard() {
   const [showExplanation, setShowExplanation] = useState(false);
   const [location, navigate] = useLocation();
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [selectedApproverId, setSelectedApproverId] = useState<string>("");
+
+  // Get CEO user for default approver
+  const ceoUser = useMemo(() => allUsers?.find(u => u.email === 'ceo@sahihcertify.com'), [allUsers]);
+
+  // Auto-fill approver when CEO user becomes available (handles async loading)
+  useEffect(() => {
+    if (selectedTask?.taskType === 'employee_review' && ceoUser && !selectedApproverId) {
+      setSelectedApproverId(String(ceoUser.id));
+    }
+  }, [selectedTask, ceoUser, selectedApproverId]);
 
   const dailyIsoTip = useMemo(() => {
     const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
@@ -922,6 +940,12 @@ export default function Dashboard() {
   const handleOpenTask = (task: MyTask) => {
     setSelectedTask(task);
     setTaskComments("");
+    // Default approver to CEO for employee review tasks
+    if (task.taskType === 'employee_review' && ceoUser) {
+      setSelectedApproverId(String(ceoUser.id));
+    } else {
+      setSelectedApproverId("");
+    }
     setShowTaskDialog(true);
   };
 
@@ -2272,6 +2296,25 @@ export default function Dashboard() {
               </div>
             )}
 
+            {selectedTask?.taskType === 'employee_review' && (
+              <div className="space-y-2">
+                <Label htmlFor="select-approver">Select Approver for Final Approval *</Label>
+                <Select value={selectedApproverId} onValueChange={setSelectedApproverId}>
+                  <SelectTrigger id="select-approver" data-testid="select-approver">
+                    <SelectValue placeholder="Choose who will approve this employee..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(allUsers || []).filter(u => u.role === 'admin' || u.email === 'ceo@sahihcertify.com').map(user => (
+                      <SelectItem key={user.id} value={String(user.id)}>
+                        {user.name} ({user.role}) {user.email === 'ceo@sahihcertify.com' ? '- CEO (Default)' : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">The selected approver will receive this employee record for final approval.</p>
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="comments">Comments (optional)</Label>
               <Textarea
@@ -2415,10 +2458,15 @@ export default function Dashboard() {
                 </Button>
                 <Button 
                   onClick={() => {
-                    if (selectedTask?.employeeId && currentUser) {
-                      submitEmployeeForApprovalMutation.mutate({ id: selectedTask.employeeId, approverId: currentUser.id, notes: taskComments || undefined }, {
+                    if (!selectedApproverId) {
+                      toast({ title: "Please select an approver", description: "You must select who will approve this employee record.", variant: "destructive" });
+                      return;
+                    }
+                    if (selectedTask?.employeeId) {
+                      submitEmployeeForApprovalMutation.mutate({ id: selectedTask.employeeId, approverId: Number(selectedApproverId), notes: taskComments || undefined }, {
                         onSuccess: () => {
-                          toast({ title: "Review Complete", description: `Employee record for ${selectedTask.employeeName} has been submitted for approval.` });
+                          const approverName = allUsers?.find(u => u.id === Number(selectedApproverId))?.name || 'the approver';
+                          toast({ title: "Review Complete", description: `Employee record for ${selectedTask.employeeName} has been sent to ${approverName} for approval.` });
                           setShowTaskDialog(false);
                           queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
                         },
@@ -2428,10 +2476,10 @@ export default function Dashboard() {
                       });
                     }
                   }}
-                  disabled={submitEmployeeForApprovalMutation.isPending}
+                  disabled={submitEmployeeForApprovalMutation.isPending || !selectedApproverId}
                 >
                   <CheckCircle2 className="w-4 h-4 mr-2" />
-                  {submitEmployeeForApprovalMutation.isPending ? "Completing..." : "Complete Review"}
+                  {submitEmployeeForApprovalMutation.isPending ? "Completing..." : "Complete Review & Submit"}
                 </Button>
               </>
             ) : selectedTask?.taskType === 'employee_approve' ? (
