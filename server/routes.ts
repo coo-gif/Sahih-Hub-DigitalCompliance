@@ -260,6 +260,10 @@ export async function registerRoutes(
 
       req.session.userId = user.id;
       
+      // Update login and activity timestamps
+      await storage.updateUser(user.id, { lastLogin: new Date() } as any);
+      await storage.updateUserActivity(user.id);
+      
       const { passwordHash, ...userWithoutPassword } = user;
       res.json({ user: userWithoutPassword });
     } catch (err) {
@@ -313,6 +317,30 @@ export async function registerRoutes(
   // ============================================
   // USER ROUTES
   // ============================================
+  
+  // Get active users with online status
+  app.get('/api/users/active', requireAuth, async (req, res) => {
+    try {
+      const activeUsers = await storage.getActiveUsers();
+      res.json(activeUsers);
+    } catch (err) {
+      console.error('Error fetching active users:', err);
+      res.status(500).json({ message: 'Failed to fetch active users' });
+    }
+  });
+
+  // Activity heartbeat - clients should call this periodically
+  app.post('/api/activity/heartbeat', requireAuth, async (req, res) => {
+    try {
+      const userId = getCurrentUserId(req);
+      await storage.updateUserActivity(userId);
+      res.json({ success: true });
+    } catch (err) {
+      console.error('Error updating activity:', err);
+      res.status(500).json({ message: 'Failed to update activity' });
+    }
+  });
+
   app.get(api.users.list.path, async (req, res) => {
     const users = await storage.getUsers();
     res.json(users);

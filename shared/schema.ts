@@ -155,6 +155,7 @@ export const users = pgTable("users", {
   signatureDataUrl: text("signature_data_url"),
   dateJoined: timestamp("date_joined").defaultNow(),
   lastLogin: timestamp("last_login"),
+  lastActivity: timestamp("last_activity"),
 });
 
 // ============================================

@@ -76,3 +76,28 @@ export function useUpdateSignature() {
     },
   });
 }
+
+interface ActiveUser {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+  lastActivity: string | null;
+  isOnline: boolean;
+}
+
+export function useActiveUsers() {
+  return useQuery<ActiveUser[]>({
+    queryKey: ['/api/users/active'],
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+}
+
+export function useActivityHeartbeat() {
+  return useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/activity/heartbeat');
+      return res.json();
+    },
+  });
+}

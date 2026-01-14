@@ -1,6 +1,6 @@
 import { useDashboardStats, useComplianceAlerts, useRecentActivity } from "@/hooks/use-dashboard";
 import { useMyTasks, useCompleteTask, useAllDocumentTasks, usePokeTask } from "@/hooks/use-tasks";
-import { useUsers } from "@/hooks/use-users";
+import { useUsers, useActiveUsers, useActivityHeartbeat } from "@/hooks/use-users";
 import { useAuth } from "@/hooks/use-auth";
 import { useApproveEmployee, useRejectEmployee, useSubmitEmployeeForApproval } from "@/hooks/use-employees";
 import { useMutation } from "@tanstack/react-query";
@@ -751,6 +751,23 @@ export default function Dashboard() {
   const { data: myTasks, isLoading: tasksLoading } = useMyTasks();
   const { data: allUsers } = useUsers();
   const { data: currentUser } = useAuth();
+  const { data: activeUsers } = useActiveUsers();
+  const heartbeatMutation = useActivityHeartbeat();
+  
+  // Send activity heartbeat every 5 minutes
+  useEffect(() => {
+    const sendHeartbeat = () => {
+      heartbeatMutation.mutate();
+    };
+    
+    // Send initial heartbeat
+    sendHeartbeat();
+    
+    // Set up interval for periodic heartbeats
+    const interval = setInterval(sendHeartbeat, 5 * 60 * 1000);
+    
+    return () => clearInterval(interval);
+  }, []);
   
   const isManager = currentUser?.role === 'admin' || currentUser?.role === 'quality_manager' || currentUser?.role === 'department_head';
   const { data: allDocumentTasks } = useAllDocumentTasks(isManager);
@@ -2087,6 +2104,87 @@ export default function Dashboard() {
               ) : (
                 <div className="text-center py-8 text-muted-foreground" data-testid="text-no-activity">
                   No recent activity
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Active Users */}
+        <Card data-testid="card-active-users">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30">
+                <Users className="w-4 h-4 text-green-600" />
+              </div>
+              <div>
+                <CardTitle>Active Users</CardTitle>
+                <CardDescription>Team members currently online</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {activeUsers && activeUsers.length > 0 ? (
+                activeUsers.slice(0, 8).map((user, idx) => {
+                  const formatLastActive = (lastActivity: string | null) => {
+                    if (!lastActivity) return 'Never active';
+                    const now = new Date();
+                    const last = new Date(lastActivity);
+                    const diffMs = now.getTime() - last.getTime();
+                    const diffMins = Math.floor(diffMs / (1000 * 60));
+                    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+                    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+                    
+                    if (diffMins < 1) return 'Just now';
+                    if (diffMins < 60) return `${diffMins} min ago`;
+                    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+                    return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+                  };
+
+                  return (
+                    <div 
+                      key={user.id}
+                      className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors"
+                      style={{ animation: `slideIn 0.3s ease-out ${idx * 0.05}s backwards` }}
+                      data-testid={`active-user-${user.id}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="relative">
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center">
+                            <span className="text-xs font-semibold text-primary">
+                              {user.name.charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                          <div 
+                            className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${
+                              user.isOnline ? 'bg-green-500' : 'bg-gray-400'
+                            }`}
+                            data-testid={`status-dot-${user.id}`}
+                          />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium" data-testid={`text-user-name-${user.id}`}>{user.name}</p>
+                          <p className="text-xs text-muted-foreground capitalize">{user.role.replace('_', ' ')}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        {user.isOnline ? (
+                          <Badge variant="secondary" className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs">
+                            Online
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground" data-testid={`text-last-active-${user.id}`}>
+                            {formatLastActive(user.lastActivity)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center py-6 text-muted-foreground">
+                  No active users
                 </div>
               )}
             </div>

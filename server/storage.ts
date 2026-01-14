@@ -45,6 +45,15 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<Omit<User, 'passwordHash'>>;
   updateUser(id: number, user: Partial<InsertUser>): Promise<Omit<User, 'passwordHash'>>;
   deleteUser(id: number): Promise<void>;
+  updateUserActivity(userId: number): Promise<void>;
+  getActiveUsers(): Promise<Array<{
+    id: number;
+    name: string;
+    email: string;
+    role: string;
+    lastActivity: Date | null;
+    isOnline: boolean;
+  }>>;
 
   // Documents
   getDocuments(filters?: { status?: string; category?: string }): Promise<Document[]>;
@@ -210,6 +219,7 @@ export class DatabaseStorage implements IStorage {
       signatureDataUrl: users.signatureDataUrl,
       dateJoined: users.dateJoined,
       lastLogin: users.lastLogin,
+      lastActivity: users.lastActivity,
     }).from(users).orderBy(desc(users.dateJoined));
     return result;
   }
@@ -225,8 +235,40 @@ export class DatabaseStorage implements IStorage {
       signatureDataUrl: users.signatureDataUrl,
       dateJoined: users.dateJoined,
       lastLogin: users.lastLogin,
+      lastActivity: users.lastActivity,
     }).from(users).where(eq(users.id, id));
     return user;
+  }
+
+  async updateUserActivity(userId: number): Promise<void> {
+    await db.update(users)
+      .set({ lastActivity: new Date() })
+      .where(eq(users.id, userId));
+  }
+
+  async getActiveUsers(): Promise<Array<{
+    id: number;
+    name: string;
+    email: string;
+    role: string;
+    lastActivity: Date | null;
+    isOnline: boolean;
+  }>> {
+    const result = await db.select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      role: users.role,
+      lastActivity: users.lastActivity,
+    }).from(users).where(eq(users.isActive, true)).orderBy(desc(users.lastActivity));
+    
+    const now = new Date();
+    const fifteenMinutesAgo = new Date(now.getTime() - 15 * 60 * 1000);
+    
+    return result.map(user => ({
+      ...user,
+      isOnline: user.lastActivity ? user.lastActivity > fifteenMinutesAgo : false,
+    }));
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
@@ -873,14 +915,16 @@ export class DatabaseStorage implements IStorage {
     let delayHours = 0;
     let performancePoints = 1; // Base point for completion
     
-    if (now < targetDate) {
-      // Completed early
-      earlyHours = Math.ceil((targetDate.getTime() - now.getTime()) / (1000 * 60 * 60));
-      performancePoints += earlyHours; // +1 point per hour early
-    } else if (now > targetDate) {
-      // Completed late
-      delayHours = Math.ceil((now.getTime() - targetDate.getTime()) / (1000 * 60 * 60));
-      performancePoints -= delayHours; // -1 point per hour late
+    if (targetDate) {
+      if (now < targetDate) {
+        // Completed early
+        earlyHours = Math.ceil((targetDate.getTime() - now.getTime()) / (1000 * 60 * 60));
+        performancePoints += earlyHours; // +1 point per hour early
+      } else if (now > targetDate) {
+        // Completed late
+        delayHours = Math.ceil((now.getTime() - targetDate.getTime()) / (1000 * 60 * 60));
+        performancePoints -= delayHours; // -1 point per hour late
+      }
     }
 
     const [updated] = await db.update(documentTasks)
