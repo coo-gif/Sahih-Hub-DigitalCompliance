@@ -33,6 +33,7 @@ import { format } from "date-fns";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
 import sahihCertifyBanner from "@assets/WhatsApp_Image_2026-01-14_at_14.49.11_(1)_1768391647558.jpeg";
 import { BuddySidebarWidget } from "@/components/BuddyAvatar";
+import { NotificationManager } from "@/components/NotificationManager";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -182,6 +183,7 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
           </div>
 
           <div className="flex items-center gap-3 ml-auto">
+            <NotificationManager />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="icon" className="relative" data-testid="button-notifications">

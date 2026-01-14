@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
+import { queryClient } from "@/lib/queryClient";
 import { useDocuments, useCreateDocument, useUpdateDocument, useDeleteDocument, useSubmitDocumentForReview, useDocumentAccessRequests, useCreateDocumentAccessRequest, useDocumentAccess } from "@/hooks/use-documents";
 import { useUsers } from "@/hooks/use-users";
 import { useAuth } from "@/hooks/use-auth";
@@ -55,7 +56,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, MoreHorizontal, Pencil, Trash2, AlertCircle, Eye, FileText, Calendar, Clock, FileDown, Loader2, Send, Lock, Unlock } from "lucide-react";
+import { Plus, MoreHorizontal, Pencil, Trash2, AlertCircle, Eye, FileText, Calendar, Clock, FileDown, Loader2, Send, Lock, Unlock, UserCog } from "lucide-react";
 import { format } from "date-fns";
 import type { Document } from "@shared/schema";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
@@ -86,9 +87,11 @@ export default function Documents() {
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [showSubmitReviewDialog, setShowSubmitReviewDialog] = useState(false);
+  const [showReassignDialog, setShowReassignDialog] = useState(false);
   const [selectedReviewerId, setSelectedReviewerId] = useState<string>("");
   const [selectedApproverId, setSelectedApproverId] = useState<string>("");
   const [reviewComment, setReviewComment] = useState("");
+  const [reassignComment, setReassignComment] = useState("");
   
   const filters = {
     status: statusFilter !== "all" ? statusFilter : undefined,
@@ -296,6 +299,63 @@ export default function Documents() {
       setSelectedDocument(null);
     } catch (error: any) {
       toast({ title: "Error submitting for review", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const openReassignDialog = (doc: Document) => {
+    setSelectedDocument(doc);
+    setSelectedReviewerId(doc.reviewerId?.toString() || "");
+    setSelectedApproverId(doc.approverId?.toString() || "");
+    setReassignComment("");
+    setShowReassignDialog(true);
+  };
+
+  const handleReassign = async () => {
+    if (!selectedDocument) return;
+    
+    const isApprovalTask = selectedDocument.status === "pending_approval";
+    const taskType = isApprovalTask ? "approve" : "review";
+    
+    const newAssigneeId = isApprovalTask 
+      ? (selectedApproverId && selectedApproverId !== "none" ? parseInt(selectedApproverId) : null)
+      : (selectedReviewerId && selectedReviewerId !== "none" ? parseInt(selectedReviewerId) : null);
+    
+    if (!newAssigneeId || isNaN(newAssigneeId)) {
+      toast({ 
+        title: "Please select an assignee", 
+        description: isApprovalTask ? "Please select an approver" : "Please select a reviewer",
+        variant: "destructive" 
+      });
+      return;
+    }
+    
+    try {
+      const response = await fetch(`/api/documents/${selectedDocument.id}/reassign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          taskType,
+          newAssigneeId,
+          newApproverId: !isApprovalTask && selectedApproverId && selectedApproverId !== "none" 
+            ? parseInt(selectedApproverId) 
+            : undefined,
+          reason: reassignComment || 'Task reassigned',
+        }),
+      });
+      
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.message || 'Failed to reassign task');
+      }
+      
+      queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+      toast({ title: "Task re-assigned successfully" });
+      setShowReassignDialog(false);
+      setSelectedDocument(null);
+    } catch (error: any) {
+      toast({ title: "Error re-assigning task", description: error.message, variant: "destructive" });
     }
   };
 
@@ -523,6 +583,14 @@ export default function Documents() {
                                 <FileDown className="w-4 h-4 mr-2" /> Generate PDF
                               </DropdownMenuItem>
                             )}
+                            {(doc.status === "in_review" || doc.status === "pending_approval") && isAdminOrQM && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => openReassignDialog(doc)} data-testid={`button-reassign-${doc.id}`}>
+                                  <UserCog className="w-4 h-4 mr-2" /> Re-assign Task
+                                </DropdownMenuItem>
+                              </>
+                            )}
                             <DropdownMenuSeparator />
                             <DropdownMenuItem onClick={() => openDeleteDialog(doc)} className="text-red-600">
                               <Trash2 className="w-4 h-4 mr-2" /> Delete
@@ -684,6 +752,56 @@ export default function Documents() {
                 data-testid="input-edit-next-review-date"
               />
             </div>
+            
+            {/* Re-assign Section - Only for documents in review or pending approval */}
+            {selectedDocument && (selectedDocument.status === "in_review" || selectedDocument.status === "pending_approval") && isAdminOrQM && (
+              <div className="pt-4 border-t space-y-4">
+                <h4 className="font-medium flex items-center gap-2">
+                  <UserCog className="w-4 h-4" />
+                  Re-assign Task
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="edit-reviewer">Reviewer</Label>
+                    <Select 
+                      value={selectedDocument.reviewerId?.toString() || ""} 
+                      onValueChange={(v) => setSelectedDocument(prev => prev ? {...prev, reviewerId: v === "none" ? null : parseInt(v)} : null)}
+                    >
+                      <SelectTrigger id="edit-reviewer" data-testid="select-edit-reviewer">
+                        <SelectValue placeholder="Choose reviewer..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Not assigned</SelectItem>
+                        {users.filter((u: any) => ['quality_manager', 'department_head', 'admin'].includes(u.role)).map((user: any) => (
+                          <SelectItem key={user.id} value={user.id.toString()}>
+                            {user.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-approver">Approver</Label>
+                    <Select 
+                      value={selectedDocument.approverId?.toString() || ""} 
+                      onValueChange={(v) => setSelectedDocument(prev => prev ? {...prev, approverId: v === "none" ? null : parseInt(v)} : null)}
+                    >
+                      <SelectTrigger id="edit-approver" data-testid="select-edit-approver">
+                        <SelectValue placeholder="Choose approver..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Not assigned</SelectItem>
+                        {users.filter((u: any) => ['quality_manager', 'admin'].includes(u.role)).map((user: any) => (
+                          <SelectItem key={user.id} value={user.id.toString()}>
+                            {user.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           </div>
           <DialogFooter className="px-6 py-4 border-t flex-shrink-0">
@@ -998,6 +1116,67 @@ export default function Documents() {
               data-testid="button-submit-review"
             >
               {submitForReviewMutation.isPending ? "Submitting..." : "Submit for Review"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Re-assign Task Dialog */}
+      <Dialog open={showReassignDialog} onOpenChange={setShowReassignDialog}>
+        <DialogContent data-testid="dialog-reassign-task">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserCog className="w-5 h-5" />
+              Re-assign Task
+            </DialogTitle>
+            <DialogDescription>
+              Change the reviewer or approver for: {selectedDocument?.title}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="reassign-reviewer">Reviewer</Label>
+              <Select value={selectedReviewerId} onValueChange={setSelectedReviewerId}>
+                <SelectTrigger id="reassign-reviewer" data-testid="select-reassign-reviewer">
+                  <SelectValue placeholder="Choose a reviewer..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not assigned</SelectItem>
+                  {users.filter((u: any) => ['quality_manager', 'department_head', 'admin'].includes(u.role)).map((user: any) => (
+                    <SelectItem key={user.id} value={user.id.toString()}>
+                      {user.name} ({user.role.replace('_', ' ')})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="reassign-approver">Approver</Label>
+              <Select value={selectedApproverId} onValueChange={setSelectedApproverId}>
+                <SelectTrigger id="reassign-approver" data-testid="select-reassign-approver">
+                  <SelectValue placeholder="Choose an approver..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not assigned</SelectItem>
+                  {users.filter((u: any) => ['quality_manager', 'admin'].includes(u.role)).map((user: any) => (
+                    <SelectItem key={user.id} value={user.id.toString()}>
+                      {user.name} ({user.role.replace('_', ' ')})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowReassignDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleReassign}
+              disabled={updateMutation.isPending}
+              data-testid="button-confirm-reassign"
+            >
+              {updateMutation.isPending ? "Saving..." : "Re-assign"}
             </Button>
           </DialogFooter>
         </DialogContent>
