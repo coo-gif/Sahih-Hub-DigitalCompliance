@@ -3551,23 +3551,26 @@ export async function registerRoutes(
       const userId = getCurrentUserId(req);
       const { title, description, screenshotUrl, priority } = req.body;
       
+      // Find COO user to auto-assign bug reports
+      const allUsers = await storage.getUsers();
+      const coo = allUsers.find(u => u.email === 'coo@sahihcertify.com');
+      
       const report = await storage.createBugReport({
         title,
         description,
         screenshotUrl,
         priority: priority || 'medium',
         reportedById: userId,
+        assignedToId: coo?.id || null,
         status: 'open',
       });
 
-      // Notify COO about new bug report
-      const allUsers = await storage.getUsers();
-      const coo = allUsers.find(u => u.email === 'coo@sahihcertify.com');
+      // Notify COO about new bug report assigned to them
       if (coo) {
         await storage.createNotification({
           userId: coo.id,
-          title: 'New Bug Report',
-          message: `New bug report submitted: ${report.ticketNumber} - ${title}`,
+          title: 'New Bug Report Assigned',
+          message: `A new bug report has been assigned to you: ${report.ticketNumber} - ${title}`,
           urgencyLevel: priority === 'critical' ? 'critical' : priority === 'high' ? 'high' : 'medium',
           isRead: false,
         });
