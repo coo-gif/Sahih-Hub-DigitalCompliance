@@ -314,11 +314,20 @@ export default function Documents() {
     if (!selectedDocument) return;
     
     const isApprovalTask = selectedDocument.status === "pending_approval";
-    const taskType = isApprovalTask ? "approve" : "review";
     
-    const newAssigneeId = isApprovalTask 
-      ? (selectedApproverId && selectedApproverId !== "none" ? parseInt(selectedApproverId) : null)
-      : (selectedReviewerId && selectedReviewerId !== "none" ? parseInt(selectedReviewerId) : null);
+    // Get reviewer ID - use existing if not changed
+    const reviewerId = selectedReviewerId && selectedReviewerId !== "none" && selectedReviewerId !== "" 
+      ? parseInt(selectedReviewerId) 
+      : selectedDocument.reviewerId;
+    
+    // Get approver ID - use existing if not changed  
+    const approverId = selectedApproverId && selectedApproverId !== "none" && selectedApproverId !== ""
+      ? parseInt(selectedApproverId)
+      : selectedDocument.approverId;
+    
+    // Determine which task we're reassigning based on status
+    const taskType = isApprovalTask ? "approve" : "review";
+    const newAssigneeId = isApprovalTask ? approverId : reviewerId;
     
     if (!newAssigneeId || isNaN(newAssigneeId)) {
       toast({ 
@@ -337,9 +346,7 @@ export default function Documents() {
         body: JSON.stringify({
           taskType,
           newAssigneeId,
-          newApproverId: !isApprovalTask && selectedApproverId && selectedApproverId !== "none" 
-            ? parseInt(selectedApproverId) 
-            : undefined,
+          newApproverId: !isApprovalTask && approverId && !isNaN(approverId) ? approverId : undefined,
           reason: reassignComment || 'Task reassigned',
         }),
       });
