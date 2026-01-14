@@ -3003,6 +3003,293 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================
+  // MONTHLY PERFORMANCE REPORTS (ADMIN ONLY)
+  // ============================================
+  
+  // Get all monthly reports (Admin only)
+  app.get('/api/performance-reports', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const currentUser = await storage.getUser(getCurrentUserId(req));
+      if (!currentUser || currentUser.role !== 'admin') {
+        return res.status(403).json({ message: 'Admin access required' });
+      }
+
+      const filters = {
+        userId: req.query.userId ? Number(req.query.userId) : undefined,
+        month: req.query.month ? Number(req.query.month) : undefined,
+        year: req.query.year ? Number(req.query.year) : undefined,
+        status: req.query.status as string | undefined,
+      };
+      
+      const reports = await storage.getMonthlyPerformanceReports(filters);
+      
+      // Enrich with user names
+      const enrichedReports = await Promise.all(reports.map(async (report) => {
+        const user = await storage.getUser(report.userId);
+        const reviewer = report.reviewerId ? await storage.getUser(report.reviewerId) : null;
+        const approver = report.approverId ? await storage.getUser(report.approverId) : null;
+        return {
+          ...report,
+          userName: user?.name || 'Unknown',
+          userEmail: user?.email || '',
+          reviewerName: reviewer?.name || null,
+          approverName: approver?.name || null,
+        };
+      }));
+      
+      res.json(enrichedReports);
+    } catch (err) {
+      console.error('Error fetching performance reports:', err);
+      res.status(500).json({ message: 'Failed to fetch reports' });
+    }
+  });
+
+  // Get single report
+  app.get('/api/performance-reports/:id', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const currentUser = await storage.getUser(getCurrentUserId(req));
+      if (!currentUser || currentUser.role !== 'admin') {
+        return res.status(403).json({ message: 'Admin access required' });
+      }
+
+      const id = Number(req.params.id);
+      const report = await storage.getMonthlyPerformanceReport(id);
+      
+      if (!report) {
+        return res.status(404).json({ message: 'Report not found' });
+      }
+      
+      const user = await storage.getUser(report.userId);
+      const reviewer = report.reviewerId ? await storage.getUser(report.reviewerId) : null;
+      const approver = report.approverId ? await storage.getUser(report.approverId) : null;
+      
+      res.json({
+        ...report,
+        userName: user?.name || 'Unknown',
+        userEmail: user?.email || '',
+        reviewerName: reviewer?.name || null,
+        approverName: approver?.name || null,
+      });
+    } catch (err) {
+      console.error('Error fetching performance report:', err);
+      res.status(500).json({ message: 'Failed to fetch report' });
+    }
+  });
+
+  // Generate reports for all users for a specific month (Admin only)
+  app.post('/api/performance-reports/generate', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const currentUser = await storage.getUser(getCurrentUserId(req));
+      if (!currentUser || currentUser.role !== 'admin') {
+        return res.status(403).json({ message: 'Admin access required' });
+      }
+
+      const { month, year } = req.body;
+      if (!month || !year) {
+        return res.status(400).json({ message: 'Month and year are required' });
+      }
+
+      const allUsers = await storage.getUsers();
+      const reports = [];
+
+      for (const user of allUsers) {
+        const report = await storage.generateMonthlyReport(user.id, month, year);
+        reports.push(report);
+      }
+
+      res.json({ message: `Generated ${reports.length} reports`, reports });
+    } catch (err) {
+      console.error('Error generating reports:', err);
+      res.status(500).json({ message: 'Failed to generate reports' });
+    }
+  });
+
+  // Submit report for review (sends to COO)
+  app.post('/api/performance-reports/:id/submit', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const currentUser = await storage.getUser(getCurrentUserId(req));
+      if (!currentUser || currentUser.role !== 'admin') {
+        return res.status(403).json({ message: 'Admin access required' });
+      }
+
+      const id = Number(req.params.id);
+      const report = await storage.submitReportForReview(id);
+      
+      // Notify COO
+      const coo = await storage.getUserByEmail('coo@sahihcertify.com');
+      if (coo) {
+        const user = await storage.getUser(report.userId);
+        await storage.createNotification({
+          userId: coo.id,
+          title: 'Performance Report Requires Review',
+          message: `Monthly performance report for ${user?.name || 'Unknown'} (${report.reportMonth}/${report.reportYear}) is ready for your review.`,
+          urgencyLevel: 'medium',
+        });
+      }
+
+      res.json(report);
+    } catch (err) {
+      console.error('Error submitting report:', err);
+      res.status(500).json({ message: 'Failed to submit report' });
+    }
+  });
+
+  // Review report (COO reviews, sends to CEO for approval)
+  app.post('/api/performance-reports/:id/review', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const currentUserId = getCurrentUserId(req);
+      const currentUser = await storage.getUser(currentUserId);
+      
+      // Check if user is COO
+      if (!currentUser || currentUser.email !== 'coo@sahihcertify.com') {
+        return res.status(403).json({ message: 'Only COO can review performance reports' });
+      }
+
+      const id = Number(req.params.id);
+      const { comments } = req.body;
+      
+      const report = await storage.reviewReport(id, currentUserId, comments);
+      
+      // Notify CEO
+      const ceo = await storage.getUserByEmail('ceo@sahihcertify.com');
+      if (ceo) {
+        const user = await storage.getUser(report.userId);
+        await storage.createNotification({
+          userId: ceo.id,
+          title: 'Performance Report Requires Approval',
+          message: `Monthly performance report for ${user?.name || 'Unknown'} (${report.reportMonth}/${report.reportYear}) has been reviewed and requires your approval.`,
+          urgencyLevel: 'medium',
+        });
+      }
+
+      res.json(report);
+    } catch (err) {
+      console.error('Error reviewing report:', err);
+      res.status(500).json({ message: 'Failed to review report' });
+    }
+  });
+
+  // Approve report (CEO approves and attaches to user records)
+  app.post('/api/performance-reports/:id/approve', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const currentUserId = getCurrentUserId(req);
+      const currentUser = await storage.getUser(currentUserId);
+      
+      // Check if user is CEO
+      if (!currentUser || currentUser.email !== 'ceo@sahihcertify.com') {
+        return res.status(403).json({ message: 'Only CEO can approve performance reports' });
+      }
+
+      const id = Number(req.params.id);
+      const { comments } = req.body;
+      
+      const report = await storage.approveReport(id, currentUserId, comments);
+      
+      // Create user record for the approved report
+      const user = await storage.getUser(report.userId);
+      if (user) {
+        await storage.createUserRecord({
+          userId: report.userId,
+          recordType: 'monthly_performance',
+          recordTitle: `Monthly Performance Report - ${report.reportMonth}/${report.reportYear}`,
+          documentId: null,
+          employeeId: null,
+          recordData: JSON.stringify({
+            totalActiveHours: report.totalActiveHours,
+            totalOnlineHours: report.totalOnlineHours,
+            totalDaysActive: report.totalDaysActive,
+            documentsCreated: report.documentsCreated,
+            documentsReviewed: report.documentsReviewed,
+            documentsApproved: report.documentsApproved,
+            tasksCompleted: report.tasksCompleted,
+            tasksOverdue: report.tasksOverdue,
+            tasksPending: report.tasksPending,
+            reviewedBy: report.reviewerId,
+            approvedBy: report.approverId,
+          }),
+        });
+
+        // Notify the user
+        await storage.createNotification({
+          userId: report.userId,
+          title: 'Performance Report Approved',
+          message: `Your monthly performance report for ${report.reportMonth}/${report.reportYear} has been approved and added to your records.`,
+          urgencyLevel: 'low',
+        });
+      }
+
+      res.json(report);
+    } catch (err) {
+      console.error('Error approving report:', err);
+      res.status(500).json({ message: 'Failed to approve report' });
+    }
+  });
+
+  // Reject report
+  app.post('/api/performance-reports/:id/reject', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const currentUserId = getCurrentUserId(req);
+      const currentUser = await storage.getUser(currentUserId);
+      
+      // Check if user is COO or CEO
+      if (!currentUser || (currentUser.email !== 'coo@sahihcertify.com' && currentUser.email !== 'ceo@sahihcertify.com')) {
+        return res.status(403).json({ message: 'Only COO or CEO can reject performance reports' });
+      }
+
+      const id = Number(req.params.id);
+      const { comments } = req.body;
+      
+      if (!comments) {
+        return res.status(400).json({ message: 'Rejection comments are required' });
+      }
+      
+      const report = await storage.rejectReport(id, comments);
+
+      res.json(report);
+    } catch (err) {
+      console.error('Error rejecting report:', err);
+      res.status(500).json({ message: 'Failed to reject report' });
+    }
+  });
+
+  // Update activity heartbeat to also track session (enhanced version)
+  app.post('/api/activity/session-heartbeat', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      await storage.updateUserHeartbeat(userId);
+      await storage.updateUserActivity(userId);
+      res.json({ success: true });
+    } catch (err) {
+      console.error('Error updating session heartbeat:', err);
+      res.status(500).json({ message: 'Failed to update heartbeat' });
+    }
+  });
+
+  // Start user session on login
+  app.post('/api/activity/start-session', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const session = await storage.startUserSession(userId);
+      res.json(session);
+    } catch (err) {
+      console.error('Error starting session:', err);
+      res.status(500).json({ message: 'Failed to start session' });
+    }
+  });
+
+  // End user session on logout
+  app.post('/api/activity/end-session', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      await storage.endUserSession(userId);
+      res.json({ success: true });
+    } catch (err) {
+      console.error('Error ending session:', err);
+      res.status(500).json({ message: 'Failed to end session' });
+    }
+  });
+
   await seedDatabase();
 
   return httpServer;

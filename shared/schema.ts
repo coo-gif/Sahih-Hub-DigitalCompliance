@@ -482,6 +482,74 @@ export const buddyDialogues = pgTable("buddy_dialogues", {
 });
 
 // ============================================
+// USER ACTIVITY LOGS TABLE (for tracking active hours)
+// ============================================
+export const userActivityLogs = pgTable("user_activity_logs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  activityDate: timestamp("activity_date").notNull().defaultNow(),
+  sessionStart: timestamp("session_start").notNull().defaultNow(),
+  sessionEnd: timestamp("session_end"),
+  lastHeartbeat: timestamp("last_heartbeat").defaultNow(),
+  totalActiveMinutes: integer("total_active_minutes").default(0),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// ============================================
+// MONTHLY PERFORMANCE REPORT STATUS
+// ============================================
+export const MonthlyReportStatus = {
+  DRAFT: "draft",
+  IN_REVIEW: "in_review",
+  PENDING_APPROVAL: "pending_approval",
+  APPROVED: "approved",
+  REJECTED: "rejected",
+} as const;
+
+// ============================================
+// MONTHLY PERFORMANCE REPORTS TABLE
+// ============================================
+export const monthlyPerformanceReports = pgTable("monthly_performance_reports", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  reportMonth: integer("report_month").notNull(), // 1-12
+  reportYear: integer("report_year").notNull(),
+  
+  // Activity metrics
+  totalActiveHours: integer("total_active_hours").default(0),
+  totalOnlineHours: integer("total_online_hours").default(0),
+  totalDaysActive: integer("total_days_active").default(0),
+  
+  // Document metrics
+  documentsCreated: integer("documents_created").default(0),
+  documentsReviewed: integer("documents_reviewed").default(0),
+  documentsApproved: integer("documents_approved").default(0),
+  
+  // Task metrics
+  tasksCompleted: integer("tasks_completed").default(0),
+  tasksOverdue: integer("tasks_overdue").default(0),
+  tasksPending: integer("tasks_pending").default(0),
+  
+  // Workflow status
+  status: text("status").notNull().default(MonthlyReportStatus.DRAFT),
+  reviewerId: integer("reviewer_id"), // COO
+  reviewedAt: timestamp("reviewed_at"),
+  reviewComments: text("review_comments"),
+  approverId: integer("approver_id"), // CEO
+  approvedAt: timestamp("approved_at"),
+  approvalComments: text("approval_comments"),
+  
+  // PDF storage
+  reportPdfUrl: text("report_pdf_url"),
+  
+  // Timestamps
+  generatedAt: timestamp("generated_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ============================================
 // RELATIONS
 // ============================================
 export const usersRelations = relations(users, ({ many, one }) => ({
@@ -685,6 +753,18 @@ export const insertBuddyDialogueSchema = createInsertSchema(buddyDialogues).omit
   acknowledgedAt: true,
 });
 
+export const insertUserActivityLogSchema = createInsertSchema(userActivityLogs).omit({ 
+  id: true, 
+  createdAt: true,
+});
+
+export const insertMonthlyPerformanceReportSchema = createInsertSchema(monthlyPerformanceReports).omit({ 
+  id: true, 
+  createdAt: true,
+  updatedAt: true,
+  generatedAt: true,
+});
+
 // ============================================
 // TYPES
 // ============================================
@@ -741,6 +821,12 @@ export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema
 
 export type BuddyDialogue = typeof buddyDialogues.$inferSelect;
 export type InsertBuddyDialogue = z.infer<typeof insertBuddyDialogueSchema>;
+
+export type UserActivityLog = typeof userActivityLogs.$inferSelect;
+export type InsertUserActivityLog = z.infer<typeof insertUserActivityLogSchema>;
+
+export type MonthlyPerformanceReport = typeof monthlyPerformanceReports.$inferSelect;
+export type InsertMonthlyPerformanceReport = z.infer<typeof insertMonthlyPerformanceReportSchema>;
 
 // ============================================
 // API REQUEST/RESPONSE TYPES

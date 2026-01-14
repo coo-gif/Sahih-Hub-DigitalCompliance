@@ -3,6 +3,7 @@ import {
   users, documents, documentVersions, workflowLogs, notifications, auditLogs,
   employees, employeeTasks, downloadRequests, documentFeedback, documentTasks, taskPokes,
   documentAccessRequests, documentAccess, userRecords, buddyStatus, pushSubscriptions, buddyDialogues,
+  userActivityLogs, monthlyPerformanceReports,
   type User, type InsertUser,
   type Document, type InsertDocument,
   type DocumentVersion, type InsertDocumentVersion,
@@ -21,8 +22,10 @@ import {
   type BuddyStatus, type InsertBuddyStatus,
   type PushSubscription, type InsertPushSubscription,
   type BuddyDialogue, type InsertBuddyDialogue,
+  type UserActivityLog, type InsertUserActivityLog,
+  type MonthlyPerformanceReport, type InsertMonthlyPerformanceReport,
   DocumentStatus, InductionStatus, TaskStatus, FeedbackStatus, DocumentTaskStatus,
-  EmployeeRecordStatus, DocumentAccessRequestStatus, BuddyState,
+  EmployeeRecordStatus, DocumentAccessRequestStatus, BuddyState, MonthlyReportStatus,
 } from "@shared/schema";
 import { eq, desc, and, lt, gt, or, sql } from "drizzle-orm";
 import bcrypt from "bcrypt";
@@ -202,6 +205,23 @@ export interface IStorage {
   getBuddyDialogues(userId: number, unacknowledgedOnly?: boolean): Promise<BuddyDialogue[]>;
   createBuddyDialogue(dialogue: InsertBuddyDialogue): Promise<BuddyDialogue>;
   acknowledgeBuddyDialogue(id: number): Promise<BuddyDialogue>;
+
+  // User Activity Logs
+  startUserSession(userId: number): Promise<UserActivityLog>;
+  updateUserHeartbeat(userId: number): Promise<void>;
+  endUserSession(userId: number): Promise<void>;
+  getUserActivityLogs(userId: number, month: number, year: number): Promise<UserActivityLog[]>;
+
+  // Monthly Performance Reports
+  getMonthlyPerformanceReports(filters?: { userId?: number; month?: number; year?: number; status?: string }): Promise<MonthlyPerformanceReport[]>;
+  getMonthlyPerformanceReport(id: number): Promise<MonthlyPerformanceReport | undefined>;
+  createMonthlyPerformanceReport(report: InsertMonthlyPerformanceReport): Promise<MonthlyPerformanceReport>;
+  updateMonthlyPerformanceReport(id: number, report: Partial<InsertMonthlyPerformanceReport>): Promise<MonthlyPerformanceReport>;
+  generateMonthlyReport(userId: number, month: number, year: number): Promise<MonthlyPerformanceReport>;
+  submitReportForReview(id: number): Promise<MonthlyPerformanceReport>;
+  reviewReport(id: number, reviewerId: number, comments?: string): Promise<MonthlyPerformanceReport>;
+  approveReport(id: number, approverId: number, comments?: string): Promise<MonthlyPerformanceReport>;
+  rejectReport(id: number, comments: string): Promise<MonthlyPerformanceReport>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1268,6 +1288,260 @@ export class DatabaseStorage implements IStorage {
     const [updated] = await db.update(buddyDialogues)
       .set({ isAcknowledged: true, acknowledgedAt: new Date() })
       .where(eq(buddyDialogues.id, id))
+      .returning();
+    return updated;
+  }
+
+  // ============================================
+  // USER ACTIVITY LOGS
+  // ============================================
+  async startUserSession(userId: number): Promise<UserActivityLog> {
+    // End any existing active sessions for this user
+    await db.update(userActivityLogs)
+      .set({ isActive: false, sessionEnd: new Date() })
+      .where(and(eq(userActivityLogs.userId, userId), eq(userActivityLogs.isActive, true)));
+    
+    const now = new Date();
+    const [created] = await db.insert(userActivityLogs).values({
+      userId,
+      activityDate: now,
+      sessionStart: now,
+      lastHeartbeat: now,
+      isActive: true,
+      totalActiveMinutes: 0,
+    }).returning();
+    return created;
+  }
+
+  async updateUserHeartbeat(userId: number): Promise<void> {
+    const now = new Date();
+    
+    // Find active session
+    const activeSessions = await db.select().from(userActivityLogs)
+      .where(and(eq(userActivityLogs.userId, userId), eq(userActivityLogs.isActive, true)))
+      .orderBy(desc(userActivityLogs.sessionStart))
+      .limit(1);
+    
+    if (activeSessions.length > 0) {
+      const session = activeSessions[0];
+      const lastHeartbeat = session.lastHeartbeat || session.sessionStart;
+      const minutesSinceLastHeartbeat = Math.floor((now.getTime() - lastHeartbeat.getTime()) / (1000 * 60));
+      
+      // Only count up to 10 minutes per heartbeat interval (to avoid counting inactive time)
+      const activeMinutesToAdd = Math.min(minutesSinceLastHeartbeat, 10);
+      
+      await db.update(userActivityLogs)
+        .set({ 
+          lastHeartbeat: now,
+          totalActiveMinutes: (session.totalActiveMinutes || 0) + activeMinutesToAdd
+        })
+        .where(eq(userActivityLogs.id, session.id));
+    } else {
+      // No active session, start a new one
+      await this.startUserSession(userId);
+    }
+  }
+
+  async endUserSession(userId: number): Promise<void> {
+    const now = new Date();
+    await db.update(userActivityLogs)
+      .set({ isActive: false, sessionEnd: now })
+      .where(and(eq(userActivityLogs.userId, userId), eq(userActivityLogs.isActive, true)));
+  }
+
+  async getUserActivityLogs(userId: number, month: number, year: number): Promise<UserActivityLog[]> {
+    const startDate = new Date(year, month - 1, 1);
+    const endDate = new Date(year, month, 0, 23, 59, 59);
+    
+    return await db.select().from(userActivityLogs)
+      .where(and(
+        eq(userActivityLogs.userId, userId),
+        gt(userActivityLogs.activityDate, startDate),
+        lt(userActivityLogs.activityDate, endDate)
+      ))
+      .orderBy(desc(userActivityLogs.activityDate));
+  }
+
+  // ============================================
+  // MONTHLY PERFORMANCE REPORTS
+  // ============================================
+  async getMonthlyPerformanceReports(filters?: { userId?: number; month?: number; year?: number; status?: string }): Promise<MonthlyPerformanceReport[]> {
+    let query = db.select().from(monthlyPerformanceReports);
+    const conditions = [];
+    
+    if (filters?.userId) conditions.push(eq(monthlyPerformanceReports.userId, filters.userId));
+    if (filters?.month) conditions.push(eq(monthlyPerformanceReports.reportMonth, filters.month));
+    if (filters?.year) conditions.push(eq(monthlyPerformanceReports.reportYear, filters.year));
+    if (filters?.status) conditions.push(eq(monthlyPerformanceReports.status, filters.status));
+    
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions)) as typeof query;
+    }
+    
+    return await query.orderBy(desc(monthlyPerformanceReports.reportYear), desc(monthlyPerformanceReports.reportMonth));
+  }
+
+  async getMonthlyPerformanceReport(id: number): Promise<MonthlyPerformanceReport | undefined> {
+    const [report] = await db.select().from(monthlyPerformanceReports)
+      .where(eq(monthlyPerformanceReports.id, id));
+    return report;
+  }
+
+  async createMonthlyPerformanceReport(report: InsertMonthlyPerformanceReport): Promise<MonthlyPerformanceReport> {
+    const [created] = await db.insert(monthlyPerformanceReports).values(report).returning();
+    return created;
+  }
+
+  async updateMonthlyPerformanceReport(id: number, report: Partial<InsertMonthlyPerformanceReport>): Promise<MonthlyPerformanceReport> {
+    const [updated] = await db.update(monthlyPerformanceReports)
+      .set({ ...report, updatedAt: new Date() })
+      .where(eq(monthlyPerformanceReports.id, id))
+      .returning();
+    return updated;
+  }
+
+  async generateMonthlyReport(userId: number, month: number, year: number): Promise<MonthlyPerformanceReport> {
+    // Check if report already exists
+    const existing = await db.select().from(monthlyPerformanceReports)
+      .where(and(
+        eq(monthlyPerformanceReports.userId, userId),
+        eq(monthlyPerformanceReports.reportMonth, month),
+        eq(monthlyPerformanceReports.reportYear, year)
+      ));
+    
+    if (existing.length > 0) {
+      return existing[0];
+    }
+
+    const startDate = new Date(year, month - 1, 1);
+    const endDate = new Date(year, month, 0, 23, 59, 59);
+
+    // Calculate activity metrics
+    const activityLogs = await this.getUserActivityLogs(userId, month, year);
+    const totalActiveMinutes = activityLogs.reduce((sum, log) => sum + (log.totalActiveMinutes || 0), 0);
+    const totalActiveHours = Math.round(totalActiveMinutes / 60);
+    
+    // Calculate online hours (from session start to end)
+    let totalOnlineMinutes = 0;
+    for (const log of activityLogs) {
+      if (log.sessionStart && log.sessionEnd) {
+        totalOnlineMinutes += Math.floor((log.sessionEnd.getTime() - log.sessionStart.getTime()) / (1000 * 60));
+      } else if (log.sessionStart && log.lastHeartbeat) {
+        totalOnlineMinutes += Math.floor((log.lastHeartbeat.getTime() - log.sessionStart.getTime()) / (1000 * 60));
+      }
+    }
+    const totalOnlineHours = Math.round(totalOnlineMinutes / 60);
+    
+    // Count unique active days
+    const uniqueDays = new Set(activityLogs.map(log => 
+      log.activityDate ? log.activityDate.toISOString().split('T')[0] : ''
+    )).size;
+
+    // Get document metrics from audit logs
+    const allAuditLogs = await db.select().from(auditLogs)
+      .where(and(
+        eq(auditLogs.userId, userId),
+        gt(auditLogs.createdAt, startDate),
+        lt(auditLogs.createdAt, endDate)
+      ));
+
+    const documentsCreated = allAuditLogs.filter(log => 
+      log.entityType === 'document' && log.action === 'create'
+    ).length;
+    
+    const documentsReviewed = allAuditLogs.filter(log => 
+      log.entityType === 'document' && log.action === 'complete_task' && 
+      log.newValue?.includes('"taskType":"review"')
+    ).length;
+    
+    const documentsApproved = allAuditLogs.filter(log => 
+      log.entityType === 'document' && log.action === 'approve'
+    ).length;
+
+    // Get task metrics
+    const allTasks = await db.select().from(documentTasks)
+      .where(eq(documentTasks.assignedToId, userId));
+
+    const tasksCompleted = allTasks.filter(task => 
+      task.status === 'completed' && 
+      task.completedAt && 
+      task.completedAt >= startDate && 
+      task.completedAt <= endDate
+    ).length;
+    
+    const tasksOverdue = allTasks.filter(task => 
+      task.status === 'overdue' || 
+      (task.targetDate && new Date(task.targetDate) < new Date() && task.status !== 'completed')
+    ).length;
+    
+    const tasksPending = allTasks.filter(task => 
+      task.status === 'pending' || task.status === 'assigned' || task.status === 'in_progress'
+    ).length;
+
+    // Create the report
+    const [report] = await db.insert(monthlyPerformanceReports).values({
+      userId,
+      reportMonth: month,
+      reportYear: year,
+      totalActiveHours,
+      totalOnlineHours,
+      totalDaysActive: uniqueDays,
+      documentsCreated,
+      documentsReviewed,
+      documentsApproved,
+      tasksCompleted,
+      tasksOverdue,
+      tasksPending,
+      status: MonthlyReportStatus.DRAFT,
+    }).returning();
+
+    return report;
+  }
+
+  async submitReportForReview(id: number): Promise<MonthlyPerformanceReport> {
+    const [updated] = await db.update(monthlyPerformanceReports)
+      .set({ status: MonthlyReportStatus.IN_REVIEW, updatedAt: new Date() })
+      .where(eq(monthlyPerformanceReports.id, id))
+      .returning();
+    return updated;
+  }
+
+  async reviewReport(id: number, reviewerId: number, comments?: string): Promise<MonthlyPerformanceReport> {
+    const [updated] = await db.update(monthlyPerformanceReports)
+      .set({ 
+        status: MonthlyReportStatus.PENDING_APPROVAL,
+        reviewerId,
+        reviewedAt: new Date(),
+        reviewComments: comments,
+        updatedAt: new Date()
+      })
+      .where(eq(monthlyPerformanceReports.id, id))
+      .returning();
+    return updated;
+  }
+
+  async approveReport(id: number, approverId: number, comments?: string): Promise<MonthlyPerformanceReport> {
+    const [updated] = await db.update(monthlyPerformanceReports)
+      .set({ 
+        status: MonthlyReportStatus.APPROVED,
+        approverId,
+        approvedAt: new Date(),
+        approvalComments: comments,
+        updatedAt: new Date()
+      })
+      .where(eq(monthlyPerformanceReports.id, id))
+      .returning();
+    return updated;
+  }
+
+  async rejectReport(id: number, comments: string): Promise<MonthlyPerformanceReport> {
+    const [updated] = await db.update(monthlyPerformanceReports)
+      .set({ 
+        status: MonthlyReportStatus.REJECTED,
+        reviewComments: comments,
+        updatedAt: new Date()
+      })
+      .where(eq(monthlyPerformanceReports.id, id))
       .returning();
     return updated;
   }
