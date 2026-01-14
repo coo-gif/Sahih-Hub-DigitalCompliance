@@ -73,6 +73,14 @@ export function HubEebiFullBody({ className }: { className?: string }) {
   const pendingTasks = stats.totalTasks - stats.completedTasks;
   const stateInfo = stateEmojis[compliance.state] || stateEmojis.healthy;
 
+  const encouragingQuotes = [
+    "All caught up! Time to make today amazing.",
+    "You're crushing it! Ready for new challenges?",
+    "Clean slate! What great things will you accomplish?",
+    "All done! Success is built one task at a time.",
+    "Way to go! Take a moment to celebrate your wins.",
+  ];
+
   const getMessage = () => {
     if (stats.overdueTasks > 0) {
       return `You have ${stats.overdueTasks} overdue task${stats.overdueTasks > 1 ? 's' : ''}! Let's tackle them together.`;
@@ -80,7 +88,11 @@ export function HubEebiFullBody({ className }: { className?: string }) {
     if (pendingTasks > 0) {
       return `${pendingTasks} task${pendingTasks > 1 ? 's' : ''} waiting for you. You've got this!`;
     }
-    return stateInfo.message;
+    if (stats.totalTasks === 0) {
+      return "Ready to start your day? Let's add some tasks!";
+    }
+    const quoteIndex = new Date().getDate() % encouragingQuotes.length;
+    return encouragingQuotes[quoteIndex];
   };
 
   const getImageStyle = () => {
@@ -227,6 +239,14 @@ export function BuddyAvatar({ compact = false }: { compact?: boolean }) {
     return "border-red-400";
   };
 
+  const encouragingQuotes = [
+    "All caught up! Time to make today amazing.",
+    "You're crushing it! Ready for new challenges?",
+    "Clean slate! What great things will you accomplish?",
+    "All done! Success is built one task at a time.",
+    "Way to go! Take a moment to celebrate your wins.",
+  ];
+
   const getMessage = () => {
     if (stats.overdueTasks > 0) {
       return `${stats.overdueTasks} overdue task${stats.overdueTasks > 1 ? 's' : ''}! Let's fix this.`;
@@ -234,7 +254,11 @@ export function BuddyAvatar({ compact = false }: { compact?: boolean }) {
     if (pendingTasks > 0) {
       return `${pendingTasks} pending task${pendingTasks > 1 ? 's' : ''}. You've got this!`;
     }
-    return stateInfo.message;
+    if (stats.totalTasks === 0) {
+      return "Ready to start your day? Let's add some tasks!";
+    }
+    const quoteIndex = new Date().getDate() % encouragingQuotes.length;
+    return encouragingQuotes[quoteIndex];
   };
 
   if (compact) {
