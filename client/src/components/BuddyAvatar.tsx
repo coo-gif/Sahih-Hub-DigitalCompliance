@@ -104,7 +104,7 @@ export function HubEebiFullBody({ className }: { className?: string }) {
         <img 
           src={dailyOutfit} 
           alt="Hub-eebi" 
-          className="h-32 sm:h-40 lg:h-48 w-auto object-contain drop-shadow-lg"
+          className="h-32 sm:h-40 lg:h-48 w-auto object-contain drop-shadow-lg mix-blend-multiply dark:mix-blend-screen"
         />
         
         {compliance.score >= 90 && (
@@ -219,7 +219,7 @@ export function BuddyAvatar({ compact = false }: { compact?: boolean }) {
         transition={{ repeat: Infinity, duration: 2 }}
       >
         <div className={cn("h-12 w-10 overflow-hidden", compliance.score < 70 && "animate-pulse")}>
-          <img src={dailyOutfit} alt="Hub-eebi" className="h-full w-full object-contain" />
+          <img src={dailyOutfit} alt="Hub-eebi" className="h-full w-full object-contain mix-blend-multiply dark:mix-blend-screen" />
         </div>
         {pendingDialogues.length > 0 && (
           <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
@@ -244,8 +244,8 @@ export function BuddyAvatar({ compact = false }: { compact?: boolean }) {
           }
           transition={{ repeat: Infinity, duration: compliance.score < 60 ? 1.5 : 2 }}
         >
-          <div className={cn("h-20 w-16 overflow-hidden rounded-lg border-2 bg-gradient-to-b from-white/80 to-white/40 shadow-lg", getBorderColor())}>
-            <img src={dailyOutfit} alt="Hub-eebi" className="h-full w-full object-contain" />
+          <div className={cn("h-20 w-16 overflow-hidden rounded-lg border-2 bg-gradient-to-b from-sidebar/80 to-sidebar/40 shadow-lg", getBorderColor())}>
+            <img src={dailyOutfit} alt="Hub-eebi" className="h-full w-full object-contain mix-blend-multiply dark:mix-blend-screen" />
           </div>
           {compliance.score >= 90 && (
             <motion.div
