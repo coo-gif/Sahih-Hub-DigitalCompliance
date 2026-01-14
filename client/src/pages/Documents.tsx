@@ -791,9 +791,9 @@ export default function Documents() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="none">Not assigned</SelectItem>
-                        {users.filter((u: any) => ['quality_manager', 'admin'].includes(u.role)).map((user: any) => (
+                        {users.filter((u: any) => ['quality_manager', 'admin'].includes(u.role) || u.email === 'ceo@sahihcertify.com').map((user: any) => (
                           <SelectItem key={user.id} value={user.id.toString()}>
-                            {user.name}
+                            {user.name} {user.email === 'ceo@sahihcertify.com' ? '(CEO)' : ''}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1158,9 +1158,9 @@ export default function Documents() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Not assigned</SelectItem>
-                  {users.filter((u: any) => ['quality_manager', 'admin'].includes(u.role)).map((user: any) => (
+                  {users.filter((u: any) => ['quality_manager', 'admin'].includes(u.role) || u.email === 'ceo@sahihcertify.com').map((user: any) => (
                     <SelectItem key={user.id} value={user.id.toString()}>
-                      {user.name} ({user.role.replace('_', ' ')})
+                      {user.name} ({user.email === 'ceo@sahihcertify.com' ? 'CEO' : user.role.replace('_', ' ')})
                     </SelectItem>
                   ))}
                 </SelectContent>
