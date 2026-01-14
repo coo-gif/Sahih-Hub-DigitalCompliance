@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { X, Download, Smartphone } from "lucide-react";
+import { X, Download, Smartphone, Share } from "lucide-react";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -11,11 +11,24 @@ export function PWAInstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showPrompt, setShowPrompt] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
+  const [showIOSSteps, setShowIOSSteps] = useState(false);
 
   useEffect(() => {
-    const dismissed = localStorage.getItem('pwa-prompt-dismissed');
-    if (dismissed) {
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
+    if (isStandalone) return;
+
+    const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+    setIsIOS(isIOSDevice);
+
+    const dismissedStorage = localStorage.getItem('pwa-prompt-dismissed');
+    if (dismissedStorage) {
       setDismissed(true);
+      return;
+    }
+
+    if (isIOSDevice) {
+      setTimeout(() => setShowPrompt(true), 2000);
       return;
     }
 
@@ -72,19 +85,51 @@ export function PWAInstallPrompt() {
         <div className="flex-1">
           <h3 className="font-bold text-sm">Install Sahih-Hub</h3>
           <p className="text-xs text-[#E3C39B] mt-1">
-            Add to your home screen for quick access and offline support
+            {isIOS 
+              ? "Add to your home screen for app-like experience"
+              : "Add to your home screen for quick access and offline support"
+            }
           </p>
         </div>
       </div>
       
-      <Button
-        onClick={handleInstall}
-        className="w-full mt-3 bg-[#F3E3D0] text-[#7A0C1A] hover:bg-[#E3C39B] font-semibold"
-        data-testid="button-install-pwa"
-      >
-        <Download className="w-4 h-4 mr-2" />
-        Install App
-      </Button>
+      {isIOS ? (
+        <div className="mt-3 space-y-2">
+          <Button
+            onClick={() => setShowIOSSteps(!showIOSSteps)}
+            className="w-full bg-[#F3E3D0] text-[#7A0C1A] hover:bg-[#E3C39B] font-semibold"
+            data-testid="button-ios-install-steps"
+          >
+            <Share className="w-4 h-4 mr-2" />
+            {showIOSSteps ? "Hide Steps" : "How to Install"}
+          </Button>
+          {showIOSSteps && (
+            <div className="bg-white/10 rounded-lg p-3 text-xs space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="bg-[#F3E3D0] text-[#7A0C1A] rounded-full w-5 h-5 flex items-center justify-center font-bold text-[10px]">1</span>
+                <span>Tap the <Share className="inline w-3 h-3" /> Share button below</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="bg-[#F3E3D0] text-[#7A0C1A] rounded-full w-5 h-5 flex items-center justify-center font-bold text-[10px]">2</span>
+                <span>Scroll and tap "Add to Home Screen"</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="bg-[#F3E3D0] text-[#7A0C1A] rounded-full w-5 h-5 flex items-center justify-center font-bold text-[10px]">3</span>
+                <span>Tap "Add" to confirm</span>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <Button
+          onClick={handleInstall}
+          className="w-full mt-3 bg-[#F3E3D0] text-[#7A0C1A] hover:bg-[#E3C39B] font-semibold"
+          data-testid="button-install-pwa"
+        >
+          <Download className="w-4 h-4 mr-2" />
+          Install App
+        </Button>
+      )}
     </div>
   );
 }
