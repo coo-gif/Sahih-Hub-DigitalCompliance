@@ -64,7 +64,7 @@ const stateEmojis: Record<string, { icon: typeof CheckCircle; label: string; mes
 export function HubEebiFullBody({ className }: { className?: string }) {
   const { data: buddyStatus } = useQuery<BuddyStatusData>({
     queryKey: ["/api/buddy/status"],
-    refetchInterval: 60000,
+    refetchInterval: 30000,
   });
 
   const dailyOutfit = getDailyOutfit();
@@ -83,6 +83,31 @@ export function HubEebiFullBody({ className }: { className?: string }) {
     return stateInfo.message;
   };
 
+  const getImageStyle = () => {
+    if (compliance.score >= 90) {
+      return { filter: 'saturate(1.3) brightness(1.1)', transform: 'scale(1.02)' };
+    }
+    if (compliance.score >= 80) {
+      return { filter: 'saturate(1.1) brightness(1.05)' };
+    }
+    if (compliance.score >= 70) {
+      return { filter: 'saturate(1)' };
+    }
+    if (compliance.score >= 60) {
+      return { filter: 'saturate(0.8) brightness(0.95)' };
+    }
+    if (compliance.score >= 50) {
+      return { filter: 'saturate(0.6) brightness(0.9)' };
+    }
+    return { filter: 'saturate(0.4) brightness(0.85) grayscale(0.3)' };
+  };
+
+  const getAnimationClass = () => {
+    if (compliance.score >= 90) return "animate-pulse";
+    if (compliance.score < 50) return "opacity-80";
+    return "";
+  };
+
   return (
     <motion.div 
       className={cn("relative flex flex-col items-center", className)}
@@ -91,16 +116,31 @@ export function HubEebiFullBody({ className }: { className?: string }) {
       transition={{ duration: 0.5 }}
     >
       <div className="relative">
-        <img 
+        <motion.img 
           src={dailyOutfit} 
           alt="Hub-eebi" 
-          className="h-32 sm:h-40 lg:h-48 w-auto object-contain drop-shadow-lg"
+          className={cn("h-32 sm:h-40 lg:h-48 w-auto object-contain drop-shadow-lg transition-all duration-500", getAnimationClass())}
+          style={getImageStyle()}
+          animate={compliance.score >= 90 ? { 
+            y: [0, -3, 0],
+          } : compliance.score < 50 ? {
+            y: [0, 2, 0],
+          } : {}}
+          transition={{ 
+            duration: compliance.score >= 90 ? 2 : 3,
+            repeat: Infinity,
+            ease: "easeInOut"
+          }}
         />
         
         {compliance.score >= 90 && (
-          <div className="absolute -top-2 left-1/2 -translate-x-1/2">
+          <motion.div 
+            className="absolute -top-2 left-1/2 -translate-x-1/2"
+            animate={{ rotate: [0, 10, -10, 0], scale: [1, 1.1, 1] }}
+            transition={{ duration: 2, repeat: Infinity }}
+          >
             <Sparkles className="h-6 w-6 text-yellow-400 drop-shadow-lg" />
-          </div>
+          </motion.div>
         )}
         
         <div className={cn(
@@ -217,12 +257,30 @@ export function BuddyAvatar({ compact = false }: { compact?: boolean }) {
       <div className="flex items-start gap-3">
         <div className="relative flex-shrink-0">
           <div className={cn("h-20 w-16 overflow-hidden rounded-lg border-2 bg-gradient-to-b from-sidebar/80 to-sidebar/40 shadow-lg", getBorderColor())}>
-            <img src={dailyOutfit} alt="Hub-eebi" className="h-full w-full object-contain" />
+            <motion.img 
+              src={dailyOutfit} 
+              alt="Hub-eebi" 
+              className="h-full w-full object-contain transition-all duration-500"
+              style={{
+                filter: compliance.score >= 90 ? 'saturate(1.3) brightness(1.1)' :
+                        compliance.score >= 80 ? 'saturate(1.1) brightness(1.05)' :
+                        compliance.score >= 70 ? 'saturate(1)' :
+                        compliance.score >= 60 ? 'saturate(0.8) brightness(0.95)' :
+                        compliance.score >= 50 ? 'saturate(0.6) brightness(0.9)' :
+                        'saturate(0.4) brightness(0.85) grayscale(0.3)'
+              }}
+              animate={compliance.score >= 90 ? { y: [0, -2, 0] } : compliance.score < 50 ? { y: [0, 1, 0] } : {}}
+              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+            />
           </div>
           {compliance.score >= 90 && (
-            <div className="absolute -top-2 -right-2">
+            <motion.div 
+              className="absolute -top-2 -right-2"
+              animate={{ rotate: [0, 10, -10, 0], scale: [1, 1.1, 1] }}
+              transition={{ duration: 2, repeat: Infinity }}
+            >
               <Sparkles className="h-5 w-5 text-yellow-400 drop-shadow" />
-            </div>
+            </motion.div>
           )}
         </div>
 
