@@ -1,10 +1,11 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bot, CheckCircle, AlertTriangle, AlertCircle, Sparkles, X } from "lucide-react";
+import { CheckCircle, AlertTriangle, AlertCircle, Sparkles, X, TrendingUp, TrendingDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import sahihLogo from "@assets/sahih_logo_buddy.png";
 
 interface BuddyDialogue {
   id: number;
