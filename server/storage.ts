@@ -1233,26 +1233,74 @@ export class DatabaseStorage implements IStorage {
   }
 
   async calculateUserCompliance(userId: number): Promise<{ score: number; state: string }> {
-    const tasks = await db.select().from(documentTasks)
-      .where(eq(documentTasks.assignedToId, userId));
-
-    const totalTasks = tasks.length;
+    // Calculate pending tasks from actual document assignments (same as My Tasks)
+    const allDocs = await this.getDocuments();
+    const allEmployees = await this.getEmployees();
+    
+    let pendingTasks = 0;
+    let overdueTasks = 0;
+    let completedTasks = 0;
+    
+    // Count document review tasks (user is reviewer and doc is in_review)
+    for (const doc of allDocs) {
+      if (doc.reviewerId === userId && doc.status === DocumentStatus.IN_REVIEW) {
+        pendingTasks++;
+        // Check if overdue (using next review date as due date)
+        if (doc.nextReviewDate && new Date(doc.nextReviewDate) < new Date()) {
+          overdueTasks++;
+        }
+      }
+      // Count document approval tasks (user is approver and doc is pending_approval)
+      if (doc.approverId === userId && doc.status === DocumentStatus.PENDING_APPROVAL) {
+        pendingTasks++;
+        if (doc.nextReviewDate && new Date(doc.nextReviewDate) < new Date()) {
+          overdueTasks++;
+        }
+      }
+      // Count completed - docs this user approved/reviewed that are now approved
+      if (doc.status === DocumentStatus.APPROVED) {
+        if (doc.reviewerId === userId || doc.approverId === userId) {
+          completedTasks++;
+        }
+      }
+    }
+    
+    // Count employee review tasks
+    for (const emp of allEmployees) {
+      if (emp.reviewerId === userId && emp.workflowStatus === 'in_review') {
+        pendingTasks++;
+      }
+      if (emp.approverId === userId && emp.workflowStatus === 'pending_approval') {
+        pendingTasks++;
+      }
+      // Count completed employee tasks
+      if (emp.workflowStatus === 'approved') {
+        if (emp.reviewerId === userId || emp.approverId === userId) {
+          completedTasks++;
+        }
+      }
+    }
+    
+    const totalTasks = pendingTasks + completedTasks;
+    
+    // If no tasks assigned, user is at 100% compliance
     if (totalTasks === 0) {
+      await this.getOrCreateBuddyStatus(userId);
+      await this.updateBuddyStatus(userId, {
+        complianceScore: 100,
+        currentState: BuddyState.FLEXING,
+        totalTasksAssigned: 0,
+        tasksCompleted: 0,
+        tasksOverdue: 0,
+      });
       return { score: 100, state: BuddyState.FLEXING };
     }
 
-    const completedTasks = tasks.filter(t => t.status === 'completed').length;
-    const overdueTasks = tasks.filter(t => {
-      if (t.status === 'completed') return false;
-      if (!t.targetDate) return false;
-      return new Date(t.targetDate) < new Date();
-    }).length;
-
     // Calculate compliance score
-    // Base score from completion rate
-    const completionRate = (completedTasks / totalTasks) * 100;
+    // Base score: 100% if all tasks completed, decreases with pending tasks
+    const completionRate = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 100;
     // Penalty for overdue tasks
-    const overduePenalty = (overdueTasks / totalTasks) * 30;
+    const overduePenalty = pendingTasks > 0 ? (overdueTasks / pendingTasks) * 30 : 0;
     const score = Math.max(0, Math.min(100, Math.round(completionRate - overduePenalty)));
 
     // Determine state based on score
