@@ -3290,6 +3290,201 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================
+  // BUG REPORTS / FEEDBACK SYSTEM
+  // ============================================
+
+  // Get all bug reports (COO/Admin only for all, users see their own)
+  app.get('/api/bug-reports', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
+      const status = req.query.status as string | undefined;
+      
+      // COO (coo@sahihcertify.com) and admins can see all bug reports
+      if (user?.email === 'coo@sahihcertify.com' || user?.role === 'admin') {
+        const reports = await storage.getBugReports(status ? { status } : undefined);
+        res.json(reports);
+      } else {
+        // Regular users only see their own reports
+        const reports = await storage.getBugReports({ reportedById: userId, ...(status ? { status } : {}) });
+        res.json(reports);
+      }
+    } catch (err) {
+      console.error('Error fetching bug reports:', err);
+      res.status(500).json({ message: 'Failed to fetch bug reports' });
+    }
+  });
+
+  // Get single bug report
+  app.get('/api/bug-reports/:id', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const report = await storage.getBugReport(id);
+      if (!report) {
+        return res.status(404).json({ message: 'Bug report not found' });
+      }
+      res.json(report);
+    } catch (err) {
+      console.error('Error fetching bug report:', err);
+      res.status(500).json({ message: 'Failed to fetch bug report' });
+    }
+  });
+
+  // Create bug report
+  app.post('/api/bug-reports', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const { title, description, screenshotUrl, priority } = req.body;
+      
+      const report = await storage.createBugReport({
+        title,
+        description,
+        screenshotUrl,
+        priority: priority || 'medium',
+        reportedById: userId,
+        status: 'open',
+      });
+
+      // Notify admins about new bug report
+      const admins = await storage.getUsers();
+      const adminUsers = admins.filter(u => u.role === 'admin' || u.email === 'coo@sahihcertify.com');
+      for (const admin of adminUsers) {
+        await storage.createNotification({
+          userId: admin.id,
+          title: 'New Bug Report',
+          message: `New bug report submitted: ${report.ticketNumber} - ${title}`,
+          urgency: priority === 'critical' ? 'critical' : priority === 'high' ? 'high' : 'medium',
+          isRead: false,
+        });
+      }
+
+      res.status(201).json(report);
+    } catch (err) {
+      console.error('Error creating bug report:', err);
+      res.status(500).json({ message: 'Failed to create bug report' });
+    }
+  });
+
+  // Update bug report status (COO/Admin only)
+  app.patch('/api/bug-reports/:id', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
+      const id = parseInt(req.params.id);
+      
+      if (user?.email !== 'coo@sahihcertify.com' && user?.role !== 'admin') {
+        return res.status(403).json({ message: 'Only COO or Admin can update bug reports' });
+      }
+
+      const updated = await storage.updateBugReport(id, req.body);
+      res.json(updated);
+    } catch (err) {
+      console.error('Error updating bug report:', err);
+      res.status(500).json({ message: 'Failed to update bug report' });
+    }
+  });
+
+  // Resolve bug report (COO/Admin only)
+  app.post('/api/bug-reports/:id/resolve', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
+      const id = parseInt(req.params.id);
+      
+      if (user?.email !== 'coo@sahihcertify.com' && user?.role !== 'admin') {
+        return res.status(403).json({ message: 'Only COO or Admin can resolve bug reports' });
+      }
+
+      const { resolutionNotes } = req.body;
+      const updated = await storage.resolveBugReport(id, userId, resolutionNotes || 'Issue resolved');
+      res.json(updated);
+    } catch (err) {
+      console.error('Error resolving bug report:', err);
+      res.status(500).json({ message: 'Failed to resolve bug report' });
+    }
+  });
+
+  // Close bug report (COO only - triggers congratulation message)
+  app.post('/api/bug-reports/:id/close', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
+      const id = parseInt(req.params.id);
+      
+      if (user?.email !== 'coo@sahihcertify.com') {
+        return res.status(403).json({ message: 'Only COO can close bug reports' });
+      }
+
+      const report = await storage.getBugReport(id);
+      if (!report) {
+        return res.status(404).json({ message: 'Bug report not found' });
+      }
+
+      const updated = await storage.closeBugReport(id);
+      
+      // Send congratulation notification to the reporter
+      const reporter = await storage.getUser(report.reportedById);
+      if (reporter) {
+        await storage.createNotification({
+          userId: report.reportedById,
+          title: 'Thank You for Your Bug Report!',
+          message: `Congratulations! Your bug report ${report.ticketNumber} has been resolved and closed. Thank you for helping make Hub a better place to work! Your contribution matters.`,
+          urgency: 'low',
+          isRead: false,
+        });
+        
+        // Create buddy dialogue for celebration
+        await storage.createBuddyDialogue({
+          userId: report.reportedById,
+          dialogueType: 'celebration',
+          message: `Amazing work! Your bug report "${report.title}" has been fixed! Thank you for making our Hub better. You're a true quality champion!`,
+          priority: 1,
+          isAcknowledged: false,
+        });
+      }
+      
+      // Mark as notified
+      await storage.markBugReportNotified(id);
+
+      res.json(updated);
+    } catch (err) {
+      console.error('Error closing bug report:', err);
+      res.status(500).json({ message: 'Failed to close bug report' });
+    }
+  });
+
+  // Delete bug report (Admin only)
+  app.delete('/api/bug-reports/:id', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
+      const id = parseInt(req.params.id);
+      
+      if (user?.role !== 'admin') {
+        return res.status(403).json({ message: 'Only Admin can delete bug reports' });
+      }
+
+      await storage.deleteBugReport(id);
+      res.json({ success: true });
+    } catch (err) {
+      console.error('Error deleting bug report:', err);
+      res.status(500).json({ message: 'Failed to delete bug report' });
+    }
+  });
+
+  // Get my bug reports
+  app.get('/api/my-bug-reports', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const reports = await storage.getBugReports({ reportedById: userId });
+      res.json(reports);
+    } catch (err) {
+      console.error('Error fetching my bug reports:', err);
+      res.status(500).json({ message: 'Failed to fetch bug reports' });
+    }
+  });
+
   await seedDatabase();
 
   return httpServer;

@@ -3,7 +3,7 @@ import {
   users, documents, documentVersions, workflowLogs, notifications, auditLogs,
   employees, employeeTasks, downloadRequests, documentFeedback, documentTasks, taskPokes,
   documentAccessRequests, documentAccess, userRecords, buddyStatus, pushSubscriptions, buddyDialogues,
-  userActivityLogs, monthlyPerformanceReports,
+  userActivityLogs, monthlyPerformanceReports, bugReports,
   type User, type InsertUser,
   type Document, type InsertDocument,
   type DocumentVersion, type InsertDocumentVersion,
@@ -24,8 +24,10 @@ import {
   type BuddyDialogue, type InsertBuddyDialogue,
   type UserActivityLog, type InsertUserActivityLog,
   type MonthlyPerformanceReport, type InsertMonthlyPerformanceReport,
+  type BugReport, type InsertBugReport,
   DocumentStatus, InductionStatus, TaskStatus, FeedbackStatus, DocumentTaskStatus,
   EmployeeRecordStatus, DocumentAccessRequestStatus, BuddyState, MonthlyReportStatus,
+  BugReportStatus,
 } from "@shared/schema";
 import { eq, desc, and, lt, gt, or, sql } from "drizzle-orm";
 import bcrypt from "bcrypt";
@@ -1561,6 +1563,83 @@ export class DatabaseStorage implements IStorage {
       .where(eq(monthlyPerformanceReports.id, id))
       .returning();
     return updated;
+  }
+
+  // Bug Reports
+  async getBugReports(filters?: { status?: string; reportedById?: number }): Promise<BugReport[]> {
+    let query = db.select().from(bugReports).orderBy(desc(bugReports.createdAt));
+    
+    if (filters?.status) {
+      query = query.where(eq(bugReports.status, filters.status)) as typeof query;
+    }
+    if (filters?.reportedById) {
+      query = query.where(eq(bugReports.reportedById, filters.reportedById)) as typeof query;
+    }
+    
+    return query;
+  }
+
+  async getBugReport(id: number): Promise<BugReport | undefined> {
+    const [report] = await db.select().from(bugReports).where(eq(bugReports.id, id));
+    return report;
+  }
+
+  async createBugReport(data: Omit<InsertBugReport, 'ticketNumber'>): Promise<BugReport> {
+    // Generate ticket number
+    const count = await db.select({ count: sql<number>`count(*)` }).from(bugReports);
+    const ticketNumber = `BUG-${String(Number(count[0].count) + 1).padStart(4, '0')}`;
+    
+    const [report] = await db.insert(bugReports).values({
+      ...data,
+      ticketNumber,
+    }).returning();
+    return report;
+  }
+
+  async updateBugReport(id: number, data: Partial<InsertBugReport>): Promise<BugReport> {
+    const [updated] = await db.update(bugReports)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(bugReports.id, id))
+      .returning();
+    return updated;
+  }
+
+  async resolveBugReport(id: number, resolvedById: number, resolutionNotes: string): Promise<BugReport> {
+    const [updated] = await db.update(bugReports)
+      .set({
+        status: BugReportStatus.RESOLVED,
+        resolvedById,
+        resolutionNotes,
+        resolvedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(bugReports.id, id))
+      .returning();
+    return updated;
+  }
+
+  async closeBugReport(id: number): Promise<BugReport> {
+    const [updated] = await db.update(bugReports)
+      .set({
+        status: BugReportStatus.CLOSED,
+        closedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(bugReports.id, id))
+      .returning();
+    return updated;
+  }
+
+  async markBugReportNotified(id: number): Promise<BugReport> {
+    const [updated] = await db.update(bugReports)
+      .set({ userNotified: true, updatedAt: new Date() })
+      .where(eq(bugReports.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteBugReport(id: number): Promise<void> {
+    await db.delete(bugReports).where(eq(bugReports.id, id));
   }
 }
 
