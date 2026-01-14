@@ -25,7 +25,8 @@ import {
   ClipboardList,
   FolderOpen,
   BarChart3,
-  Bug
+  Bug,
+  Award
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -70,6 +71,12 @@ const navItems: NavItem[] = [
     label: "Bug Reports", 
     icon: Bug,
     canAccess: (user) => user.email === 'coo@sahihcertify.com'
+  },
+  { 
+    href: "/certification", 
+    label: "Certification", 
+    icon: Award,
+    canAccess: (user) => user.role === 'auditor' || user.role === 'admin' || user.role === 'quality_manager'
   },
   { href: "/audit-log", label: "Audit Log", icon: History, adminOnly: true },
 ];

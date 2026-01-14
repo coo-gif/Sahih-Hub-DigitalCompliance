@@ -3678,7 +3678,7 @@ export async function registerRoutes(
         entityType: 'certification_application',
         entityId: application.id,
         userId,
-        details: { applicationNumber: application.applicationNumber, clientName: application.clientName },
+        newValue: JSON.stringify({ applicationNumber: application.applicationNumber, clientName: application.clientName }),
       });
       
       res.status(201).json(application);
@@ -3701,7 +3701,7 @@ export async function registerRoutes(
         entityType: 'certification_application',
         entityId: id,
         userId,
-        details: { updates: req.body },
+        newValue: JSON.stringify(req.body),
       });
       
       res.json(updated);
@@ -3729,7 +3729,6 @@ export async function registerRoutes(
         entityType: 'certification_application',
         entityId: id,
         userId,
-        details: {},
       });
       
       res.json({ success: true });
@@ -3779,7 +3778,7 @@ export async function registerRoutes(
         entityType: 'certification_audit',
         entityId: audit.id,
         userId,
-        details: { auditType: audit.auditType, applicationId: audit.applicationId },
+        newValue: JSON.stringify({ auditType: audit.auditType, applicationId: audit.applicationId }),
       });
       
       res.status(201).json(audit);
@@ -3802,7 +3801,7 @@ export async function registerRoutes(
         entityType: 'certification_audit',
         entityId: id,
         userId,
-        details: { updates: req.body },
+        newValue: JSON.stringify(req.body),
       });
       
       res.json(updated);
@@ -3835,7 +3834,7 @@ export async function registerRoutes(
         entityType: 'audit_finding',
         entityId: finding.id,
         userId,
-        details: { findingType: finding.findingType, auditId: finding.auditId },
+        newValue: JSON.stringify({ findingType: finding.findingType, auditId: finding.auditId }),
       });
       
       res.status(201).json(finding);
@@ -3858,7 +3857,7 @@ export async function registerRoutes(
         entityType: 'audit_finding',
         entityId: id,
         userId,
-        details: { updates: req.body },
+        newValue: JSON.stringify(req.body),
       });
       
       res.json(updated);
@@ -3926,7 +3925,7 @@ export async function registerRoutes(
         entityType: 'certificate',
         entityId: cert.id,
         userId,
-        details: { certificateNumber: cert.certificateNumber, clientName: cert.clientName },
+        newValue: JSON.stringify({ certificateNumber: cert.certificateNumber, clientName: cert.clientName }),
       });
       
       res.status(201).json(cert);
@@ -3949,7 +3948,7 @@ export async function registerRoutes(
         entityType: 'certificate',
         entityId: id,
         userId,
-        details: { updates: req.body },
+        newValue: JSON.stringify(req.body),
       });
       
       res.json(updated);
