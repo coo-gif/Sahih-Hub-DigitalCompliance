@@ -24,7 +24,8 @@ import {
   Shield,
   ClipboardList,
   FolderOpen,
-  BarChart3
+  BarChart3,
+  Bug
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -64,6 +65,12 @@ const navItems: NavItem[] = [
     canAccess: (user) => user.role === 'admin' || user.email === 'hr@sahihcertify.com'
   },
   { href: "/performance-reports", label: "Performance Reports", icon: BarChart3, adminOnly: true },
+  { 
+    href: "/bug-reports", 
+    label: "Bug Reports", 
+    icon: Bug,
+    canAccess: (user) => user.role === 'admin' || user.email === 'coo@sahihcertify.com'
+  },
   { href: "/audit-log", label: "Audit Log", icon: History, adminOnly: true },
 ];
 

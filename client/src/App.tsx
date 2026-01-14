@@ -15,11 +15,13 @@ import AuditLog from "@/pages/AuditLog";
 import MyTasks from "@/pages/MyTasks";
 import UserRecords from "@/pages/UserRecords";
 import PerformanceReports from "@/pages/PerformanceReports";
+import BugReports from "@/pages/BugReports";
 import Login from "@/pages/Login";
 import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/Layout";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
 import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
+import { HubEebiChat } from "@/components/HubEebiChat";
 
 interface User {
   id: number;
@@ -44,6 +46,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: User; onLogout: () => v
             <Route path="/tasks" component={MyTasks} />
             <Route path="/user-records" component={UserRecords} />
             <Route path="/performance-reports" component={PerformanceReports} />
+            <Route path="/bug-reports" component={BugReports} />
             <Route path="/audit-log" component={AuditLog} />
             <Route component={NotFound} />
           </Switch>
@@ -51,6 +54,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: User; onLogout: () => v
       </Layout>
       <MobileBottomNav />
       <PWAInstallPrompt />
+      <HubEebiChat />
     </>
   );
 }
