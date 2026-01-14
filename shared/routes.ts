@@ -420,6 +420,20 @@ export const api = {
         404: errorSchemas.notFound,
       },
     },
+    reassign: {
+      method: 'POST' as const,
+      path: '/api/employees/:id/reassign',
+      input: z.object({
+        taskType: z.enum(['employee_review', 'employee_approve']),
+        newAssigneeId: z.number(),
+        notes: z.string().optional(),
+      }),
+      responses: {
+        200: z.custom<typeof employees.$inferSelect>(),
+        400: errorSchemas.validation,
+        404: errorSchemas.notFound,
+      },
+    },
   },
 
   // Employee Tasks (HR)

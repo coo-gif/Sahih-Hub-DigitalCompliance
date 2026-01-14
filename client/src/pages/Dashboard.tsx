@@ -68,7 +68,8 @@ import {
   X,
   BookOpen,
   Lightbulb,
-  GraduationCap
+  GraduationCap,
+  UserCog
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
@@ -835,6 +836,18 @@ export default function Dashboard() {
   const approveEmployeeMutation = useApproveEmployee();
   const rejectEmployeeMutation = useRejectEmployee();
   const submitEmployeeForApprovalMutation = useSubmitEmployeeForApproval();
+  
+  const reassignEmployeeMutation = useMutation({
+    mutationFn: async ({ id, taskType, newAssigneeId, notes }: { id: number; taskType: 'employee_review' | 'employee_approve'; newAssigneeId: number; notes?: string }) => {
+      const res = await apiRequest('POST', `/api/employees/${id}/reassign`, { taskType, newAssigneeId, notes });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/employees'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
+    },
+  });
 
   const [selectedTask, setSelectedTask] = useState<MyTask | null>(null);
   const [showTaskDialog, setShowTaskDialog] = useState(false);
@@ -852,6 +865,9 @@ export default function Dashboard() {
   const [location, navigate] = useLocation();
   const [activeTab, setActiveTab] = useState("dashboard");
   const [selectedApproverId, setSelectedApproverId] = useState<string>("");
+  const [showEmployeeReassignDialog, setShowEmployeeReassignDialog] = useState(false);
+  const [employeeReassigneeId, setEmployeeReassigneeId] = useState<string>("");
+  const [employeeReassignComment, setEmployeeReassignComment] = useState("");
 
   // Get CEO user for default approver
   const ceoUser = useMemo(() => allUsers?.find(u => u.email === 'ceo@sahihcertify.com'), [allUsers]);
@@ -2284,6 +2300,18 @@ export default function Dashboard() {
             ) : selectedTask?.taskType === 'employee_review' ? (
               <>
                 <Button 
+                  variant="outline"
+                  onClick={() => {
+                    setEmployeeReassigneeId("");
+                    setEmployeeReassignComment("");
+                    setShowEmployeeReassignDialog(true);
+                  }}
+                  data-testid="button-reassign-employee-review"
+                >
+                  <UserCog className="w-4 h-4 mr-2" />
+                  Re-assign
+                </Button>
+                <Button 
                   variant="destructive"
                   onClick={() => {
                     if (selectedTask?.employeeId) {
@@ -2332,6 +2360,18 @@ export default function Dashboard() {
               </>
             ) : selectedTask?.taskType === 'employee_approve' ? (
               <>
+                <Button 
+                  variant="outline"
+                  onClick={() => {
+                    setEmployeeReassigneeId("");
+                    setEmployeeReassignComment("");
+                    setShowEmployeeReassignDialog(true);
+                  }}
+                  data-testid="button-reassign-employee-approve"
+                >
+                  <UserCog className="w-4 h-4 mr-2" />
+                  Re-assign
+                </Button>
                 <Button 
                   variant="destructive"
                   onClick={() => {
@@ -2392,6 +2432,97 @@ export default function Dashboard() {
                 )}
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Employee Re-assign Dialog */}
+      <Dialog open={showEmployeeReassignDialog} onOpenChange={setShowEmployeeReassignDialog}>
+        <DialogContent data-testid="dialog-employee-reassign">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserCog className="w-5 h-5" />
+              Re-assign Employee Task
+            </DialogTitle>
+            <DialogDescription>
+              {selectedTask?.taskType === 'employee_review' 
+                ? `Assign a different reviewer for ${selectedTask?.employeeName}'s record`
+                : `Assign a different approver for ${selectedTask?.employeeName}'s record`}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="employee-reassignee">
+                {selectedTask?.taskType === 'employee_review' ? 'New Reviewer' : 'New Approver'}
+              </Label>
+              <Select
+                value={employeeReassigneeId}
+                onValueChange={setEmployeeReassigneeId}
+              >
+                <SelectTrigger id="employee-reassignee" data-testid="select-employee-reassignee">
+                  <SelectValue placeholder={selectedTask?.taskType === 'employee_review' ? 'Select new reviewer' : 'Select new approver'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {allUsers?.filter(u => u.id !== currentUser?.id).map((user) => (
+                    <SelectItem key={user.id} value={String(user.id)}>
+                      {user.name} ({user.email})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="employee-reassign-comment">Notes (optional)</Label>
+              <Textarea
+                id="employee-reassign-comment"
+                placeholder="Add a note about why you're re-assigning this task..."
+                value={employeeReassignComment}
+                onChange={(e) => setEmployeeReassignComment(e.target.value)}
+                data-testid="textarea-employee-reassign-comment"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowEmployeeReassignDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!employeeReassigneeId || !selectedTask?.employeeId) {
+                  toast({ title: "Please select a new assignee", variant: "destructive" });
+                  return;
+                }
+                reassignEmployeeMutation.mutate({
+                  id: selectedTask.employeeId,
+                  taskType: selectedTask.taskType as 'employee_review' | 'employee_approve',
+                  newAssigneeId: Number(employeeReassigneeId),
+                  notes: employeeReassignComment || undefined,
+                }, {
+                  onSuccess: () => {
+                    const assigneeName = allUsers?.find(u => u.id === Number(employeeReassigneeId))?.name || 'the new assignee';
+                    toast({ 
+                      title: "Task Re-assigned", 
+                      description: `The ${selectedTask.taskType === 'employee_review' ? 'review' : 'approval'} task has been assigned to ${assigneeName}.` 
+                    });
+                    setShowEmployeeReassignDialog(false);
+                    setShowTaskDialog(false);
+                  },
+                  onError: (error: Error) => {
+                    toast({ title: "Error re-assigning task", description: error.message, variant: "destructive" });
+                  },
+                });
+              }}
+              disabled={reassignEmployeeMutation.isPending || !employeeReassigneeId}
+              data-testid="button-confirm-employee-reassign"
+            >
+              {reassignEmployeeMutation.isPending ? "Re-assigning..." : "Re-assign Task"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -1552,6 +1552,85 @@ export async function registerRoutes(
     }
   });
 
+  app.post(api.employees.reassign.path, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: 'Invalid employee ID' });
+      }
+
+      const input = api.employees.reassign.input.parse(req.body);
+      
+      const existing = await storage.getEmployee(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Employee not found' });
+      }
+
+      const newAssignee = await storage.getUser(input.newAssigneeId);
+      if (!newAssignee) {
+        return res.status(400).json({ message: 'New assignee not found', field: 'newAssigneeId' });
+      }
+
+      const currentUserId = getCurrentUserId(req);
+      let updateData: { reviewerId?: number; approverId?: number } = {};
+      let notificationTitle = '';
+      let notificationMessage = '';
+
+      if (input.taskType === 'employee_review') {
+        if (existing.workflowStatus !== 'in_review') {
+          return res.status(400).json({ message: 'Can only re-assign review task for employees in In-Review status' });
+        }
+        updateData = { reviewerId: input.newAssigneeId };
+        notificationTitle = 'Employee Review Task Re-assigned';
+        notificationMessage = `You have been assigned to review the employee record for "${existing.name}" (${existing.employeeNumber}).`;
+      } else if (input.taskType === 'employee_approve') {
+        if (existing.workflowStatus !== 'pending_approval') {
+          return res.status(400).json({ message: 'Can only re-assign approval task for employees in Pending Approval status' });
+        }
+        updateData = { approverId: input.newAssigneeId };
+        notificationTitle = 'Employee Approval Task Re-assigned';
+        notificationMessage = `You have been assigned to approve the employee record for "${existing.name}" (${existing.employeeNumber}).`;
+      }
+
+      const employee = await storage.updateEmployee(id, updateData);
+
+      // Create notification for new assignee
+      await storage.createNotification({
+        userId: input.newAssigneeId,
+        title: notificationTitle,
+        message: notificationMessage,
+        urgencyLevel: 'medium',
+      });
+
+      // Audit log
+      await storage.createAuditLog({
+        userId: currentUserId,
+        action: AuditAction.ASSIGN_TASK,
+        entityType: 'employee',
+        entityId: id,
+        previousValue: JSON.stringify({ 
+          reviewerId: existing.reviewerId, 
+          approverId: existing.approverId 
+        }),
+        newValue: JSON.stringify({ 
+          ...updateData, 
+          taskType: input.taskType,
+          notes: input.notes 
+        }),
+      });
+
+      res.json(employee);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join('.'),
+        });
+      }
+      throw err;
+    }
+  });
+
   // ============================================
   // EMPLOYEE TASK ROUTES (HR)
   // ============================================
