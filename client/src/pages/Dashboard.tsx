@@ -73,6 +73,7 @@ import quoteImage3 from "@assets/generated_images/continuous_improvement_ribbons
 import quoteImage4 from "@assets/generated_images/quality_standards_shield.png";
 import quoteImage5 from "@assets/generated_images/global_standards_globe.png";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
+import hubEebiAvatar from "@assets/generated_images/hub-eebi_compliance_buddy_avatar.png";
 
 const motivationalQuotes = [
   { quote: "Quality is not an act, it is a habit.", image: quoteImage1 },
@@ -1045,18 +1046,18 @@ export default function Dashboard() {
                 data-testid="hub-eebi-avatar"
               >
                 <div className="relative">
-                  <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full overflow-hidden border-2 border-white/40 shadow-xl bg-white/10 backdrop-blur-sm">
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 lg:w-24 lg:h-24 rounded-full overflow-hidden border-3 border-white/50 shadow-2xl bg-white/20 backdrop-blur-sm">
                     <img 
-                      src={sahihLogoPath} 
+                      src={hubEebiAvatar} 
                       alt="Hub-eebi" 
-                      className="w-full h-full object-contain p-1"
+                      className="w-full h-full object-cover"
                     />
                   </div>
-                  <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-green-500 border-2 border-white flex items-center justify-center">
-                    <Sparkles className="w-2 h-2 text-white" />
+                  <div className="absolute -bottom-1 -right-1 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-green-500 border-2 border-white flex items-center justify-center shadow-lg">
+                    <Sparkles className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-white" />
                   </div>
                 </div>
-                <p className="text-white font-bold text-[9px] sm:text-[10px] mt-1 drop-shadow-md">Hub-eebi</p>
+                <p className="text-white font-bold text-[10px] sm:text-xs mt-1.5 drop-shadow-md">Hub-eebi</p>
               </div>
             </div>
             
