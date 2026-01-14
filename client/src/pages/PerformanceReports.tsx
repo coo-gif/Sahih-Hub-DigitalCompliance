@@ -74,7 +74,7 @@ const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
 export default function PerformanceReports() {
   const { data: currentUser } = useAuth();
   const { toast } = useToast();
-  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
+  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
   const [selectedReport, setSelectedReport] = useState<PerformanceReport | null>(null);
   const [showGenerateDialog, setShowGenerateDialog] = useState(false);
