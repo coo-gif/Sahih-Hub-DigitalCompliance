@@ -1,11 +1,29 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { CheckCircle, AlertTriangle, AlertCircle, Sparkles, X, TrendingUp, TrendingDown } from "lucide-react";
+import { CheckCircle, AlertTriangle, AlertCircle, Sparkles, X, MessageCircle, Clock, ListTodo } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
-import sahihLogo from "@assets/sahih_logo_buddy.png";
+
+import hubEebiFormal from "@assets/generated_images/hub-eebi_formal_suit_outfit.png";
+import hubEebiCasual from "@assets/generated_images/hub-eebi_casual_polo_outfit.png";
+import hubEebiSweater from "@assets/generated_images/hub-eebi_sweater_outfit.png";
+import hubEebiVest from "@assets/generated_images/hub-eebi_vest_outfit.png";
+import hubEebiBlazer from "@assets/generated_images/hub-eebi_blazer_casual_outfit.png";
+
+const hubEebiOutfits = [
+  hubEebiFormal,
+  hubEebiCasual,
+  hubEebiSweater,
+  hubEebiVest,
+  hubEebiBlazer,
+];
+
+const getDailyOutfit = () => {
+  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
+  return hubEebiOutfits[dayOfYear % hubEebiOutfits.length];
+};
 
 interface BuddyDialogue {
   id: number;
@@ -35,13 +53,104 @@ interface BuddyStatusData {
   lastUpdated: string;
 }
 
-const stateEmojis: Record<string, { icon: typeof CheckCircle; label: string }> = {
-  flexing: { icon: Sparkles, label: "Excellent!" },
-  healthy: { icon: CheckCircle, label: "Good job!" },
-  tired: { icon: AlertTriangle, label: "Needs attention" },
-  weak: { icon: AlertCircle, label: "Falling behind" },
-  critical: { icon: AlertCircle, label: "Urgent action needed" },
+const stateEmojis: Record<string, { icon: typeof CheckCircle; label: string; message: string }> = {
+  flexing: { icon: Sparkles, label: "Excellent!", message: "You're doing amazing! Keep up the stellar work!" },
+  healthy: { icon: CheckCircle, label: "Good job!", message: "Great progress! Your compliance is on track." },
+  tired: { icon: AlertTriangle, label: "Needs attention", message: "Let's focus on those pending tasks together." },
+  weak: { icon: AlertCircle, label: "Falling behind", message: "I'm worried about some overdue items. Need help?" },
+  critical: { icon: AlertCircle, label: "Urgent!", message: "We need to act now! Several tasks are overdue." },
 };
+
+export function HubEebiFullBody({ className }: { className?: string }) {
+  const { data: buddyStatus } = useQuery<BuddyStatusData>({
+    queryKey: ["/api/buddy/status"],
+    refetchInterval: 60000,
+  });
+
+  const dailyOutfit = getDailyOutfit();
+  const compliance = buddyStatus?.compliance || { score: 75, state: 'healthy' };
+  const stats = buddyStatus?.stats || { totalTasks: 0, completedTasks: 0, overdueTasks: 0 };
+  const pendingTasks = stats.totalTasks - stats.completedTasks;
+  const stateInfo = stateEmojis[compliance.state] || stateEmojis.healthy;
+
+  const getMessage = () => {
+    if (stats.overdueTasks > 0) {
+      return `You have ${stats.overdueTasks} overdue task${stats.overdueTasks > 1 ? 's' : ''}! Let's tackle them together.`;
+    }
+    if (pendingTasks > 0) {
+      return `${pendingTasks} task${pendingTasks > 1 ? 's' : ''} waiting for you. You've got this!`;
+    }
+    return stateInfo.message;
+  };
+
+  return (
+    <motion.div 
+      className={cn("relative flex flex-col items-center", className)}
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5 }}
+    >
+      <motion.div
+        className="relative"
+        animate={
+          compliance.score < 60
+            ? { y: [0, -5, 0] }
+            : compliance.score >= 90
+            ? { scale: [1, 1.02, 1] }
+            : {}
+        }
+        transition={{ repeat: Infinity, duration: 2 }}
+      >
+        <img 
+          src={dailyOutfit} 
+          alt="Hub-eebi" 
+          className="h-32 sm:h-40 lg:h-48 w-auto object-contain drop-shadow-lg"
+        />
+        
+        {compliance.score >= 90 && (
+          <motion.div
+            className="absolute -top-2 left-1/2 -translate-x-1/2"
+            animate={{ scale: [1, 1.3, 1], rotate: [0, 10, -10, 0] }}
+            transition={{ repeat: Infinity, duration: 1.5 }}
+          >
+            <Sparkles className="h-6 w-6 text-yellow-400 drop-shadow-lg" />
+          </motion.div>
+        )}
+        
+        <div className={cn(
+          "absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center shadow-lg border-2 border-white",
+          compliance.score >= 80 ? "bg-green-500" :
+          compliance.score >= 60 ? "bg-yellow-500" : "bg-red-500"
+        )}>
+          {compliance.score >= 80 ? (
+            <CheckCircle className="w-3.5 h-3.5 text-white" />
+          ) : compliance.score >= 60 ? (
+            <AlertTriangle className="w-3.5 h-3.5 text-white" />
+          ) : (
+            <AlertCircle className="w-3.5 h-3.5 text-white" />
+          )}
+        </div>
+      </motion.div>
+      
+      <div className="mt-2 text-center">
+        <p className="font-bold text-sm text-white drop-shadow-md">Hub-eebi</p>
+        <p className="text-[10px] text-white/80">{stateInfo.label}</p>
+      </div>
+      
+      <motion.div
+        className="mt-2 max-w-[180px] bg-white/95 backdrop-blur-sm rounded-lg px-3 py-2 shadow-lg border border-white/50"
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ delay: 0.3 }}
+      >
+        <div className="flex items-start gap-2">
+          <MessageCircle className="w-3.5 h-3.5 text-primary flex-shrink-0 mt-0.5" />
+          <p className="text-[10px] sm:text-xs text-foreground leading-tight">{getMessage()}</p>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
 
 export function BuddyAvatar({ compact = false }: { compact?: boolean }) {
   const { data: buddyStatus, isLoading } = useQuery<BuddyStatusData>({
@@ -58,6 +167,8 @@ export function BuddyAvatar({ compact = false }: { compact?: boolean }) {
     },
   });
 
+  const dailyOutfit = getDailyOutfit();
+
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 p-2">
@@ -69,17 +180,10 @@ export function BuddyAvatar({ compact = false }: { compact?: boolean }) {
 
   if (!buddyStatus) return null;
 
-  const { compliance, style, pendingDialogues, buddyName } = buddyStatus;
+  const { compliance, pendingDialogues, buddyName, stats } = buddyStatus;
   const stateInfo = stateEmojis[compliance.state] || stateEmojis.healthy;
   const StateIcon = stateInfo.icon;
-
-  const getAvatarGradient = () => {
-    if (compliance.score >= 90) return "from-emerald-400 to-teal-500";
-    if (compliance.score >= 80) return "from-green-400 to-emerald-500";
-    if (compliance.score >= 70) return "from-yellow-400 to-amber-500";
-    if (compliance.score >= 60) return "from-orange-400 to-amber-600";
-    return "from-red-400 to-rose-600";
-  };
+  const pendingTasks = stats.totalTasks - stats.completedTasks;
 
   const getScoreColor = () => {
     if (compliance.score >= 90) return "text-emerald-600 dark:text-emerald-400";
@@ -89,6 +193,24 @@ export function BuddyAvatar({ compact = false }: { compact?: boolean }) {
     return "text-red-600 dark:text-red-400";
   };
 
+  const getBorderColor = () => {
+    if (compliance.score >= 90) return "border-emerald-400";
+    if (compliance.score >= 80) return "border-green-400";
+    if (compliance.score >= 70) return "border-yellow-400";
+    if (compliance.score >= 60) return "border-orange-400";
+    return "border-red-400";
+  };
+
+  const getMessage = () => {
+    if (stats.overdueTasks > 0) {
+      return `${stats.overdueTasks} overdue task${stats.overdueTasks > 1 ? 's' : ''}! Let's fix this.`;
+    }
+    if (pendingTasks > 0) {
+      return `${pendingTasks} pending task${pendingTasks > 1 ? 's' : ''}. You've got this!`;
+    }
+    return stateInfo.message;
+  };
+
   if (compact) {
     return (
       <motion.div
@@ -96,17 +218,8 @@ export function BuddyAvatar({ compact = false }: { compact?: boolean }) {
         animate={compliance.score < 60 ? { scale: [1, 1.05, 1] } : {}}
         transition={{ repeat: Infinity, duration: 2 }}
       >
-        <div
-          className={cn(
-            "h-9 w-9 rounded-full overflow-hidden shadow-md ring-2",
-            compliance.score >= 90 ? "ring-emerald-400" :
-            compliance.score >= 80 ? "ring-green-400" :
-            compliance.score >= 70 ? "ring-yellow-400" :
-            compliance.score >= 60 ? "ring-orange-400" : "ring-red-400",
-            compliance.score < 70 && "animate-pulse"
-          )}
-        >
-          <img src={sahihLogo} alt="Buddy" className="h-full w-full object-cover" />
+        <div className={cn("h-12 w-10 overflow-hidden", compliance.score < 70 && "animate-pulse")}>
+          <img src={dailyOutfit} alt="Hub-eebi" className="h-full w-full object-contain" />
         </div>
         {pendingDialogues.length > 0 && (
           <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
@@ -119,66 +232,68 @@ export function BuddyAvatar({ compact = false }: { compact?: boolean }) {
 
   return (
     <div className="p-3 space-y-3">
-      <div className="flex items-center gap-3">
+      <div className="flex items-start gap-3">
         <motion.div
-          className="relative"
+          className="relative flex-shrink-0"
           animate={
             compliance.score < 60
-              ? { scale: [1, 1.1, 1], rotate: [0, -5, 5, 0] }
-              : compliance.score < 70
-              ? { opacity: [1, 0.6, 1] }
+              ? { y: [0, -3, 0] }
+              : compliance.score >= 90
+              ? { scale: [1, 1.03, 1] }
               : {}
           }
           transition={{ repeat: Infinity, duration: compliance.score < 60 ? 1.5 : 2 }}
         >
-          <div
-            className={cn(
-              "h-12 w-12 rounded-full overflow-hidden shadow-lg ring-2",
-              compliance.score >= 90 ? "ring-emerald-400" :
-              compliance.score >= 80 ? "ring-green-400" :
-              compliance.score >= 70 ? "ring-yellow-400" :
-              compliance.score >= 60 ? "ring-orange-400" : "ring-red-400"
-            )}
-          >
-            <img src={sahihLogo} alt="Buddy" className="h-full w-full object-cover" />
+          <div className={cn("h-20 w-16 overflow-hidden rounded-lg border-2 bg-gradient-to-b from-white/80 to-white/40 shadow-lg", getBorderColor())}>
+            <img src={dailyOutfit} alt="Hub-eebi" className="h-full w-full object-contain" />
           </div>
           {compliance.score >= 90 && (
             <motion.div
-              className="absolute -top-1 -right-1"
+              className="absolute -top-2 -right-2"
               animate={{ scale: [1, 1.2, 1], rotate: [0, 15, -15, 0] }}
               transition={{ repeat: Infinity, duration: 2 }}
             >
-              <Sparkles className="h-5 w-5 text-yellow-400" />
+              <Sparkles className="h-5 w-5 text-yellow-400 drop-shadow" />
             </motion.div>
           )}
         </motion.div>
 
         <div className="flex-1 min-w-0">
-          <h4 className="font-semibold text-sm truncate">{buddyName}</h4>
+          <h4 className="font-bold text-sm truncate">{buddyName}</h4>
           <div className="flex items-center gap-1.5">
             <StateIcon className={cn("h-3.5 w-3.5", getScoreColor())} />
-            <span className={cn("text-xs", getScoreColor())}>{stateInfo.label}</span>
+            <span className={cn("text-xs font-medium", getScoreColor())}>{stateInfo.label}</span>
           </div>
-        </div>
-
-        <div className="text-right">
-          <div className={cn("text-lg font-bold", getScoreColor())}>{compliance.score}%</div>
-          <div className="text-xs text-muted-foreground">Compliance</div>
+          <div className={cn("text-xl font-bold mt-1", getScoreColor())}>{compliance.score}%</div>
         </div>
       </div>
 
       <div className="space-y-1.5">
-        <Progress
-          value={compliance.score}
-          className="h-2"
-        />
-        <div className="flex justify-between text-xs text-muted-foreground">
-          <span>{buddyStatus.stats.completedTasks}/{buddyStatus.stats.totalTasks} tasks</span>
-          {buddyStatus.stats.overdueTasks > 0 && (
-            <span className="text-red-500">{buddyStatus.stats.overdueTasks} overdue</span>
+        <Progress value={compliance.score} className="h-2" />
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span className="flex items-center gap-1">
+            <ListTodo className="w-3 h-3" />
+            {stats.completedTasks}/{stats.totalTasks} tasks
+          </span>
+          {stats.overdueTasks > 0 && (
+            <span className="text-red-500 flex items-center gap-1">
+              <Clock className="w-3 h-3" />
+              {stats.overdueTasks} overdue
+            </span>
           )}
         </div>
       </div>
+
+      <motion.div
+        className="p-2.5 rounded-lg bg-gradient-to-r from-primary/10 to-accent/10 border border-primary/20"
+        initial={{ opacity: 0, x: -10 }}
+        animate={{ opacity: 1, x: 0 }}
+      >
+        <div className="flex items-start gap-2">
+          <MessageCircle className="w-3.5 h-3.5 text-primary flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-foreground leading-tight">{getMessage()}</p>
+        </div>
+      </motion.div>
 
       <AnimatePresence>
         {pendingDialogues.slice(0, 2).map((dialogue) => (
@@ -216,3 +331,5 @@ export function BuddySidebarWidget() {
     </div>
   );
 }
+
+export { getDailyOutfit, hubEebiOutfits };

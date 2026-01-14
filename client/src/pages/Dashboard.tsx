@@ -73,7 +73,7 @@ import quoteImage3 from "@assets/generated_images/continuous_improvement_ribbons
 import quoteImage4 from "@assets/generated_images/quality_standards_shield.png";
 import quoteImage5 from "@assets/generated_images/global_standards_globe.png";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
-import hubEebiAvatar from "@assets/generated_images/hub-eebi_compliance_buddy_avatar.png";
+import { HubEebiFullBody } from "@/components/BuddyAvatar";
 
 const motivationalQuotes = [
   { quote: "Quality is not an act, it is a habit.", image: quoteImage1 },
@@ -1041,23 +1041,8 @@ export default function Dashboard() {
                 </div>
               </div>
               
-              <div 
-                className="flex-shrink-0 flex flex-col items-center"
-                data-testid="hub-eebi-avatar"
-              >
-                <div className="relative">
-                  <div className="w-16 h-16 sm:w-20 sm:h-20 lg:w-24 lg:h-24 rounded-full overflow-hidden border-3 border-white/50 shadow-2xl bg-white/20 backdrop-blur-sm">
-                    <img 
-                      src={hubEebiAvatar} 
-                      alt="Hub-eebi" 
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <div className="absolute -bottom-1 -right-1 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-green-500 border-2 border-white flex items-center justify-center shadow-lg">
-                    <Sparkles className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-white" />
-                  </div>
-                </div>
-                <p className="text-white font-bold text-[10px] sm:text-xs mt-1.5 drop-shadow-md">Hub-eebi</p>
+              <div data-testid="hub-eebi-avatar" className="flex-shrink-0">
+                <HubEebiFullBody />
               </div>
             </div>
             
