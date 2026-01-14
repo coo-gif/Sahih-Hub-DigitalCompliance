@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { useNotifications, useMarkAllNotificationsRead } from "@/hooks/use-notifications";
+import { useNotifications, useMarkAllNotificationsRead, useMarkNotificationRead } from "@/hooks/use-notifications";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -83,11 +83,19 @@ const navItems: NavItem[] = [
 ];
 
 export function Layout({ children, user, onLogout }: LayoutProps) {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const { data: notifications } = useNotifications();
   const markAllRead = useMarkAllNotificationsRead();
+  const markRead = useMarkNotificationRead();
   
   const unreadCount = notifications?.filter(n => !n.isRead).length || 0;
+
+  const handleNotificationClick = (notification: { id: number; relatedDocumentId?: number | null }) => {
+    markRead.mutate(notification.id);
+    if (notification.relatedDocumentId) {
+      setLocation(`/documents/${notification.relatedDocumentId}`);
+    }
+  };
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">
@@ -218,6 +226,8 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
                       <DropdownMenuItem 
                         key={notification.id} 
                         className="flex flex-col items-start py-3 cursor-pointer bg-accent"
+                        onClick={() => handleNotificationClick(notification)}
+                        data-testid={`notification-item-${notification.id}`}
                       >
                         <span className="font-medium text-sm">{notification.title}</span>
                         <span className="text-xs text-muted-foreground line-clamp-2">{notification.message}</span>
