@@ -213,14 +213,11 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
                   )}
                 </div>
                 <div className="max-h-80 overflow-auto">
-                  {notifications && notifications.length > 0 ? (
-                    notifications.slice(0, 10).map((notification) => (
+                  {notifications && notifications.filter(n => !n.isRead).length > 0 ? (
+                    notifications.filter(n => !n.isRead).slice(0, 10).map((notification) => (
                       <DropdownMenuItem 
                         key={notification.id} 
-                        className={cn(
-                          "flex flex-col items-start py-3 cursor-pointer",
-                          !notification.isRead && "bg-accent"
-                        )}
+                        className="flex flex-col items-start py-3 cursor-pointer bg-accent"
                       >
                         <span className="font-medium text-sm">{notification.title}</span>
                         <span className="text-xs text-muted-foreground line-clamp-2">{notification.message}</span>
@@ -234,7 +231,7 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
                     ))
                   ) : (
                     <div className="py-8 text-center text-muted-foreground text-sm">
-                      No notifications
+                      No new notifications
                     </div>
                   )}
                 </div>
