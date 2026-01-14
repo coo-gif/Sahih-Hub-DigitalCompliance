@@ -3354,7 +3354,7 @@ export async function registerRoutes(
           userId: admin.id,
           title: 'New Bug Report',
           message: `New bug report submitted: ${report.ticketNumber} - ${title}`,
-          urgency: priority === 'critical' ? 'critical' : priority === 'high' ? 'high' : 'medium',
+          urgencyLevel: priority === 'critical' ? 'critical' : priority === 'high' ? 'high' : 'medium',
           isRead: false,
         });
       }
@@ -3430,7 +3430,7 @@ export async function registerRoutes(
           userId: report.reportedById,
           title: 'Thank You for Your Bug Report!',
           message: `Congratulations! Your bug report ${report.ticketNumber} has been resolved and closed. Thank you for helping make Hub a better place to work! Your contribution matters.`,
-          urgency: 'low',
+          urgencyLevel: 'low',
           isRead: false,
         });
         
@@ -3439,7 +3439,6 @@ export async function registerRoutes(
           userId: report.reportedById,
           dialogueType: 'celebration',
           message: `Amazing work! Your bug report "${report.title}" has been fixed! Thank you for making our Hub better. You're a true quality champion!`,
-          priority: 1,
           isAcknowledged: false,
         });
       }
