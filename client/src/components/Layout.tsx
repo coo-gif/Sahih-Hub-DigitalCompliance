@@ -73,15 +73,15 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">
-      <div className="p-5 border-b border-[#C78A5F]/30 bg-white">
-        <div className="flex flex-col items-center gap-2">
+      <div className="p-2 border-b border-[#C78A5F]/30 bg-white">
+        <div className="flex flex-col items-center gap-1">
           <img 
             src={sahihLogoPath} 
             alt="Sahih Certifications" 
-            className="h-60 w-auto object-contain"
+            className="h-20 w-auto object-contain"
           />
           <div className="text-center">
-            <span className="font-bold text-lg tracking-tight text-[#7A0C1A]">Sahih Hub</span>
+            <span className="font-bold text-base tracking-tight text-[#7A0C1A]">Sahih Hub</span>
             <p className="text-[10px] text-[#520812] uppercase tracking-widest font-medium">Digital Compliance</p>
           </div>
         </div>
