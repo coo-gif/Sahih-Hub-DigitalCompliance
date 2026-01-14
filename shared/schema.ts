@@ -829,6 +829,52 @@ export type MonthlyPerformanceReport = typeof monthlyPerformanceReports.$inferSe
 export type InsertMonthlyPerformanceReport = z.infer<typeof insertMonthlyPerformanceReportSchema>;
 
 // ============================================
+// BUG REPORTS / FEEDBACK TICKETS
+// ============================================
+export const BugReportStatus = {
+  OPEN: "open",
+  IN_PROGRESS: "in_progress",
+  RESOLVED: "resolved",
+  CLOSED: "closed",
+} as const;
+
+export const BugReportPriority = {
+  LOW: "low",
+  MEDIUM: "medium",
+  HIGH: "high",
+  CRITICAL: "critical",
+} as const;
+
+export const bugReports = pgTable("bug_reports", {
+  id: serial("id").primaryKey(),
+  ticketNumber: text("ticket_number").notNull().unique(),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  screenshotUrl: text("screenshot_url"),
+  priority: text("priority").notNull().default(BugReportPriority.MEDIUM),
+  status: text("status").notNull().default(BugReportStatus.OPEN),
+  reportedById: integer("reported_by_id").notNull(),
+  assignedToId: integer("assigned_to_id"),
+  resolutionNotes: text("resolution_notes"),
+  resolvedById: integer("resolved_by_id"),
+  resolvedAt: timestamp("resolved_at"),
+  closedAt: timestamp("closed_at"),
+  userNotified: boolean("user_notified").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertBugReportSchema = createInsertSchema(bugReports).omit({
+  id: true,
+  ticketNumber: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type BugReport = typeof bugReports.$inferSelect;
+export type InsertBugReport = z.infer<typeof insertBugReportSchema>;
+
+// ============================================
 // API REQUEST/RESPONSE TYPES
 // ============================================
 
