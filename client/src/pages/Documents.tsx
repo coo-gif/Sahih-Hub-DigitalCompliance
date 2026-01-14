@@ -109,8 +109,8 @@ export default function Documents() {
   const { data: users = [] } = useUsers();
   const { data: currentUser } = useAuth();
   
-  // Access control
-  const isAdminOrQM = currentUser?.role === 'admin' || currentUser?.role === 'quality_manager';
+  // Access control - include CEO for document management
+  const isAdminOrQM = currentUser?.role === 'admin' || currentUser?.role === 'quality_manager' || currentUser?.email === 'ceo@sahihcertify.com';
   const { data: myAccessRequests = [] } = useDocumentAccessRequests({ 
     requesterId: currentUser?.id 
   });
