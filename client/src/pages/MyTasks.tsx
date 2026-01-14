@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Clock, AlertTriangle, CheckCircle2, FileText, Target, Eye, Send, ThumbsUp, UserCheck, Download, X, Lock, Unlock } from "lucide-react";
+import { Clock, AlertTriangle, CheckCircle2, FileText, Target, Eye, Send, ThumbsUp, UserCheck, Download, X, Lock, Unlock, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useMyTasks, useCompleteTask, MyTask } from "@/hooks/use-tasks";
@@ -44,6 +44,123 @@ interface UserOption {
   id: number;
   name: string;
   role: string;
+}
+
+function ReassignTaskDialog({ 
+  task, 
+  open, 
+  onOpenChange, 
+  onReassign,
+  isPending,
+  users = []
+}: { 
+  task: MyTask; 
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onReassign: (newAssigneeId: number, newApproverId?: number, reason?: string) => void;
+  isPending: boolean;
+  users?: UserOption[];
+}) {
+  const [selectedAssigneeId, setSelectedAssigneeId] = useState<string>("");
+  const [selectedApproverId, setSelectedApproverId] = useState<string>("");
+  const [reason, setReason] = useState("");
+
+  const handleReassign = () => {
+    if (!selectedAssigneeId) return;
+    const assigneeId = parseInt(selectedAssigneeId);
+    const approverId = selectedApproverId ? parseInt(selectedApproverId) : undefined;
+    onReassign(assigneeId, approverId, reason);
+    setSelectedAssigneeId("");
+    setSelectedApproverId("");
+    setReason("");
+  };
+
+  const assigneeCandidates = users;
+  
+  const approverCandidates = users;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <RefreshCw className="h-5 w-5 text-primary" />
+            Reassign Task
+          </DialogTitle>
+          <DialogDescription>
+            Reassign this {task.taskType} task for "{task.documentCode} - {task.title}" to another user.
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="new-assignee" className="flex items-center gap-2">
+              <UserCheck className="w-4 h-4 text-primary" />
+              New Assignee <span className="text-destructive">*</span>
+            </Label>
+            <Select value={selectedAssigneeId} onValueChange={setSelectedAssigneeId}>
+              <SelectTrigger id="new-assignee" data-testid="select-new-assignee">
+                <SelectValue placeholder="Select who should handle this task" />
+              </SelectTrigger>
+              <SelectContent>
+                {assigneeCandidates.map(user => (
+                  <SelectItem key={user.id} value={user.id.toString()}>
+                    {user.name} ({user.role.replace('_', ' ')})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          
+          <div className="space-y-2">
+            <Label htmlFor="new-approver" className="flex items-center gap-2">
+              <ThumbsUp className="w-4 h-4 text-green-600" />
+              New Approver (optional)
+            </Label>
+            <Select value={selectedApproverId} onValueChange={setSelectedApproverId}>
+              <SelectTrigger id="new-approver" data-testid="select-new-approver">
+                <SelectValue placeholder="Optionally change the approver" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Keep current approver</SelectItem>
+                {approverCandidates.map(user => (
+                  <SelectItem key={user.id} value={user.id.toString()}>
+                    {user.name} ({user.role.replace('_', ' ')})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              You can also choose a new approver for this document.
+            </p>
+          </div>
+          
+          <div className="space-y-2">
+            <Label htmlFor="reason">Reason for Reassignment</Label>
+            <Textarea
+              id="reason"
+              placeholder="Why are you reassigning this task?"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="min-h-[80px]"
+            />
+          </div>
+        </div>
+        
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button 
+            onClick={handleReassign} 
+            disabled={isPending || !selectedAssigneeId}
+            className="gap-1"
+          >
+            <RefreshCw className="h-4 w-4" />
+            {isPending ? "Reassigning..." : "Reassign Task"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function CompleteTaskDialog({ 
@@ -149,10 +266,34 @@ export default function MyTasks() {
   const [, navigate] = useLocation();
   const [selectedTask, setSelectedTask] = useState<MyTask | null>(null);
   const [showCompleteDialog, setShowCompleteDialog] = useState(false);
+  const [showReassignDialog, setShowReassignDialog] = useState(false);
 
   const { data: tasks = [], isLoading } = useMyTasks();
   const { data: users = [] } = useUsers();
   const completeMutation = useCompleteTask();
+  
+  const reassignMutation = useMutation({
+    mutationFn: async ({ documentId, taskType, newAssigneeId, newApproverId, reason }: { 
+      documentId: number; 
+      taskType: string; 
+      newAssigneeId: number; 
+      newApproverId?: number;
+      reason?: string;
+    }) => {
+      const res = await apiRequest('POST', `/api/documents/${documentId}/reassign`, {
+        taskType,
+        newAssigneeId,
+        newApproverId: newApproverId === -1 ? undefined : newApproverId,
+        reason,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
+    },
+  });
 
   const approveDownloadMutation = useMutation({
     mutationFn: async (requestId: number) => {
@@ -242,6 +383,42 @@ export default function MyTasks() {
   const openCompleteDialog = (task: MyTask) => {
     setSelectedTask(task);
     setShowCompleteDialog(true);
+  };
+
+  const openReassignDialog = (task: MyTask) => {
+    setSelectedTask(task);
+    setShowReassignDialog(true);
+  };
+
+  const handleReassignTask = (newAssigneeId: number, newApproverId?: number, reason?: string) => {
+    if (!selectedTask || !selectedTask.documentId) return;
+    
+    reassignMutation.mutate(
+      { 
+        documentId: selectedTask.documentId, 
+        taskType: selectedTask.taskType,
+        newAssigneeId,
+        newApproverId: newApproverId && newApproverId !== -1 ? newApproverId : undefined,
+        reason,
+      },
+      {
+        onSuccess: (data) => {
+          toast({
+            title: "Task Reassigned",
+            description: data.message || "Task has been reassigned successfully.",
+          });
+          setShowReassignDialog(false);
+          setSelectedTask(null);
+        },
+        onError: (error: Error) => {
+          toast({
+            title: "Error",
+            description: error.message,
+            variant: "destructive",
+          });
+        },
+      }
+    );
   };
 
   if (isLoading) {
@@ -376,15 +553,28 @@ export default function MyTasks() {
                         View Employee Record
                       </Button>
                     ) : (
-                      <Button 
-                        variant="outline"
-                        onClick={() => navigate(`/documents/${task.documentId}/view`)}
-                        className="gap-1"
-                        data-testid={`button-view-${task.id}`}
-                      >
-                        <Eye className="h-4 w-4" />
-                        View Document
-                      </Button>
+                      <>
+                        <Button 
+                          variant="outline"
+                          onClick={() => navigate(`/documents/${task.documentId}/view`)}
+                          className="gap-1"
+                          data-testid={`button-view-${task.id}`}
+                        >
+                          <Eye className="h-4 w-4" />
+                          View Document
+                        </Button>
+                        {(task.taskType === 'review' || task.taskType === 'approve') && (
+                          <Button 
+                            variant="outline"
+                            onClick={() => openReassignDialog(task)}
+                            className="gap-1"
+                            data-testid={`button-reassign-${task.id}`}
+                          >
+                            <RefreshCw className="h-4 w-4" />
+                            Reassign
+                          </Button>
+                        )}
+                      </>
                     )}
                     {task.taskType === 'download_approval' ? (
                       <>
@@ -541,6 +731,17 @@ export default function MyTasks() {
           onOpenChange={setShowCompleteDialog}
           onComplete={handleCompleteTask}
           isPending={completeMutation.isPending}
+          users={users}
+        />
+      )}
+      
+      {selectedTask && (
+        <ReassignTaskDialog
+          task={selectedTask}
+          open={showReassignDialog}
+          onOpenChange={setShowReassignDialog}
+          onReassign={handleReassignTask}
+          isPending={reassignMutation.isPending}
           users={users}
         />
       )}

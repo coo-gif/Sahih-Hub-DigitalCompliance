@@ -2373,6 +2373,141 @@ export async function registerRoutes(
   });
 
   // ============================================
+  // TASK REASSIGNMENT
+  // ============================================
+  
+  // Reassign a document task to a different user
+  app.post('/api/documents/:id/reassign', requireAuth, async (req, res) => {
+    try {
+      const documentId = Number(req.params.id);
+      const userId = getCurrentUserId(req);
+      const { taskType, newAssigneeId, newApproverId, reason } = req.body;
+      
+      if (!taskType || !newAssigneeId) {
+        return res.status(400).json({ message: 'Task type and new assignee are required' });
+      }
+      
+      const doc = await storage.getDocument(documentId);
+      if (!doc) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+      
+      const currentUser = await storage.getUser(userId);
+      const newAssignee = await storage.getUser(newAssigneeId);
+      
+      if (!newAssignee) {
+        return res.status(404).json({ message: 'New assignee not found' });
+      }
+      
+      // Check permission - user must be assigned to this task or be admin/quality_manager
+      const isAssigned = 
+        (taskType === 'review' && doc.reviewerId === userId) ||
+        (taskType === 'approve' && doc.approverId === userId) ||
+        (taskType === 'prepare' && doc.preparedById === userId);
+      
+      const hasPermission = isAssigned || 
+        currentUser?.role === 'admin' || 
+        currentUser?.role === 'quality_manager';
+      
+      if (!hasPermission) {
+        return res.status(403).json({ message: 'You do not have permission to reassign this task' });
+      }
+      
+      // Prepare update data based on task type
+      const updateData: any = {};
+      let oldAssigneeId: number | null = null;
+      
+      if (taskType === 'review') {
+        oldAssigneeId = doc.reviewerId;
+        updateData.reviewerId = newAssigneeId;
+        updateData.reviewedBySignedAt = null; // Clear previous signature
+      } else if (taskType === 'approve') {
+        oldAssigneeId = doc.approverId;
+        updateData.approverId = newAssigneeId;
+        updateData.approvedBySignedAt = null; // Clear previous signature
+      } else if (taskType === 'prepare') {
+        oldAssigneeId = doc.preparedById;
+        updateData.preparedById = newAssigneeId;
+        updateData.preparerConfirmedAt = null;
+        updateData.preparedBySignedAt = null;
+      }
+      
+      // If new approver is also specified
+      if (newApproverId) {
+        const newApprover = await storage.getUser(newApproverId);
+        if (!newApprover) {
+          return res.status(404).json({ message: 'New approver not found' });
+        }
+        updateData.approverId = newApproverId;
+      }
+      
+      // Update the document
+      const updated = await storage.updateDocument(documentId, updateData);
+      
+      // Get old assignee info for audit log
+      const oldAssignee = oldAssigneeId ? await storage.getUser(oldAssigneeId) : null;
+      
+      // Create audit log
+      await storage.createAuditLog({
+        userId,
+        action: AuditAction.UPDATE,
+        entityType: 'document',
+        entityId: documentId,
+        oldValue: JSON.stringify({
+          taskType,
+          assignedTo: oldAssignee?.name || 'Unknown',
+          assignedToId: oldAssigneeId,
+        }),
+        newValue: JSON.stringify({
+          taskType,
+          assignedTo: newAssignee.name,
+          assignedToId: newAssigneeId,
+          reason: reason || 'Task reassigned',
+          ...(newApproverId && { newApproverId }),
+        }),
+      });
+      
+      // Create workflow log
+      await storage.createWorkflowLog({
+        documentId,
+        fromStatus: doc.status,
+        toStatus: doc.status, // Status doesn't change
+        changedById: userId,
+        comments: `Task reassigned: ${taskType} from ${oldAssignee?.name || 'Unknown'} to ${newAssignee.name}. ${reason ? `Reason: ${reason}` : ''}`,
+      });
+      
+      // Notify the new assignee
+      await storage.createNotification({
+        userId: newAssigneeId,
+        title: 'Task Assigned to You',
+        message: `You have been assigned to ${taskType} document "${doc.title}" (${doc.documentCode}). ${reason ? `Reason: ${reason}` : ''}`,
+        urgencyLevel: UrgencyLevel.HIGH,
+        relatedDocumentId: documentId,
+      });
+      
+      // Notify the old assignee if they weren't the one doing the reassignment
+      if (oldAssigneeId && oldAssigneeId !== userId) {
+        await storage.createNotification({
+          userId: oldAssigneeId,
+          title: 'Task Reassigned',
+          message: `Your ${taskType} task for document "${doc.title}" has been reassigned to ${newAssignee.name}.`,
+          urgencyLevel: UrgencyLevel.MEDIUM,
+          relatedDocumentId: documentId,
+        });
+      }
+      
+      res.json({ 
+        success: true, 
+        document: updated,
+        message: `Task reassigned to ${newAssignee.name}` 
+      });
+    } catch (err) {
+      console.error('Error reassigning task:', err);
+      res.status(500).json({ message: 'Failed to reassign task' });
+    }
+  });
+
+  // ============================================
   // USER PERFORMANCE STATS (COO/CEO/Admin only)
   // ============================================
   
