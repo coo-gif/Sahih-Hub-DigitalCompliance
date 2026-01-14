@@ -72,6 +72,7 @@ import quoteImage2 from "@assets/generated_images/excellence_network_visualizati
 import quoteImage3 from "@assets/generated_images/continuous_improvement_ribbons.png";
 import quoteImage4 from "@assets/generated_images/quality_standards_shield.png";
 import quoteImage5 from "@assets/generated_images/global_standards_globe.png";
+import sahihLogoPath from "@assets/sahih_logo-1.png";
 
 const motivationalQuotes = [
   { quote: "Quality is not an act, it is a habit.", image: quoteImage1 },
@@ -2112,19 +2113,17 @@ export default function Dashboard() {
 
         {/* Active Users */}
         <Card data-testid="card-active-users">
-          <CardHeader>
+          <CardHeader className="pb-2">
             <div className="flex items-center gap-2">
-              <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30">
-                <Users className="w-4 h-4 text-green-600" />
-              </div>
+              <img src={sahihLogoPath} alt="Sahih Logo" className="h-8 w-8 object-contain" />
               <div>
-                <CardTitle>Active Users</CardTitle>
-                <CardDescription>Team members currently online</CardDescription>
+                <CardTitle className="text-base">Active Users</CardTitle>
+                <CardDescription className="text-xs">Team members online</CardDescription>
               </div>
             </div>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
+          <CardContent className="pt-2">
+            <div className="space-y-1">
               {activeUsers && activeUsers.length > 0 ? (
                 activeUsers.slice(0, 8).map((user, idx) => {
                   const formatLastActive = (lastActivity: string | null) => {
@@ -2145,36 +2144,36 @@ export default function Dashboard() {
                   return (
                     <div 
                       key={user.id}
-                      className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors"
+                      className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-muted/50 transition-colors"
                       style={{ animation: `slideIn 0.3s ease-out ${idx * 0.05}s backwards` }}
                       data-testid={`active-user-${user.id}`}
                     >
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
                         <div className="relative">
-                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center">
+                          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-primary/20 to-primary/40 flex items-center justify-center">
                             <span className="text-xs font-semibold text-primary">
                               {user.name.charAt(0).toUpperCase()}
                             </span>
                           </div>
                           <div 
-                            className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${
+                            className={`absolute -bottom-0 -right-0 w-2.5 h-2.5 rounded-full border-2 border-background ${
                               user.isOnline ? 'bg-green-500' : 'bg-gray-400'
                             }`}
                             data-testid={`status-dot-${user.id}`}
                           />
                         </div>
                         <div>
-                          <p className="text-sm font-medium" data-testid={`text-user-name-${user.id}`}>{user.name}</p>
-                          <p className="text-xs text-muted-foreground capitalize">{user.role.replace('_', ' ')}</p>
+                          <p className="text-xs font-medium" data-testid={`text-user-name-${user.id}`}>{user.name}</p>
+                          <p className="text-[10px] text-muted-foreground capitalize">{user.role.replace('_', ' ')}</p>
                         </div>
                       </div>
                       <div className="text-right">
                         {user.isOnline ? (
-                          <Badge variant="secondary" className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs">
+                          <Badge variant="secondary" className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-[10px] py-0 px-1.5">
                             Online
                           </Badge>
                         ) : (
-                          <span className="text-xs text-muted-foreground" data-testid={`text-last-active-${user.id}`}>
+                          <span className="text-[10px] text-muted-foreground" data-testid={`text-last-active-${user.id}`}>
                             {formatLastActive(user.lastActivity)}
                           </span>
                         )}
@@ -2183,7 +2182,7 @@ export default function Dashboard() {
                   );
                 })
               ) : (
-                <div className="text-center py-6 text-muted-foreground">
+                <div className="text-center py-4 text-muted-foreground text-sm">
                   No active users
                 </div>
               )}
