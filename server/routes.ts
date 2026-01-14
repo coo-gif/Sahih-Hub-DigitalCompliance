@@ -2551,7 +2551,7 @@ export async function registerRoutes(
         documentId,
         fromStatus: doc.status,
         toStatus: doc.status, // Status doesn't change
-        changedById: userId,
+        actionById: userId,
         comments: `Task reassigned: ${taskType} from ${oldAssignee?.name || 'Unknown'} to ${newAssignee.name}. ${reason ? `Reason: ${reason}` : ''}`,
       });
       
