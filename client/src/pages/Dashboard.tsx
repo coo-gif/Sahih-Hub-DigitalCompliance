@@ -1952,7 +1952,11 @@ export default function Dashboard() {
                   <span className="w-1.5 h-1.5 rounded-full bg-primary"></span>
                   <span className="font-semibold text-foreground">{log.userName || 'System'}</span>
                   <span className="font-medium">{log.action.replace('_', ' ')}</span>
-                  <span>on {log.entityType}</span>
+                  <span>
+                    on {log.entityType === 'document' && log.documentTitle 
+                      ? `document "${log.documentTitle}"` 
+                      : log.entityType}
+                  </span>
                   <span className="text-xs opacity-70">
                     {log.createdAt ? format(new Date(log.createdAt), 'h:mm a') : ''}
                   </span>
@@ -2084,24 +2088,48 @@ export default function Dashboard() {
                   </div>
                 ))
               ) : activity && activity.length > 0 ? (
-                activity.slice(0, 5).map((log, idx) => (
-                  <div 
-                    key={log.id} 
-                    className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors"
-                    style={{ animation: `slideIn 0.3s ease-out ${idx * 0.1}s backwards` }}
-                    data-testid={`activity-${log.id}`}
-                  >
-                    <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate" data-testid={`text-activity-action-${log.id}`}>
-                        <span className="text-primary">{log.userName || 'System'}</span> {log.action.replace('_', ' ')} on {log.entityType}
-                      </p>
-                      <p className="text-xs text-muted-foreground" data-testid={`text-activity-time-${log.id}`}>
-                        {log.createdAt ? format(new Date(log.createdAt), 'MMM d, h:mm a') : ''}
-                      </p>
+                activity.slice(0, 5).map((log, idx) => {
+                  const isDocumentActivity = log.entityType === 'document' && log.documentTitle && log.entityId;
+                  const isAdmin = currentUser?.role === 'admin';
+                  
+                  return (
+                    <div 
+                      key={log.id} 
+                      className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors"
+                      style={{ animation: `slideIn 0.3s ease-out ${idx * 0.1}s backwards` }}
+                      data-testid={`activity-${log.id}`}
+                    >
+                      <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate" data-testid={`text-activity-action-${log.id}`}>
+                          <span className="text-primary">{log.userName || 'System'}</span>{' '}
+                          {log.action.replace('_', ' ')}{' '}
+                          {isDocumentActivity ? (
+                            <>
+                              on document{' '}
+                              {isAdmin ? (
+                                <span
+                                  className="text-primary underline cursor-pointer hover:text-primary/80"
+                                  onClick={() => navigate(`/documents/${log.entityId}/edit`)}
+                                  data-testid={`link-document-${log.entityId}`}
+                                >
+                                  {log.documentTitle}
+                                </span>
+                              ) : (
+                                <span className="font-semibold">{log.documentTitle}</span>
+                              )}
+                            </>
+                          ) : (
+                            <>on {log.entityType}</>
+                          )}
+                        </p>
+                        <p className="text-xs text-muted-foreground" data-testid={`text-activity-time-${log.id}`}>
+                          {log.createdAt ? format(new Date(log.createdAt), 'MMM d, h:mm a') : ''}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <div className="text-center py-8 text-muted-foreground" data-testid="text-no-activity">
                   No recent activity

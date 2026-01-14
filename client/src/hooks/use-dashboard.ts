@@ -2,7 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 import type { DashboardStats, ComplianceAlert } from "@shared/routes";
 import type { AuditLog } from "@shared/schema";
 
-export type ActivityLog = AuditLog & { userName?: string };
+export type ActivityLog = AuditLog & { 
+  userName?: string; 
+  documentTitle?: string; 
+  documentCode?: string;
+};
 
 export function useDashboardStats() {
   return useQuery<DashboardStats>({

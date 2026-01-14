@@ -433,17 +433,34 @@ export class DatabaseStorage implements IStorage {
   // ============================================
   // AUDIT LOGS
   // ============================================
-  async getAuditLogs(limit: number = 50): Promise<(AuditLog & { userName?: string })[]> {
+  async getAuditLogs(limit: number = 50): Promise<(AuditLog & { userName?: string; documentTitle?: string; documentCode?: string })[]> {
     const logs = await db.select()
       .from(auditLogs)
       .leftJoin(users, eq(auditLogs.userId, users.id))
       .orderBy(desc(auditLogs.createdAt))
       .limit(limit);
     
-    return logs.map(row => ({
-      ...row.audit_logs,
-      userName: row.users?.name || undefined,
-    }));
+    const allDocs = await db.select().from(documents);
+    const docMap = new Map(allDocs.map(d => [d.id, { title: d.title, code: d.documentCode }]));
+    
+    return logs.map(row => {
+      const log = row.audit_logs;
+      let documentTitle: string | undefined;
+      let documentCode: string | undefined;
+      
+      if (log.entityType === 'document' && log.entityId) {
+        const doc = docMap.get(log.entityId);
+        documentTitle = doc?.title;
+        documentCode = doc?.code;
+      }
+      
+      return {
+        ...log,
+        userName: row.users?.name || undefined,
+        documentTitle,
+        documentCode,
+      };
+    });
   }
 
   async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
