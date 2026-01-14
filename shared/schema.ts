@@ -3,6 +3,9 @@ import { relations, sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Export chat models for AI integrations
+export * from "./models/chat";
+
 // ============================================
 // ENUMS
 // ============================================

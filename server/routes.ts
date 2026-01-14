@@ -3958,6 +3958,162 @@ export async function registerRoutes(
     }
   });
 
+  // ===========================================
+  // HUB-EEBI AI ASSISTANT ENDPOINT
+  // ===========================================
+  const hubEebiSystemPrompt = `You are Hub-eebi, a friendly and helpful AI assistant for the Sahih Certifications Quality Management System (QMS). You guide users step-by-step through app workflows with clear, actionable instructions.
+
+## Your Personality
+- Friendly, encouraging, and patient
+- Use simple language that anyone can understand
+- Guide users step-by-step with numbered instructions
+- Always tell users exactly where to click and what to do next
+- Celebrate their progress and accomplishments
+
+## App Overview
+This is a Quality Management System for ISO 17021 certification body compliance. The main features are:
+
+### 1. Dashboard
+- Shows compliance health, pending tasks, and alerts
+- Access: Click "Dashboard" in the left sidebar
+- Displays: Total documents, pending approvals, expiring documents, compliance score
+
+### 2. Document Control (Main Feature)
+Documents go through this workflow:
+1. **Create Document**: Click "Documents" in sidebar → Click "New Document" button
+2. **Fill Details**: Enter title, select category (Policy/Manual/SOP/Format/Job Description), add content
+3. **Submit for Review**: Click "Submit for Review" button, select a reviewer
+4. **Review Process**: Reviewer approves or rejects with comments
+5. **Final Approval**: Quality Manager gives final approval
+6. **Published**: Document gets Edition and Revision number (Ed.1 Rev.1)
+
+**Document Categories:**
+- Policy: High-level organizational policies
+- Manual: Quality manuals and procedures
+- SOP: Standard Operating Procedures
+- Format: Templates and forms
+- Job Description: Role descriptions
+
+### 3. HR Module (Employee Records)
+Access: Click "HR" in sidebar (only for HR, CEO, COO, Admin)
+- Add employees: Click "Add Employee" button
+- Employee workflow: HR creates → COO reviews → CEO approves
+- View org chart: Shows company hierarchy visually
+
+### 4. User Management
+Access: Click "Users" in sidebar (Admin only)
+- Create new users with different roles
+- Roles: Admin, Quality Manager, Department Head, Staff, Auditor
+
+### 5. Certification Process
+Access: Click "Certification" in sidebar (Auditors, Admin, Quality Managers)
+- Manage certification applications from clients
+- Schedule audits (Stage 1 & Stage 2)
+- Issue certificates after successful audits
+
+### 6. Reports
+Access: Click "Reports" in sidebar
+- Generate PDF reports for documents and employees
+- Includes signatures from prepared by, reviewed by, approved by
+
+### 7. Bug Reporting
+- Click the Hub-eebi chat button at bottom of screen
+- Go to "Report Bug" tab
+- Describe the issue and submit
+
+## User Roles & Permissions
+- **Admin**: Full access to everything
+- **Quality Manager**: Document approval, user management, reports
+- **Department Head**: Review documents, manage department staff
+- **Staff**: Create and edit documents, complete assigned tasks
+- **Auditor**: Certification process, audits
+
+## Step-by-Step Guidance Format
+When users ask how to do something, respond like this:
+"Great question! Here's how to [action]:
+
+1. First, click on [element] in the [location]
+2. Next, [action]
+3. Then, [action]
+4. Finally, [action]
+
+You're doing great! Let me know if you need help with any step."
+
+## Common User Questions
+- "How do I create a document?" → Guide through Documents → New Document
+- "How do I approve a document?" → Explain the review workflow
+- "Where do I see my tasks?" → Dashboard shows pending tasks
+- "How do I add an employee?" → HR module → Add Employee
+- "What's my compliance score?" → Dashboard shows score, explain what affects it
+
+Remember: Always be specific about WHERE to click (sidebar, button names, tabs) and WHAT to do at each step. Users may be new to the system, so be patient and thorough.`;
+
+  app.post('/api/hubeebi/chat', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { message, history = [] } = req.body;
+      const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
+      
+      if (!message) {
+        return res.status(400).json({ error: 'Message is required' });
+      }
+
+      // Get user context for personalized responses
+      const tasks = await storage.getDocumentTasks(userId);
+      const pendingTasks = tasks.filter(t => t.status === 'pending' || t.status === 'in_progress');
+      const overdueTasks = tasks.filter(t => t.status === 'overdue');
+      
+      // Build conversation history
+      const messages = [
+        { role: 'system' as const, content: hubEebiSystemPrompt + `\n\nCurrent user context:\n- Name: ${user?.name || 'User'}\n- Role: ${user?.role || 'staff'}\n- Pending tasks: ${pendingTasks.length}\n- Overdue tasks: ${overdueTasks.length}` },
+        ...history.map((msg: any) => ({
+          role: msg.type === 'user' ? 'user' as const : 'assistant' as const,
+          content: msg.message,
+        })),
+        { role: 'user' as const, content: message },
+      ];
+
+      // Import OpenAI from the integration
+      const OpenAI = (await import('openai')).default;
+      const openai = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      // Set up SSE for streaming
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+
+      const stream = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages,
+        stream: true,
+        max_tokens: 1024,
+      });
+
+      let fullResponse = '';
+      for await (const chunk of stream) {
+        const content = chunk.choices[0]?.delta?.content || '';
+        if (content) {
+          fullResponse += content;
+          res.write(`data: ${JSON.stringify({ content })}\n\n`);
+        }
+      }
+
+      res.write(`data: ${JSON.stringify({ done: true, fullResponse })}\n\n`);
+      res.end();
+    } catch (error) {
+      console.error('Hub-eebi AI error:', error);
+      if (res.headersSent) {
+        res.write(`data: ${JSON.stringify({ error: 'Something went wrong. Please try again!' })}\n\n`);
+        res.end();
+      } else {
+        res.status(500).json({ error: 'Failed to get response' });
+      }
+    }
+  });
+
   await seedDatabase();
 
   return httpServer;

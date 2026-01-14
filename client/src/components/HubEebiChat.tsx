@@ -50,30 +50,6 @@ interface ChatMessage {
   timestamp: Date;
 }
 
-const friendlyResponses = [
-  "I'm here to help! What would you like to know?",
-  "Great question! Let me help you with that.",
-  "Absolutely! I'm always happy to assist.",
-  "That's a wonderful thing to ask! Here's what I think...",
-  "I love your curiosity! Let me share some insights.",
-  "You're doing great! Is there anything else I can help with?",
-  "Thanks for reaching out! I'm here for you.",
-  "That's an interesting point! Let me think about that.",
-  "I appreciate you sharing that with me!",
-  "Together we can make Hub an even better place!",
-];
-
-const taskResponses = [
-  "I see you have some tasks pending. Don't worry, we'll tackle them together!",
-  "Your compliance score is looking good! Keep up the excellent work!",
-  "Remember, every small step counts towards our quality goals.",
-  "You're making great progress! Stay focused and you'll achieve more.",
-  "Quality is not an act, it's a habit. You're building great habits!",
-];
-
-const getRandomResponse = (responses: string[]) => {
-  return responses[Math.floor(Math.random() * responses.length)];
-};
 
 export function HubEebiChat() {
   const [isOpen, setIsOpen] = useState(false);
@@ -82,11 +58,12 @@ export function HubEebiChat() {
     {
       id: '1',
       type: 'hubeebi',
-      message: "Hi there! I'm Hub-eebi, your friendly compliance buddy! How can I help you today? You can chat with me, report a bug, or check your bug reports.",
+      message: "Hi there! I'm Hub-eebi, your AI-powered assistant for Sahih Hub! I can guide you step-by-step through any feature.\n\nTry asking me:\n• How do I create a document?\n• Where can I see my tasks?\n• How does the approval process work?\n\nI'm here to help you navigate the app with ease!",
       timestamp: new Date(),
     }
   ]);
   const [inputMessage, setInputMessage] = useState("");
+  const [isAiLoading, setIsAiLoading] = useState(false);
   const [bugTitle, setBugTitle] = useState("");
   const [bugDescription, setBugDescription] = useState("");
   const [bugPriority, setBugPriority] = useState("medium");
@@ -126,8 +103,8 @@ export function HubEebiChat() {
     },
   });
 
-  const handleSendMessage = () => {
-    if (!inputMessage.trim()) return;
+  const handleSendMessage = async () => {
+    if (!inputMessage.trim() || isAiLoading) return;
 
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
@@ -137,34 +114,74 @@ export function HubEebiChat() {
     };
 
     setChatMessages(prev => [...prev, userMessage]);
+    const messageToSend = inputMessage;
     setInputMessage("");
+    setIsAiLoading(true);
 
-    setTimeout(() => {
-      let response = getRandomResponse(friendlyResponses);
-      
-      const lowerMessage = inputMessage.toLowerCase();
-      if (lowerMessage.includes('task') || lowerMessage.includes('work') || lowerMessage.includes('pending')) {
-        response = getRandomResponse(taskResponses);
-      } else if (lowerMessage.includes('bug') || lowerMessage.includes('issue') || lowerMessage.includes('problem')) {
-        response = "I'm sorry to hear you're experiencing an issue! You can use the 'Report Bug' tab to submit a detailed report. Our team will look into it right away!";
-      } else if (lowerMessage.includes('hello') || lowerMessage.includes('hi') || lowerMessage.includes('hey')) {
-        response = "Hello! It's wonderful to hear from you! How can I make your day better?";
-      } else if (lowerMessage.includes('thank')) {
-        response = "You're very welcome! It's my pleasure to help. Remember, your success is my success!";
-      } else if (lowerMessage.includes('help')) {
-        response = "I'm here to help! You can ask me about your tasks, report bugs, or just chat. What would you like to do?";
-      } else if (lowerMessage.includes('compliance') || lowerMessage.includes('quality')) {
-        response = "Quality and compliance are at the heart of everything we do! Every action you take contributes to our excellence. Keep up the great work!";
+    // Create a placeholder for Hub-eebi's response that will be streamed
+    const responseId = (Date.now() + 1).toString();
+    setChatMessages(prev => [...prev, {
+      id: responseId,
+      type: 'hubeebi',
+      message: '',
+      timestamp: new Date(),
+    }]);
+
+    try {
+      // Get conversation history (last 10 messages for context)
+      const history = chatMessages.slice(-10).map(msg => ({
+        type: msg.type,
+        message: msg.message,
+      }));
+
+      const response = await fetch('/api/hubeebi/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: messageToSend, history }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to get response');
       }
 
-      const hubeebiResponse: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        type: 'hubeebi',
-        message: response,
-        timestamp: new Date(),
-      };
-      setChatMessages(prev => [...prev, hubeebiResponse]);
-    }, 800);
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No response body');
+
+      const decoder = new TextDecoder();
+      let fullResponse = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+            if (event.content) {
+              fullResponse += event.content;
+              setChatMessages(prev => prev.map(msg =>
+                msg.id === responseId ? { ...msg, message: fullResponse } : msg
+              ));
+            }
+          } catch {
+            // Ignore parsing errors
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Hub-eebi AI error:', error);
+      setChatMessages(prev => prev.map(msg =>
+        msg.id === responseId 
+          ? { ...msg, message: "I'm having a little trouble thinking right now. Please try again in a moment!" }
+          : msg
+      ));
+    } finally {
+      setIsAiLoading(false);
+    }
   };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -289,13 +306,20 @@ export function HubEebiChat() {
                         )}
                         <div
                           className={cn(
-                            "max-w-[80%] rounded-lg px-3 py-2 text-sm",
+                            "max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap",
                             msg.type === 'user'
                               ? "bg-primary text-primary-foreground"
                               : "bg-muted"
                           )}
                         >
-                          {msg.message}
+                          {msg.message || (
+                            <span className="flex items-center gap-1 text-muted-foreground">
+                              <span className="animate-pulse">Thinking</span>
+                              <span className="animate-bounce" style={{ animationDelay: '0ms' }}>.</span>
+                              <span className="animate-bounce" style={{ animationDelay: '150ms' }}>.</span>
+                              <span className="animate-bounce" style={{ animationDelay: '300ms' }}>.</span>
+                            </span>
+                          )}
                         </div>
                       </motion.div>
                     ))}
@@ -303,15 +327,25 @@ export function HubEebiChat() {
                 </ScrollArea>
                 <div className="p-3 border-t flex gap-2">
                   <Input
-                    placeholder="Type a message..."
+                    placeholder={isAiLoading ? "Hub-eebi is thinking..." : "Ask me anything about the app..."}
                     value={inputMessage}
                     onChange={(e) => setInputMessage(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
                     className="flex-1"
+                    disabled={isAiLoading}
                     data-testid="input-chat-message"
                   />
-                  <Button size="icon" onClick={handleSendMessage} data-testid="button-send-message">
-                    <Send className="h-4 w-4" />
+                  <Button 
+                    size="icon" 
+                    onClick={handleSendMessage} 
+                    disabled={isAiLoading || !inputMessage.trim()}
+                    data-testid="button-send-message"
+                  >
+                    {isAiLoading ? (
+                      <Sparkles className="h-4 w-4 animate-pulse" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
                   </Button>
                 </div>
               </TabsContent>
