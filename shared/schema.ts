@@ -24,6 +24,7 @@ export const DocumentCategory = {
   MANUAL: "manual",
   SOP: "sop",
   FORMAT: "format",
+  JOB_DESCRIPTION: "job_description",
 } as const;
 
 export const DocumentStatus = {
