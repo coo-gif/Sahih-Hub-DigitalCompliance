@@ -153,9 +153,9 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
                 <SidebarContent />
               </SheetContent>
             </Sheet>
-            <div className="flex items-center gap-2">
-              <img src={sahihLogoPath} alt="Logo" className="h-8 w-8 object-contain" />
-              <span className="font-bold text-primary">Sahih-Hub</span>
+            <div className="flex items-center gap-3">
+              <img src={sahihLogoPath} alt="Logo" className="h-16 w-16 object-contain" />
+              <span className="font-extrabold text-3xl text-primary">Sahih-Hub</span>
             </div>
           </div>
 
