@@ -3619,6 +3619,346 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================
+  // CERTIFICATION PROCESS MANAGEMENT ROUTES
+  // ============================================
+
+  // Get all certification applications
+  app.get('/api/certification-applications', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
+      
+      if (!user || (user.role !== UserRole.AUDITOR && user.role !== UserRole.ADMIN && user.role !== UserRole.QUALITY_MANAGER)) {
+        return res.status(403).json({ message: 'Only auditors, admin, or quality managers can access certification applications' });
+      }
+
+      const status = req.query.status as string | undefined;
+      const assignedAuditorId = req.query.assignedAuditorId ? parseInt(req.query.assignedAuditorId as string) : undefined;
+      
+      const applications = await storage.getCertificationApplications({ status, assignedAuditorId });
+      res.json(applications);
+    } catch (err) {
+      console.error('Error fetching certification applications:', err);
+      res.status(500).json({ message: 'Failed to fetch certification applications' });
+    }
+  });
+
+  // Get single certification application
+  app.get('/api/certification-applications/:id', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const application = await storage.getCertificationApplication(id);
+      
+      if (!application) {
+        return res.status(404).json({ message: 'Application not found' });
+      }
+      
+      res.json(application);
+    } catch (err) {
+      console.error('Error fetching certification application:', err);
+      res.status(500).json({ message: 'Failed to fetch certification application' });
+    }
+  });
+
+  // Create certification application
+  app.post('/api/certification-applications', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
+      
+      if (!user || (user.role !== UserRole.AUDITOR && user.role !== UserRole.ADMIN && user.role !== UserRole.QUALITY_MANAGER)) {
+        return res.status(403).json({ message: 'Only auditors, admin, or quality managers can create certification applications' });
+      }
+
+      const application = await storage.createCertificationApplication(req.body);
+      
+      await storage.createAuditLog({
+        action: AuditAction.CREATE,
+        entityType: 'certification_application',
+        entityId: application.id,
+        userId,
+        details: { applicationNumber: application.applicationNumber, clientName: application.clientName },
+      });
+      
+      res.status(201).json(application);
+    } catch (err) {
+      console.error('Error creating certification application:', err);
+      res.status(500).json({ message: 'Failed to create certification application' });
+    }
+  });
+
+  // Update certification application
+  app.put('/api/certification-applications/:id', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const id = parseInt(req.params.id);
+      
+      const updated = await storage.updateCertificationApplication(id, req.body);
+      
+      await storage.createAuditLog({
+        action: AuditAction.UPDATE,
+        entityType: 'certification_application',
+        entityId: id,
+        userId,
+        details: { updates: req.body },
+      });
+      
+      res.json(updated);
+    } catch (err) {
+      console.error('Error updating certification application:', err);
+      res.status(500).json({ message: 'Failed to update certification application' });
+    }
+  });
+
+  // Delete certification application
+  app.delete('/api/certification-applications/:id', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
+      const id = parseInt(req.params.id);
+      
+      if (!user || user.role !== UserRole.ADMIN) {
+        return res.status(403).json({ message: 'Only admin can delete certification applications' });
+      }
+
+      await storage.deleteCertificationApplication(id);
+      
+      await storage.createAuditLog({
+        action: AuditAction.DELETE,
+        entityType: 'certification_application',
+        entityId: id,
+        userId,
+        details: {},
+      });
+      
+      res.json({ success: true });
+    } catch (err) {
+      console.error('Error deleting certification application:', err);
+      res.status(500).json({ message: 'Failed to delete certification application' });
+    }
+  });
+
+  // Get audits for an application
+  app.get('/api/certification-audits', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const applicationId = req.query.applicationId ? parseInt(req.query.applicationId as string) : undefined;
+      const audits = await storage.getCertificationAudits(applicationId);
+      res.json(audits);
+    } catch (err) {
+      console.error('Error fetching certification audits:', err);
+      res.status(500).json({ message: 'Failed to fetch certification audits' });
+    }
+  });
+
+  // Get single audit
+  app.get('/api/certification-audits/:id', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const audit = await storage.getCertificationAudit(id);
+      
+      if (!audit) {
+        return res.status(404).json({ message: 'Audit not found' });
+      }
+      
+      res.json(audit);
+    } catch (err) {
+      console.error('Error fetching certification audit:', err);
+      res.status(500).json({ message: 'Failed to fetch certification audit' });
+    }
+  });
+
+  // Create audit
+  app.post('/api/certification-audits', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const audit = await storage.createCertificationAudit(req.body);
+      
+      await storage.createAuditLog({
+        action: AuditAction.CREATE,
+        entityType: 'certification_audit',
+        entityId: audit.id,
+        userId,
+        details: { auditType: audit.auditType, applicationId: audit.applicationId },
+      });
+      
+      res.status(201).json(audit);
+    } catch (err) {
+      console.error('Error creating certification audit:', err);
+      res.status(500).json({ message: 'Failed to create certification audit' });
+    }
+  });
+
+  // Update audit
+  app.put('/api/certification-audits/:id', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const id = parseInt(req.params.id);
+      
+      const updated = await storage.updateCertificationAudit(id, req.body);
+      
+      await storage.createAuditLog({
+        action: AuditAction.UPDATE,
+        entityType: 'certification_audit',
+        entityId: id,
+        userId,
+        details: { updates: req.body },
+      });
+      
+      res.json(updated);
+    } catch (err) {
+      console.error('Error updating certification audit:', err);
+      res.status(500).json({ message: 'Failed to update certification audit' });
+    }
+  });
+
+  // Get findings for an audit
+  app.get('/api/audit-findings', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const auditId = req.query.auditId ? parseInt(req.query.auditId as string) : undefined;
+      const findings = await storage.getAuditFindings(auditId);
+      res.json(findings);
+    } catch (err) {
+      console.error('Error fetching audit findings:', err);
+      res.status(500).json({ message: 'Failed to fetch audit findings' });
+    }
+  });
+
+  // Create finding
+  app.post('/api/audit-findings', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const finding = await storage.createAuditFinding(req.body);
+      
+      await storage.createAuditLog({
+        action: AuditAction.CREATE,
+        entityType: 'audit_finding',
+        entityId: finding.id,
+        userId,
+        details: { findingType: finding.findingType, auditId: finding.auditId },
+      });
+      
+      res.status(201).json(finding);
+    } catch (err) {
+      console.error('Error creating audit finding:', err);
+      res.status(500).json({ message: 'Failed to create audit finding' });
+    }
+  });
+
+  // Update finding
+  app.put('/api/audit-findings/:id', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const id = parseInt(req.params.id);
+      
+      const updated = await storage.updateAuditFinding(id, req.body);
+      
+      await storage.createAuditLog({
+        action: AuditAction.UPDATE,
+        entityType: 'audit_finding',
+        entityId: id,
+        userId,
+        details: { updates: req.body },
+      });
+      
+      res.json(updated);
+    } catch (err) {
+      console.error('Error updating audit finding:', err);
+      res.status(500).json({ message: 'Failed to update audit finding' });
+    }
+  });
+
+  // Get certificates
+  app.get('/api/certificates', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const applicationId = req.query.applicationId ? parseInt(req.query.applicationId as string) : undefined;
+      const status = req.query.status as string | undefined;
+      
+      const certs = await storage.getCertificates({ applicationId, status });
+      res.json(certs);
+    } catch (err) {
+      console.error('Error fetching certificates:', err);
+      res.status(500).json({ message: 'Failed to fetch certificates' });
+    }
+  });
+
+  // Get single certificate
+  app.get('/api/certificates/:id', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const cert = await storage.getCertificate(id);
+      
+      if (!cert) {
+        return res.status(404).json({ message: 'Certificate not found' });
+      }
+      
+      res.json(cert);
+    } catch (err) {
+      console.error('Error fetching certificate:', err);
+      res.status(500).json({ message: 'Failed to fetch certificate' });
+    }
+  });
+
+  // Create certificate
+  app.post('/api/certificates', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
+      
+      if (!user || (user.role !== UserRole.AUDITOR && user.role !== UserRole.ADMIN && user.role !== UserRole.QUALITY_MANAGER)) {
+        return res.status(403).json({ message: 'Only auditors, admin, or quality managers can issue certificates' });
+      }
+
+      const cert = await storage.createCertificate({
+        ...req.body,
+        issuedById: userId,
+      });
+      
+      // Update application status
+      if (req.body.applicationId) {
+        await storage.updateCertificationApplication(req.body.applicationId, {
+          status: 'certificate_issued',
+        });
+      }
+      
+      await storage.createAuditLog({
+        action: AuditAction.CREATE,
+        entityType: 'certificate',
+        entityId: cert.id,
+        userId,
+        details: { certificateNumber: cert.certificateNumber, clientName: cert.clientName },
+      });
+      
+      res.status(201).json(cert);
+    } catch (err) {
+      console.error('Error creating certificate:', err);
+      res.status(500).json({ message: 'Failed to create certificate' });
+    }
+  });
+
+  // Update certificate
+  app.put('/api/certificates/:id', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const id = parseInt(req.params.id);
+      
+      const updated = await storage.updateCertificate(id, req.body);
+      
+      await storage.createAuditLog({
+        action: AuditAction.UPDATE,
+        entityType: 'certificate',
+        entityId: id,
+        userId,
+        details: { updates: req.body },
+      });
+      
+      res.json(updated);
+    } catch (err) {
+      console.error('Error updating certificate:', err);
+      res.status(500).json({ message: 'Failed to update certificate' });
+    }
+  });
+
   await seedDatabase();
 
   return httpServer;

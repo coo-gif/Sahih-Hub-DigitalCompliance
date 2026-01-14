@@ -4,6 +4,7 @@ import {
   employees, employeeTasks, downloadRequests, documentFeedback, documentTasks, taskPokes,
   documentAccessRequests, documentAccess, userRecords, buddyStatus, pushSubscriptions, buddyDialogues,
   userActivityLogs, monthlyPerformanceReports, bugReports,
+  certificationApplications, certificationAudits, auditFindings, certificates,
   type User, type InsertUser,
   type Document, type InsertDocument,
   type DocumentVersion, type InsertDocumentVersion,
@@ -25,6 +26,10 @@ import {
   type UserActivityLog, type InsertUserActivityLog,
   type MonthlyPerformanceReport, type InsertMonthlyPerformanceReport,
   type BugReport, type InsertBugReport,
+  type CertificationApplication, type InsertCertificationApplication,
+  type CertificationAudit, type InsertCertificationAudit,
+  type AuditFinding, type InsertAuditFinding,
+  type Certificate, type InsertCertificate,
   DocumentStatus, InductionStatus, TaskStatus, FeedbackStatus, DocumentTaskStatus,
   EmployeeRecordStatus, DocumentAccessRequestStatus, BuddyState, MonthlyReportStatus,
   BugReportStatus,
@@ -224,6 +229,32 @@ export interface IStorage {
   reviewReport(id: number, reviewerId: number, comments?: string): Promise<MonthlyPerformanceReport>;
   approveReport(id: number, approverId: number, comments?: string): Promise<MonthlyPerformanceReport>;
   rejectReport(id: number, comments: string): Promise<MonthlyPerformanceReport>;
+
+  // Certification Applications
+  getCertificationApplications(filters?: { status?: string; assignedAuditorId?: number }): Promise<CertificationApplication[]>;
+  getCertificationApplication(id: number): Promise<CertificationApplication | undefined>;
+  createCertificationApplication(app: InsertCertificationApplication): Promise<CertificationApplication>;
+  updateCertificationApplication(id: number, app: Partial<InsertCertificationApplication>): Promise<CertificationApplication>;
+  deleteCertificationApplication(id: number): Promise<void>;
+
+  // Certification Audits
+  getCertificationAudits(applicationId?: number): Promise<CertificationAudit[]>;
+  getCertificationAudit(id: number): Promise<CertificationAudit | undefined>;
+  createCertificationAudit(audit: InsertCertificationAudit): Promise<CertificationAudit>;
+  updateCertificationAudit(id: number, audit: Partial<InsertCertificationAudit>): Promise<CertificationAudit>;
+
+  // Audit Findings
+  getAuditFindings(auditId?: number): Promise<AuditFinding[]>;
+  getAuditFinding(id: number): Promise<AuditFinding | undefined>;
+  createAuditFinding(finding: InsertAuditFinding): Promise<AuditFinding>;
+  updateAuditFinding(id: number, finding: Partial<InsertAuditFinding>): Promise<AuditFinding>;
+
+  // Certificates
+  getCertificates(filters?: { applicationId?: number; status?: string }): Promise<Certificate[]>;
+  getCertificate(id: number): Promise<Certificate | undefined>;
+  getCertificateByNumber(certificateNumber: string): Promise<Certificate | undefined>;
+  createCertificate(cert: InsertCertificate): Promise<Certificate>;
+  updateCertificate(id: number, cert: Partial<InsertCertificate>): Promise<Certificate>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1640,6 +1671,150 @@ export class DatabaseStorage implements IStorage {
 
   async deleteBugReport(id: number): Promise<void> {
     await db.delete(bugReports).where(eq(bugReports.id, id));
+  }
+
+  // ============================================
+  // CERTIFICATION APPLICATIONS
+  // ============================================
+  async getCertificationApplications(filters?: { status?: string; assignedAuditorId?: number }): Promise<CertificationApplication[]> {
+    let query = db.select().from(certificationApplications).orderBy(desc(certificationApplications.createdAt));
+    
+    if (filters?.status) {
+      query = query.where(eq(certificationApplications.status, filters.status)) as typeof query;
+    }
+    if (filters?.assignedAuditorId) {
+      query = query.where(eq(certificationApplications.assignedAuditorId, filters.assignedAuditorId)) as typeof query;
+    }
+    
+    return query;
+  }
+
+  async getCertificationApplication(id: number): Promise<CertificationApplication | undefined> {
+    const [app] = await db.select().from(certificationApplications).where(eq(certificationApplications.id, id));
+    return app;
+  }
+
+  async createCertificationApplication(data: InsertCertificationApplication): Promise<CertificationApplication> {
+    const count = await db.select({ count: sql<number>`count(*)` }).from(certificationApplications);
+    const year = new Date().getFullYear();
+    const appNumber = `APP-${year}-${String(Number(count[0].count) + 1).padStart(4, '0')}`;
+    
+    const [app] = await db.insert(certificationApplications).values({
+      ...data,
+      applicationNumber: appNumber,
+    }).returning();
+    return app;
+  }
+
+  async updateCertificationApplication(id: number, data: Partial<InsertCertificationApplication>): Promise<CertificationApplication> {
+    const [updated] = await db.update(certificationApplications)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(certificationApplications.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteCertificationApplication(id: number): Promise<void> {
+    await db.delete(certificationApplications).where(eq(certificationApplications.id, id));
+  }
+
+  // ============================================
+  // CERTIFICATION AUDITS
+  // ============================================
+  async getCertificationAudits(applicationId?: number): Promise<CertificationAudit[]> {
+    if (applicationId) {
+      return db.select().from(certificationAudits)
+        .where(eq(certificationAudits.applicationId, applicationId))
+        .orderBy(desc(certificationAudits.scheduledDate));
+    }
+    return db.select().from(certificationAudits).orderBy(desc(certificationAudits.scheduledDate));
+  }
+
+  async getCertificationAudit(id: number): Promise<CertificationAudit | undefined> {
+    const [audit] = await db.select().from(certificationAudits).where(eq(certificationAudits.id, id));
+    return audit;
+  }
+
+  async createCertificationAudit(data: InsertCertificationAudit): Promise<CertificationAudit> {
+    const [audit] = await db.insert(certificationAudits).values(data).returning();
+    return audit;
+  }
+
+  async updateCertificationAudit(id: number, data: Partial<InsertCertificationAudit>): Promise<CertificationAudit> {
+    const [updated] = await db.update(certificationAudits)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(certificationAudits.id, id))
+      .returning();
+    return updated;
+  }
+
+  // ============================================
+  // AUDIT FINDINGS
+  // ============================================
+  async getAuditFindings(auditId?: number): Promise<AuditFinding[]> {
+    if (auditId) {
+      return db.select().from(auditFindings)
+        .where(eq(auditFindings.auditId, auditId))
+        .orderBy(desc(auditFindings.createdAt));
+    }
+    return db.select().from(auditFindings).orderBy(desc(auditFindings.createdAt));
+  }
+
+  async getAuditFinding(id: number): Promise<AuditFinding | undefined> {
+    const [finding] = await db.select().from(auditFindings).where(eq(auditFindings.id, id));
+    return finding;
+  }
+
+  async createAuditFinding(data: InsertAuditFinding): Promise<AuditFinding> {
+    const [finding] = await db.insert(auditFindings).values(data).returning();
+    return finding;
+  }
+
+  async updateAuditFinding(id: number, data: Partial<InsertAuditFinding>): Promise<AuditFinding> {
+    const [updated] = await db.update(auditFindings)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(auditFindings.id, id))
+      .returning();
+    return updated;
+  }
+
+  // ============================================
+  // CERTIFICATES
+  // ============================================
+  async getCertificates(filters?: { applicationId?: number; status?: string }): Promise<Certificate[]> {
+    let query = db.select().from(certificates).orderBy(desc(certificates.createdAt));
+    
+    if (filters?.applicationId) {
+      query = query.where(eq(certificates.applicationId, filters.applicationId)) as typeof query;
+    }
+    if (filters?.status) {
+      query = query.where(eq(certificates.status, filters.status)) as typeof query;
+    }
+    
+    return query;
+  }
+
+  async getCertificate(id: number): Promise<Certificate | undefined> {
+    const [cert] = await db.select().from(certificates).where(eq(certificates.id, id));
+    return cert;
+  }
+
+  async getCertificateByNumber(certificateNumber: string): Promise<Certificate | undefined> {
+    const [cert] = await db.select().from(certificates).where(eq(certificates.certificateNumber, certificateNumber));
+    return cert;
+  }
+
+  async createCertificate(data: InsertCertificate): Promise<Certificate> {
+    const [cert] = await db.insert(certificates).values(data).returning();
+    return cert;
+  }
+
+  async updateCertificate(id: number, data: Partial<InsertCertificate>): Promise<Certificate> {
+    const [updated] = await db.update(certificates)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(certificates.id, id))
+      .returning();
+    return updated;
   }
 }
 
