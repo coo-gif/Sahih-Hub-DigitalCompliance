@@ -17,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 
 interface BugReport {
   id: number;
@@ -52,10 +53,7 @@ export default function BugReports() {
   const [resolutionNotes, setResolutionNotes] = useState("");
   const { toast } = useToast();
 
-  const { data: currentUser } = useQuery<User>({
-    queryKey: ["/api/auth/me"],
-    select: (data: any) => data.user,
-  });
+  const { data: currentUser } = useAuth();
 
   const { data: bugReports = [], isLoading } = useQuery<BugReport[]>({
     queryKey: ["/api/bug-reports", statusFilter !== 'all' ? statusFilter : undefined],
