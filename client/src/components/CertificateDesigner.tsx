@@ -11,7 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Download, Save, Eye, FileImage } from "lucide-react";
 import { format, addYears, addMonths } from "date-fns";
-import sahihLogo from "@assets/sahih_logo_transparent.png";
+import sahihLogo from "@assets/sahih_logo-1.png";
 
 const ISO_STANDARDS = [
   { value: "ISO 9001:2015", label: "ISO 9001:2015", name: "Quality Management System" },
