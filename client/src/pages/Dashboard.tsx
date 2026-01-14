@@ -1059,35 +1059,58 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-3">
-            <div 
-              className="rounded-xl px-4 py-3 flex items-center gap-3 border border-white/20 shadow-lg gradient-primary-soft backdrop-blur-sm cursor-pointer hover:bg-white/10 transition-all"
-              style={{ animation: 'float 3s ease-in-out infinite' }}
-              onClick={() => setShowTasksFocusDialog(true)}
-            >
-              <div className="p-2 rounded-lg bg-white/20">
-                <Target className="w-5 h-5 text-white" />
+          <div className="flex items-center gap-6">
+            <div className="flex flex-wrap gap-3">
+              <div 
+                className="rounded-xl px-4 py-3 flex items-center gap-3 border border-white/20 shadow-lg gradient-primary-soft backdrop-blur-sm cursor-pointer hover:bg-white/10 transition-all"
+                style={{ animation: 'float 3s ease-in-out infinite' }}
+                onClick={() => setShowTasksFocusDialog(true)}
+              >
+                <div className="p-2 rounded-lg bg-white/20">
+                  <Target className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <p className="text-white/70 text-xs font-medium">Today's Focus</p>
+                  <p className="text-white font-semibold" data-testid="text-focus">
+                    {(myTasks?.length || 0) > 0 ? `${myTasks?.length} Tasks Pending` : 'All Clear!'}
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="text-white/70 text-xs font-medium">Today's Focus</p>
-                <p className="text-white font-semibold" data-testid="text-focus">
-                  {(myTasks?.length || 0) > 0 ? `${myTasks?.length} Tasks Pending` : 'All Clear!'}
-                </p>
+              
+              <div 
+                className="rounded-xl px-4 py-3 flex items-center gap-3 border border-white/20 shadow-lg gradient-primary-soft backdrop-blur-sm cursor-pointer hover:bg-white/10 transition-all"
+                style={{ animation: 'float 3s ease-in-out infinite 0.5s' }}
+                onClick={() => setShowComplianceDialog(true)}
+              >
+                <div className="p-2 rounded-lg bg-white/20">
+                  <Shield className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <p className="text-white/70 text-xs font-medium">Compliance Score</p>
+                  <p className="text-white font-semibold" data-testid="text-score">{complianceScore}%</p>
+                </div>
               </div>
             </div>
             
             <div 
-              className="rounded-xl px-4 py-3 flex items-center gap-3 border border-white/20 shadow-lg gradient-primary-soft backdrop-blur-sm cursor-pointer hover:bg-white/10 transition-all"
-              style={{ animation: 'float 3s ease-in-out infinite 0.5s' }}
-              onClick={() => setShowComplianceDialog(true)}
+              className="hidden lg:flex flex-col items-center"
+              style={{ animation: 'float 3s ease-in-out infinite 1s' }}
+              data-testid="hub-eebi-avatar"
             >
-              <div className="p-2 rounded-lg bg-white/20">
-                <Shield className="w-5 h-5 text-white" />
+              <div className="relative">
+                <div className="w-20 h-20 rounded-full overflow-hidden border-3 border-white/40 shadow-xl bg-white/10 backdrop-blur-sm">
+                  <img 
+                    src={sahihLogoPath} 
+                    alt="Hub-eebi" 
+                    className="w-full h-full object-contain p-1"
+                  />
+                </div>
+                <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-green-500 border-2 border-white flex items-center justify-center">
+                  <Sparkles className="w-3 h-3 text-white" />
+                </div>
               </div>
-              <div>
-                <p className="text-white/70 text-xs font-medium">Compliance Score</p>
-                <p className="text-white font-semibold" data-testid="text-score">{complianceScore}%</p>
-              </div>
+              <p className="text-white font-bold text-sm mt-2 drop-shadow-md">Hub-eebi</p>
+              <p className="text-white/70 text-xs">Your Compliance Buddy</p>
             </div>
           </div>
         </div>
