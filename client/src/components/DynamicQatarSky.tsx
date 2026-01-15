@@ -301,9 +301,27 @@ const getSunPosition = (hour: number, minute: number): { x: number; y: number; v
   return { x, y, visible: true, size, color };
 };
 
-const getMoonPosition = (hour: number): { x: number; y: number; visible: boolean; phase: number } => {
+const calculateAccurateMoonPhase = (date: Date): number => {
+  const SYNODIC_MONTH = 29.53058867;
+  const KNOWN_NEW_MOON = new Date('2024-01-11T11:57:00Z').getTime();
+  
+  const daysSinceNewMoon = (date.getTime() - KNOWN_NEW_MOON) / (1000 * 60 * 60 * 24);
+  const lunarAge = ((daysSinceNewMoon % SYNODIC_MONTH) + SYNODIC_MONTH) % SYNODIC_MONTH;
+  
+  return lunarAge / SYNODIC_MONTH;
+};
+
+const getMoonIlluminationPercent = (phase: number): number => {
+  return (1 - Math.cos(phase * 2 * Math.PI)) / 2 * 100;
+};
+
+const getMoonPosition = (hour: number, date: Date): { x: number; y: number; visible: boolean; phase: number; illumination: number; isWaxing: boolean } => {
+  const phase = calculateAccurateMoonPhase(date);
+  const illumination = getMoonIlluminationPercent(phase);
+  const isWaxing = phase < 0.5;
+  
   if (hour >= 7 && hour < 18) {
-    return { x: 50, y: 120, visible: false, phase: 0.7 };
+    return { x: 50, y: 120, visible: false, phase, illumination, isWaxing };
   }
   
   let progress = 0;
@@ -316,10 +334,7 @@ const getMoonPosition = (hour: number): { x: number; y: number; visible: boolean
   const x = 15 + progress * 70;
   const y = 20 - Math.sin(progress * Math.PI) * 10 + 15;
   
-  const dayOfMonth = new Date().getDate();
-  const phase = (dayOfMonth % 30) / 30;
-  
-  return { x, y, visible: true, phase };
+  return { x, y, visible: true, phase, illumination, isWaxing };
 };
 
 export function DynamicQatarSky() {
@@ -487,7 +502,7 @@ export function DynamicQatarSky() {
   const timeOfDay = getTimeOfDay(hour);
   const skyGradient = getSkyGradient(timeOfDay);
   const sunPosition = getSunPosition(hour, minute);
-  const moonPosition = getMoonPosition(hour);
+  const moonPosition = getMoonPosition(hour, qatarTime);
   
   const showStars = timeOfDay === 'night' || timeOfDay === 'dawn' || timeOfDay === 'dusk';
   const starsOpacity = timeOfDay === 'night' ? 1 : timeOfDay === 'dawn' || timeOfDay === 'dusk' ? 0.5 : 0;
@@ -522,17 +537,29 @@ export function DynamicQatarSky() {
             top: `${moonPosition.y}%`,
             width: '40px',
             height: '40px',
-            background: `radial-gradient(circle at ${30 + moonPosition.phase * 40}% 50%, #f5f5dc 0%, #e8e8d0 50%, #d0d0c0 100%)`,
-            borderRadius: '50%',
-            boxShadow: '0 0 20px rgba(245, 245, 220, 0.5), 0 0 40px rgba(245, 245, 220, 0.3)',
             transform: 'translate(-50%, -50%)',
           }}
         >
           <div
             className="absolute inset-0 rounded-full"
             style={{
-              background: `radial-gradient(circle at 30% 30%, transparent 10%, rgba(200, 200, 180, 0.3) 40%, transparent 60%),
-                          radial-gradient(circle at 60% 60%, transparent 5%, rgba(180, 180, 160, 0.2) 30%, transparent 50%)`,
+              background: '#f5f5dc',
+              boxShadow: `0 0 ${10 + moonPosition.illumination / 5}px rgba(245, 245, 220, ${0.3 + moonPosition.illumination / 200}), 0 0 ${20 + moonPosition.illumination / 3}px rgba(245, 245, 220, ${0.2 + moonPosition.illumination / 300})`,
+            }}
+          />
+          <div
+            className="absolute inset-0 rounded-full"
+            style={{
+              background: `radial-gradient(circle at 35% 35%, transparent 10%, rgba(200, 200, 180, 0.3) 40%, transparent 60%),
+                          radial-gradient(circle at 65% 65%, transparent 5%, rgba(180, 180, 160, 0.2) 30%, transparent 50%)`,
+            }}
+          />
+          <div
+            className="absolute inset-0 rounded-full overflow-hidden"
+            style={{
+              background: moonPosition.isWaxing
+                ? `linear-gradient(to right, #0a0a12 0%, #0a0a12 ${50 - moonPosition.illumination / 2}%, transparent ${50 - moonPosition.illumination / 2}%)`
+                : `linear-gradient(to left, #0a0a12 0%, #0a0a12 ${50 - moonPosition.illumination / 2}%, transparent ${50 - moonPosition.illumination / 2}%)`,
             }}
           />
         </div>
