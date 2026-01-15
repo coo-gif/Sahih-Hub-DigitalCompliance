@@ -4,6 +4,7 @@ import { useUsers, useActiveUsers, useActivityHeartbeat } from "@/hooks/use-user
 import { useAuth } from "@/hooks/use-auth";
 import { useApproveEmployee, useRejectEmployee, useSubmitEmployeeForApproval } from "@/hooks/use-employees";
 import { useDocuments } from "@/hooks/use-documents";
+import { useWallPosts, useCreateWallPost, useDeleteWallPost, usePinWallPost } from "@/hooks/use-wall-posts";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { 
@@ -70,7 +71,12 @@ import {
   BookOpen,
   Lightbulb,
   GraduationCap,
-  UserCog
+  UserCog,
+  MessageSquarePlus,
+  Pin,
+  Trash2,
+  Send,
+  User
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
@@ -871,6 +877,13 @@ export default function Dashboard() {
   const [employeeReassigneeId, setEmployeeReassigneeId] = useState<string>("");
   const [employeeReassignComment, setEmployeeReassignComment] = useState("");
   const [complianceTab, setComplianceTab] = useState<"overview" | "completed" | "pending">("overview");
+  const [newPostContent, setNewPostContent] = useState("");
+
+  // Wall Posts hooks
+  const { data: wallPosts, isLoading: wallPostsLoading } = useWallPosts(20);
+  const createWallPost = useCreateWallPost();
+  const deleteWallPost = useDeleteWallPost();
+  const pinWallPost = usePinWallPost();
 
   // Get CEO user for default approver
   const ceoUser = useMemo(() => allUsers?.find(u => u.email === 'ceo@sahihcertify.com'), [allUsers]);
@@ -1846,6 +1859,144 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Updates Wall */}
+      <Card data-testid="card-updates-wall">
+        <CardHeader>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-lg bg-primary/10">
+                <MessageSquarePlus className="w-4 h-4 text-primary" />
+              </div>
+              <div>
+                <CardTitle>Updates Wall</CardTitle>
+                <CardDescription>Share news and announcements with your team</CardDescription>
+              </div>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Compose New Post */}
+          <div className="flex gap-3">
+            <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+              <User className="w-4 h-4 text-primary" />
+            </div>
+            <div className="flex-1">
+              <Textarea
+                placeholder="Share an update with your team..."
+                value={newPostContent}
+                onChange={(e) => setNewPostContent(e.target.value)}
+                className="min-h-[80px] resize-none"
+                data-testid="textarea-new-post"
+              />
+              <div className="flex justify-end mt-2">
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    if (!newPostContent.trim()) return;
+                    try {
+                      await createWallPost.mutateAsync(newPostContent);
+                      setNewPostContent("");
+                      toast({ title: "Post shared", description: "Your update has been posted" });
+                    } catch (error: any) {
+                      toast({ title: "Error", description: error.message, variant: "destructive" });
+                    }
+                  }}
+                  disabled={!newPostContent.trim() || createWallPost.isPending}
+                  data-testid="button-post-update"
+                >
+                  {createWallPost.isPending ? (
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4 mr-2" />
+                  )}
+                  Post Update
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Posts List */}
+          <div className="space-y-4 border-t pt-4">
+            {wallPostsLoading ? (
+              Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="flex gap-3">
+                  <Skeleton className="w-9 h-9 rounded-full" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-16 w-full" />
+                  </div>
+                </div>
+              ))
+            ) : wallPosts && wallPosts.length > 0 ? (
+              wallPosts.map((post) => (
+                <div 
+                  key={post.id} 
+                  className={`flex gap-3 p-3 rounded-lg border transition-all ${post.isPinned ? 'bg-primary/5 border-primary/20' : 'hover:bg-muted/50'}`}
+                  data-testid={`post-${post.id}`}
+                >
+                  <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <User className="w-4 h-4 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span className="font-medium text-sm" data-testid={`post-author-${post.id}`}>{post.authorName}</span>
+                      <Badge variant="outline" className="text-xs capitalize" data-testid={`post-role-${post.id}`}>{post.authorRole.replace('_', ' ')}</Badge>
+                      {post.isPinned && (
+                        <Badge variant="secondary" className="text-xs" data-testid={`post-pinned-${post.id}`}>
+                          <Pin className="w-3 h-3 mr-1" />
+                          Pinned
+                        </Badge>
+                      )}
+                      <span className="text-xs text-muted-foreground" data-testid={`post-time-${post.id}`}>
+                        {post.createdAt ? format(new Date(post.createdAt), 'MMM d, h:mm a') : ''}
+                      </span>
+                    </div>
+                    <p className="text-sm whitespace-pre-wrap" data-testid={`post-content-${post.id}`}>{post.content}</p>
+                    {(currentUser?.role === 'admin' || currentUser?.role === 'quality_manager' || currentUser?.id === post.authorId) && (
+                      <div className="flex items-center gap-2 mt-2">
+                        {(currentUser?.role === 'admin' || currentUser?.role === 'quality_manager') && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => pinWallPost.mutate({ id: post.id, isPinned: !post.isPinned })}
+                            data-testid={`button-pin-${post.id}`}
+                          >
+                            <Pin className={`w-3 h-3 mr-1 ${post.isPinned ? 'fill-current' : ''}`} />
+                            {post.isPinned ? 'Unpin' : 'Pin'}
+                          </Button>
+                        )}
+                        {(currentUser?.id === post.authorId || currentUser?.role === 'admin') && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive"
+                            onClick={() => {
+                              if (confirm('Are you sure you want to delete this post?')) {
+                                deleteWallPost.mutate(post.id);
+                              }
+                            }}
+                            data-testid={`button-delete-${post.id}`}
+                          >
+                            <Trash2 className="w-3 h-3 mr-1" />
+                            Delete
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <MessageSquarePlus className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p className="font-medium">No updates yet</p>
+                <p className="text-sm">Be the first to share an update with your team!</p>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       <div id="compliance-section" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Compliance Alerts */}
