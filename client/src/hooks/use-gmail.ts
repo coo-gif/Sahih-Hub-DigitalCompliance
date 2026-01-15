@@ -1,10 +1,51 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
+export interface GmailStatus {
+  connected: boolean;
+  mode?: 'oauth' | 'smtp' | 'connector';
+  sendOnly?: boolean;
+  oauthAvailable?: boolean;
+  connectedAt?: string;
+  error?: string;
+}
+
 export function useGmailStatus() {
-  return useQuery<{ connected: boolean; error?: string }>({
+  return useQuery<GmailStatus>({
     queryKey: ['/api/gmail/status'],
     staleTime: 60000,
+  });
+}
+
+export function useConnectGmail() {
+  return useMutation({
+    mutationFn: async () => {
+      const response = await fetch('/api/gmail/connect', {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to start Gmail connection');
+      }
+      return response.json();
+    },
+    onSuccess: (data: { authUrl: string }) => {
+      window.location.href = data.authUrl;
+    },
+  });
+}
+
+export function useDisconnectGmail() {
+  return useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest('POST', '/api/gmail/disconnect');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/gmail/status'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/gmail/emails'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/gmail/unread-count'] });
+    },
   });
 }
 

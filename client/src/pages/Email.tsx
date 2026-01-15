@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useEmails, useEmail, useSendEmail, useUnreadCount, useMarkAsRead, useGmailStatus } from "@/hooks/use-gmail";
+import { useEmails, useEmail, useSendEmail, useUnreadCount, useMarkAsRead, useGmailStatus, useConnectGmail, useDisconnectGmail } from "@/hooks/use-gmail";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -36,10 +36,14 @@ import {
   MoreVertical,
   PenSquare,
   CheckCircle2,
-  X
+  X,
+  Link2,
+  Unlink
 } from "lucide-react";
 import { format, parseISO, isValid } from "date-fns";
 import DOMPurify from "dompurify";
+import { useLocation } from "wouter";
+import { queryClient } from "@/lib/queryClient";
 
 function formatEmailDate(dateStr: string): string {
   try {
@@ -87,8 +91,105 @@ export default function Email() {
     }
   }, [selectedEmail, selectedEmailId]);
 
-  // Show connection required message if Gmail is not connected
+  const connectGmail = useConnectGmail();
+  const disconnectGmail = useDisconnectGmail();
+  const [, setLocation] = useLocation();
+  
+  // Check for OAuth callback query params
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const connected = urlParams.get('connected');
+    const error = urlParams.get('error');
+    
+    if (connected === 'true') {
+      toast({ title: "Gmail Connected", description: "Your Gmail account has been connected successfully!" });
+      window.history.replaceState({}, '', '/email');
+      queryClient.invalidateQueries({ queryKey: ['/api/gmail/status'] });
+    } else if (error) {
+      const errorMessages: Record<string, string> = {
+        'access_denied': 'You denied access to your Gmail account.',
+        'missing_params': 'Invalid callback parameters.',
+        'token_exchange_failed': 'Failed to complete the connection. Please try again.',
+      };
+      toast({ 
+        title: "Connection Failed", 
+        description: errorMessages[error] || 'An error occurred connecting your Gmail.',
+        variant: "destructive" 
+      });
+      window.history.replaceState({}, '', '/email');
+    }
+  }, []);
+
+  const handleConnectGmail = async () => {
+    try {
+      await connectGmail.mutateAsync();
+    } catch (error: any) {
+      toast({ 
+        title: "Connection Failed", 
+        description: error.message, 
+        variant: "destructive" 
+      });
+    }
+  };
+
+  const handleDisconnectGmail = async () => {
+    try {
+      await disconnectGmail.mutateAsync();
+      toast({ title: "Gmail Disconnected", description: "Your Gmail account has been disconnected." });
+    } catch (error: any) {
+      toast({ 
+        title: "Disconnect Failed", 
+        description: error.message, 
+        variant: "destructive" 
+      });
+    }
+  };
+
+  // Show connection screen if Gmail is not connected
   if (!statusLoading && gmailStatus && !gmailStatus.connected) {
+    // OAuth is available - show connect button
+    if (gmailStatus.oauthAvailable) {
+      return (
+        <div className="h-[calc(100vh-8rem)] flex items-center justify-center p-4 lg:p-6">
+          <Card className="max-w-lg w-full">
+            <CardContent className="pt-6 text-center space-y-4">
+              <div className="mx-auto w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+                <Mail className="w-8 h-8 text-primary" />
+              </div>
+              <div>
+                <h2 className="text-xl font-semibold mb-2">Connect Your Gmail</h2>
+                <p className="text-muted-foreground">
+                  Connect your Google Workspace email account to send and receive emails directly from the application.
+                </p>
+              </div>
+              <div className="bg-muted/50 rounded-lg p-4 text-left text-sm space-y-2">
+                <p className="font-medium">What you'll be able to do:</p>
+                <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                  <li>Send emails from your work account</li>
+                  <li>View your inbox and read emails</li>
+                  <li>Reply to messages directly</li>
+                  <li>Receive notifications for new emails</li>
+                </ul>
+              </div>
+              <Button 
+                onClick={handleConnectGmail}
+                disabled={connectGmail.isPending}
+                className="w-full"
+                data-testid="button-connect-gmail"
+              >
+                <Link2 className="w-4 h-4 mr-2" />
+                {connectGmail.isPending ? 'Connecting...' : 'Connect Gmail Account'}
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                You'll be redirected to Google to authorize access to your email.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+    
+    // No OAuth configured - show admin setup instructions
     return (
       <div className="h-[calc(100vh-8rem)] flex items-center justify-center p-4 lg:p-6">
         <Card className="max-w-lg w-full">
@@ -97,22 +198,19 @@ export default function Email() {
               <Mail className="w-8 h-8 text-primary" />
             </div>
             <div>
-              <h2 className="text-xl font-semibold mb-2">Email Not Configured</h2>
+              <h2 className="text-xl font-semibold mb-2">Email Setup Required</h2>
               <p className="text-muted-foreground">
-                The email system needs to be configured by an administrator to enable sending emails from the application.
+                An administrator needs to configure Google OAuth to enable email features.
               </p>
             </div>
             <div className="bg-muted/50 rounded-lg p-4 text-left text-sm space-y-2">
               <p className="font-medium">For Administrators:</p>
               <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                <li>Go to the Secrets tab in your Replit project</li>
-                <li>Add <code className="bg-muted px-1 rounded">GMAIL_USER</code> with your company Gmail address</li>
-                <li>Add <code className="bg-muted px-1 rounded">GMAIL_APP_PASSWORD</code> with an App Password from your Google account</li>
+                <li>Go to Google Cloud Console and create OAuth credentials</li>
+                <li>Add <code className="bg-muted px-1 rounded">GOOGLE_CLIENT_ID</code> to Secrets</li>
+                <li>Add <code className="bg-muted px-1 rounded">GOOGLE_CLIENT_SECRET</code> to Secrets</li>
                 <li>Restart the application</li>
               </ol>
-              <p className="text-xs text-muted-foreground mt-2">
-                Note: You can generate an App Password at <span className="font-mono">myaccount.google.com/apppasswords</span>
-              </p>
             </div>
             <Button variant="outline" onClick={() => window.location.reload()} data-testid="button-refresh-connection">
               <RefreshCw className="w-4 h-4 mr-2" />
@@ -189,6 +287,18 @@ export default function Email() {
             <PenSquare className="w-4 h-4 mr-2" />
             Compose
           </Button>
+          {gmailStatus?.mode === 'oauth' && (
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={handleDisconnectGmail}
+              disabled={disconnectGmail.isPending}
+              data-testid="button-disconnect-gmail"
+            >
+              <Unlink className="w-4 h-4 mr-2" />
+              {disconnectGmail.isPending ? 'Disconnecting...' : 'Disconnect'}
+            </Button>
+          )}
         </div>
       </div>
 
