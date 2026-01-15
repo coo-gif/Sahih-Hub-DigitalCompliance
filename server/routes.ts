@@ -20,6 +20,7 @@ import { z } from "zod";
 import puppeteer from "puppeteer";
 import path from "path";
 import fs from "fs";
+import { listEmails, getEmail, sendEmail, getUnreadCount, markAsRead, getLabels } from "./gmail";
 
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) {
@@ -4193,6 +4194,74 @@ Remember: Always be specific about WHERE to click (sidebar, button names, tabs) 
       } else {
         res.status(500).json({ error: 'Failed to get response' });
       }
+    }
+  });
+
+  // Gmail API Routes
+  app.get('/api/gmail/emails', requireAuth, async (req, res) => {
+    try {
+      const maxResults = parseInt(req.query.maxResults as string) || 20;
+      const label = req.query.label as string || 'INBOX';
+      const labelIds = label === 'UNREAD' ? ['INBOX', 'UNREAD'] : [label];
+      const emails = await listEmails(maxResults, labelIds);
+      res.json(emails);
+    } catch (error: any) {
+      console.error('Gmail list error:', error);
+      res.status(500).json({ message: error.message || 'Failed to fetch emails' });
+    }
+  });
+
+  app.get('/api/gmail/emails/:id', requireAuth, async (req, res) => {
+    try {
+      const email = await getEmail(req.params.id);
+      res.json(email);
+    } catch (error: any) {
+      console.error('Gmail get error:', error);
+      res.status(500).json({ message: error.message || 'Failed to fetch email' });
+    }
+  });
+
+  app.post('/api/gmail/send', requireAuth, async (req, res) => {
+    try {
+      const { to, subject, body } = req.body;
+      if (!to || !subject || !body) {
+        return res.status(400).json({ message: 'Missing required fields: to, subject, body' });
+      }
+      const result = await sendEmail(to, subject, body);
+      res.json(result);
+    } catch (error: any) {
+      console.error('Gmail send error:', error);
+      res.status(500).json({ message: error.message || 'Failed to send email' });
+    }
+  });
+
+  app.get('/api/gmail/unread-count', requireAuth, async (req, res) => {
+    try {
+      const count = await getUnreadCount();
+      res.json({ count });
+    } catch (error: any) {
+      console.error('Gmail unread count error:', error);
+      res.status(500).json({ message: error.message || 'Failed to get unread count' });
+    }
+  });
+
+  app.post('/api/gmail/mark-read/:id', requireAuth, async (req, res) => {
+    try {
+      await markAsRead(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Gmail mark read error:', error);
+      res.status(500).json({ message: error.message || 'Failed to mark as read' });
+    }
+  });
+
+  app.get('/api/gmail/labels', requireAuth, async (req, res) => {
+    try {
+      const labels = await getLabels();
+      res.json(labels);
+    } catch (error: any) {
+      console.error('Gmail labels error:', error);
+      res.status(500).json({ message: error.message || 'Failed to fetch labels' });
     }
   });
 
