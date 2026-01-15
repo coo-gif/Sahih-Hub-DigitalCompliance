@@ -20,7 +20,8 @@ import { z } from "zod";
 import puppeteer from "puppeteer";
 import path from "path";
 import fs from "fs";
-import { listEmails, getEmail, sendEmail, getUnreadCount, markAsRead, getLabels } from "./gmail";
+import { listEmails, getEmail, sendEmail as sendEmailGmail, getUnreadCount, markAsRead, getLabels } from "./gmail";
+import { isSmtpConfigured, sendEmailSmtp } from "./email-smtp";
 
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) {
@@ -4353,9 +4354,15 @@ Remember: Always be specific about WHERE to click (sidebar, button names, tabs) 
   // Gmail API Routes
   app.get('/api/gmail/status', requireAuth, async (req, res) => {
     try {
-      // Try to fetch labels to check if Gmail is connected
+      // First check if SMTP is configured (preferred for production)
+      if (isSmtpConfigured()) {
+        res.json({ connected: true, mode: 'smtp' });
+        return;
+      }
+      
+      // Fall back to Replit connector check
       await getLabels();
-      res.json({ connected: true });
+      res.json({ connected: true, mode: 'connector' });
     } catch (error: any) {
       res.json({ connected: false, error: error.message });
     }
@@ -4390,10 +4397,19 @@ Remember: Always be specific about WHERE to click (sidebar, button names, tabs) 
       if (!to || !subject || !body) {
         return res.status(400).json({ message: 'Missing required fields: to, subject, body' });
       }
-      const result = await sendEmail(to, subject, body);
+      
+      // Use SMTP if configured (preferred for production)
+      if (isSmtpConfigured()) {
+        const result = await sendEmailSmtp(to, subject, body);
+        res.json({ id: result.messageId, threadId: null });
+        return;
+      }
+      
+      // Fall back to Replit connector
+      const result = await sendEmailGmail(to, subject, body);
       res.json(result);
     } catch (error: any) {
-      console.error('Gmail send error:', error);
+      console.error('Email send error:', error);
       res.status(500).json({ message: error.message || 'Failed to send email' });
     }
   });

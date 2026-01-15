@@ -97,20 +97,22 @@ export default function Email() {
               <Mail className="w-8 h-8 text-primary" />
             </div>
             <div>
-              <h2 className="text-xl font-semibold mb-2">Gmail Not Connected</h2>
+              <h2 className="text-xl font-semibold mb-2">Email Not Configured</h2>
               <p className="text-muted-foreground">
-                To access your inbox, you need to connect your Gmail account through the Replit integrations panel.
+                The email system needs to be configured by an administrator to enable sending emails from the application.
               </p>
             </div>
             <div className="bg-muted/50 rounded-lg p-4 text-left text-sm space-y-2">
-              <p className="font-medium">How to connect:</p>
+              <p className="font-medium">For Administrators:</p>
               <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                <li>Open the Integrations panel in Replit</li>
-                <li>Find "Google Mail" and click Connect</li>
-                <li>Sign in with your Google account</li>
-                <li>Grant the required permissions</li>
-                <li>Refresh this page</li>
+                <li>Go to the Secrets tab in your Replit project</li>
+                <li>Add <code className="bg-muted px-1 rounded">GMAIL_USER</code> with your company Gmail address</li>
+                <li>Add <code className="bg-muted px-1 rounded">GMAIL_APP_PASSWORD</code> with an App Password from your Google account</li>
+                <li>Restart the application</li>
               </ol>
+              <p className="text-xs text-muted-foreground mt-2">
+                Note: You can generate an App Password at <span className="font-mono">myaccount.google.com/apppasswords</span>
+              </p>
             </div>
             <Button variant="outline" onClick={() => window.location.reload()} data-testid="button-refresh-connection">
               <RefreshCw className="w-4 h-4 mr-2" />
