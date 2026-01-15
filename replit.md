@@ -126,3 +126,30 @@ Rejection at any stage reverts document to Draft with comments.
 - **Vite:** Frontend build tool with HMR
 - **esbuild:** Server bundling for production
 - **tsx:** TypeScript execution for development
+
+### Gmail OAuth Integration
+Per-user Gmail OAuth integration allows each team member to connect their Google Workspace email directly through the web app.
+
+**Email System Priority:**
+1. **OAuth (per-user)** - Individual Gmail connections with full send/receive
+2. **SMTP (company-wide)** - Fallback using GMAIL_USER and GMAIL_APP_PASSWORD secrets
+3. **Replit Connector** - Built-in email integration
+
+**OAuth Configuration:**
+- Admin must configure `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in Replit Secrets
+- OAuth callback URL: `/api/gmail/callback`
+- Tokens stored per-user with automatic refresh using refresh_token
+
+**User Token Storage (users table):**
+- `gmail_access_token` - OAuth access token
+- `gmail_refresh_token` - OAuth refresh token for auto-renewal
+- `gmail_token_expiry` - Token expiration timestamp
+- `gmail_connected_at` - When OAuth was connected
+
+**Key Files:**
+- `server/gmail-oauth.ts` - OAuth service with token management
+- `client/src/hooks/use-gmail.ts` - React hooks for Gmail operations
+- `client/src/pages/Email.tsx` - Email UI with Connect/Disconnect functionality
+
+### Dashboard Time Display
+Dashboard shows both user's local time and Qatar Standard Time (AST, UTC+3) for international team coordination.
