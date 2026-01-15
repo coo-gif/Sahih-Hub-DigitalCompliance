@@ -538,6 +538,34 @@ export default function MyTasks() {
                       : 'This task requires your attention.'
                     }
                   </CardDescription>
+                  {(task.taskType === 'review' || task.taskType === 'approve') && (task.reviewerName || task.approverName) && (
+                    <div className="flex flex-wrap gap-4 mt-3 text-sm">
+                      {task.reviewerName && (
+                        <div className="flex items-center gap-1">
+                          <span className="text-muted-foreground">Reviewer:</span>
+                          <span className={
+                            task.reviewCompleted 
+                              ? "text-emerald-600 dark:text-emerald-400 font-medium" 
+                              : "text-amber-600 dark:text-amber-400 font-medium"
+                          }>
+                            {task.reviewerName}
+                          </span>
+                        </div>
+                      )}
+                      {task.approverName && (
+                        <div className="flex items-center gap-1">
+                          <span className="text-muted-foreground">Approver:</span>
+                          <span className={
+                            task.approveCompleted 
+                              ? "text-emerald-600 dark:text-emerald-400 font-medium" 
+                              : "text-amber-600 dark:text-amber-400 font-medium"
+                          }>
+                            {task.approverName}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </CardHeader>
                 <CardContent>
                   <Separator className="my-4" />

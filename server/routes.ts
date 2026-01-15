@@ -748,9 +748,15 @@ export async function registerRoutes(
       const userId = getCurrentUserId(req);
       const currentUser = await storage.getUser(userId);
       const allDocs = await storage.getDocuments();
+      const allUsers = await storage.getUsers();
+      const userMap = new Map(allUsers.map(u => [u.id, u.name]));
       const tasks: any[] = [];
 
       for (const doc of allDocs) {
+        // Get reviewer and approver names
+        const reviewerName = doc.reviewerId ? userMap.get(doc.reviewerId) : null;
+        const approverName = doc.approverId ? userMap.get(doc.approverId) : null;
+        
         // Review task: User is reviewer and document is in_review
         if (doc.reviewerId === userId && doc.status === DocumentStatus.IN_REVIEW) {
           tasks.push({
@@ -762,6 +768,12 @@ export async function registerRoutes(
             status: 'pending',
             createdAt: doc.updatedAt || doc.createdAt,
             dueDate: doc.nextReviewDate,
+            reviewerId: doc.reviewerId,
+            reviewerName,
+            approverId: doc.approverId,
+            approverName,
+            reviewCompleted: false,
+            approveCompleted: false,
           });
         }
 
@@ -776,6 +788,12 @@ export async function registerRoutes(
             status: 'pending',
             createdAt: doc.updatedAt || doc.createdAt,
             dueDate: doc.nextReviewDate,
+            reviewerId: doc.reviewerId,
+            reviewerName,
+            approverId: doc.approverId,
+            approverName,
+            reviewCompleted: true,
+            approveCompleted: false,
           });
         }
       }

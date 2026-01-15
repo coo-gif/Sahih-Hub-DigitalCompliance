@@ -451,6 +451,7 @@ export default function Documents() {
                   <TableHead className="font-semibold">Category</TableHead>
                   <TableHead className="font-semibold">Edition/Rev</TableHead>
                   <TableHead className="font-semibold">Status</TableHead>
+                  <TableHead className="font-semibold">Reviewer / Approver</TableHead>
                   <TableHead className="font-semibold">Review Date</TableHead>
                   <TableHead className="font-semibold text-right">Actions</TableHead>
                 </TableRow>
@@ -488,6 +489,41 @@ export default function Documents() {
                          doc.status === "pending_approval" ? "Pending Approval" :
                          doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
                       </Badge>
+                    </TableCell>
+                    <TableCell data-testid={`cell-assignees-${doc.id}`}>
+                      {(doc.status === "in_review" || doc.status === "pending_approval" || doc.status === "approved") ? (
+                        <div className="flex flex-col gap-1 text-xs">
+                          {doc.reviewerId && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-muted-foreground">Review:</span>
+                              <span className={
+                                doc.status === "pending_approval" || doc.status === "approved" 
+                                  ? "text-emerald-600 dark:text-emerald-400 font-medium" 
+                                  : "text-amber-600 dark:text-amber-400 font-medium"
+                              }>
+                                {users.find((u: any) => u.id === doc.reviewerId)?.name || "Unknown"}
+                              </span>
+                            </div>
+                          )}
+                          {doc.approverId && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-muted-foreground">Approve:</span>
+                              <span className={
+                                doc.status === "approved" 
+                                  ? "text-emerald-600 dark:text-emerald-400 font-medium" 
+                                  : "text-amber-600 dark:text-amber-400 font-medium"
+                              }>
+                                {users.find((u: any) => u.id === doc.approverId)?.name || "Unknown"}
+                              </span>
+                            </div>
+                          )}
+                          {!doc.reviewerId && !doc.approverId && (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">-</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground" data-testid={`cell-review-${doc.id}`}>
                       {doc.nextReviewDate 

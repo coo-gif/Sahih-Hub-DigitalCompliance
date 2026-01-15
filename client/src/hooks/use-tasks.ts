@@ -22,6 +22,12 @@ export interface MyTask {
   requesterId?: number;
   requesterName?: string;
   reason?: string;
+  reviewerId?: number;
+  reviewerName?: string;
+  approverId?: number;
+  approverName?: string;
+  reviewCompleted?: boolean;
+  approveCompleted?: boolean;
 }
 
 export interface DocumentTask {
