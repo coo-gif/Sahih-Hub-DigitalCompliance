@@ -3516,8 +3516,8 @@ export async function registerRoutes(
       const user = await storage.getUser(userId);
       const status = req.query.status as string | undefined;
       
-      // Only COO (coo@sahihcertify.com) can see all bug reports
-      if (user?.email === 'coo@sahihcertify.com') {
+      // COO or Admin can see all bug reports
+      if (user?.email === 'coo@sahihcertify.com' || user?.role === 'admin') {
         const reports = await storage.getBugReports(status ? { status } : undefined);
         res.json(reports);
       } else {
@@ -3584,15 +3584,15 @@ export async function registerRoutes(
     }
   });
 
-  // Update bug report status (COO only)
+  // Update bug report status (COO or Admin)
   app.patch('/api/bug-reports/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
       const user = await storage.getUser(userId);
       const id = parseInt(req.params.id);
       
-      if (user?.email !== 'coo@sahihcertify.com') {
-        return res.status(403).json({ message: 'Only COO can update bug reports' });
+      if (user?.email !== 'coo@sahihcertify.com' && user?.role !== 'admin') {
+        return res.status(403).json({ message: 'Only COO or Admin can update bug reports' });
       }
 
       const updated = await storage.updateBugReport(id, req.body);
@@ -3603,15 +3603,15 @@ export async function registerRoutes(
     }
   });
 
-  // Resolve bug report (COO only)
+  // Resolve bug report (COO or Admin)
   app.post('/api/bug-reports/:id/resolve', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
       const user = await storage.getUser(userId);
       const id = parseInt(req.params.id);
       
-      if (user?.email !== 'coo@sahihcertify.com') {
-        return res.status(403).json({ message: 'Only COO can resolve bug reports' });
+      if (user?.email !== 'coo@sahihcertify.com' && user?.role !== 'admin') {
+        return res.status(403).json({ message: 'Only COO or Admin can resolve bug reports' });
       }
 
       const { resolutionNotes } = req.body;
@@ -3623,15 +3623,15 @@ export async function registerRoutes(
     }
   });
 
-  // Close bug report (COO only - triggers congratulation message)
+  // Close bug report (COO or Admin - triggers congratulation message)
   app.post('/api/bug-reports/:id/close', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
       const user = await storage.getUser(userId);
       const id = parseInt(req.params.id);
       
-      if (user?.email !== 'coo@sahihcertify.com') {
-        return res.status(403).json({ message: 'Only COO can close bug reports' });
+      if (user?.email !== 'coo@sahihcertify.com' && user?.role !== 'admin') {
+        return res.status(403).json({ message: 'Only COO or Admin can close bug reports' });
       }
 
       const report = await storage.getBugReport(id);
@@ -3671,15 +3671,15 @@ export async function registerRoutes(
     }
   });
 
-  // Delete bug report (COO only)
+  // Delete bug report (COO or Admin)
   app.delete('/api/bug-reports/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
       const user = await storage.getUser(userId);
       const id = parseInt(req.params.id);
       
-      if (user?.email !== 'coo@sahihcertify.com') {
-        return res.status(403).json({ message: 'Only COO can delete bug reports' });
+      if (user?.email !== 'coo@sahihcertify.com' && user?.role !== 'admin') {
+        return res.status(403).json({ message: 'Only COO or Admin can delete bug reports' });
       }
 
       await storage.deleteBugReport(id);

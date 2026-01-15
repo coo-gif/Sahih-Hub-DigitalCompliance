@@ -64,7 +64,8 @@ export default function BugReports() {
   });
 
   const isCOO = currentUser?.email === 'coo@sahihcertify.com';
-  const canManage = isCOO;
+  const isAdmin = currentUser?.role === 'admin';
+  const canManage = isCOO || isAdmin;
 
   const resolveMutation = useMutation({
     mutationFn: async ({ id, resolutionNotes }: { id: number; resolutionNotes: string }) => {
@@ -170,7 +171,7 @@ export default function BugReports() {
             <AlertCircle className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
             <h2 className="text-xl font-semibold mb-2">Access Restricted</h2>
             <p className="text-muted-foreground">
-              This page is only accessible to the COO. 
+              This page is only accessible to Admin users and the COO. 
               Use the Hub-eebi chat to submit and view your own bug reports.
             </p>
           </CardContent>
@@ -424,7 +425,7 @@ export default function BugReports() {
                     </div>
                   )}
 
-                  {selectedReport?.status === 'resolved' && isCOO && (
+                  {selectedReport?.status === 'resolved' && canManage && (
                     <Button
                       className="w-full bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-600 hover:to-teal-600"
                       onClick={() => selectedReport && closeMutation.mutate(selectedReport.id)}
@@ -432,7 +433,7 @@ export default function BugReports() {
                       data-testid="button-close-bug"
                     >
                       <Sparkles className="w-4 h-4 mr-2" />
-                      {closeMutation.isPending ? "Closing..." : "Close & Congratulate Reporter"}
+                      {closeMutation.isPending ? "Closing..." : "Close & Notify Reporter"}
                     </Button>
                   )}
                 </div>
