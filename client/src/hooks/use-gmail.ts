@@ -1,6 +1,13 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
+export function useGmailStatus() {
+  return useQuery<{ connected: boolean; error?: string }>({
+    queryKey: ['/api/gmail/status'],
+    staleTime: 60000,
+  });
+}
+
 export interface EmailListItem {
   id: string;
   threadId: string;

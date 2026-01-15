@@ -4198,6 +4198,16 @@ Remember: Always be specific about WHERE to click (sidebar, button names, tabs) 
   });
 
   // Gmail API Routes
+  app.get('/api/gmail/status', requireAuth, async (req, res) => {
+    try {
+      // Try to fetch labels to check if Gmail is connected
+      await getLabels();
+      res.json({ connected: true });
+    } catch (error: any) {
+      res.json({ connected: false, error: error.message });
+    }
+  });
+
   app.get('/api/gmail/emails', requireAuth, async (req, res) => {
     try {
       const maxResults = parseInt(req.query.maxResults as string) || 20;

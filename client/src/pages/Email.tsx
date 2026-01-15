@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useEmails, useEmail, useSendEmail, useUnreadCount, useMarkAsRead } from "@/hooks/use-gmail";
+import { useEmails, useEmail, useSendEmail, useUnreadCount, useMarkAsRead, useGmailStatus } from "@/hooks/use-gmail";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -73,6 +73,7 @@ export default function Email() {
   const [composeData, setComposeData] = useState({ to: '', subject: '', body: '' });
   const [replyMode, setReplyMode] = useState(false);
   
+  const { data: gmailStatus, isLoading: statusLoading } = useGmailStatus();
   const { data: emails, isLoading: emailsLoading, refetch } = useEmails(30, activeTab);
   const { data: selectedEmail, isLoading: emailLoading } = useEmail(selectedEmailId);
   const { data: unreadData } = useUnreadCount();
@@ -85,6 +86,41 @@ export default function Email() {
       markAsRead.mutate(selectedEmailId);
     }
   }, [selectedEmail, selectedEmailId]);
+
+  // Show connection required message if Gmail is not connected
+  if (!statusLoading && gmailStatus && !gmailStatus.connected) {
+    return (
+      <div className="h-[calc(100vh-8rem)] flex items-center justify-center p-4 lg:p-6">
+        <Card className="max-w-lg w-full">
+          <CardContent className="pt-6 text-center space-y-4">
+            <div className="mx-auto w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+              <Mail className="w-8 h-8 text-primary" />
+            </div>
+            <div>
+              <h2 className="text-xl font-semibold mb-2">Gmail Not Connected</h2>
+              <p className="text-muted-foreground">
+                To access your inbox, you need to connect your Gmail account through the Replit integrations panel.
+              </p>
+            </div>
+            <div className="bg-muted/50 rounded-lg p-4 text-left text-sm space-y-2">
+              <p className="font-medium">How to connect:</p>
+              <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                <li>Open the Integrations panel in Replit</li>
+                <li>Find "Google Mail" and click Connect</li>
+                <li>Sign in with your Google account</li>
+                <li>Grant the required permissions</li>
+                <li>Refresh this page</li>
+              </ol>
+            </div>
+            <Button variant="outline" onClick={() => window.location.reload()} data-testid="button-refresh-connection">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Refresh Page
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const handleSendEmail = async () => {
     if (!composeData.to || !composeData.subject || !composeData.body) {
