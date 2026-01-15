@@ -76,7 +76,12 @@ import {
   Pin,
   Trash2,
   Send,
-  User
+  User,
+  FilePlus,
+  XCircle,
+  Archive,
+  UserPlus,
+  CheckSquare
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
@@ -2086,8 +2091,8 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* Recent Activity */}
-        <Card data-testid="card-recent-activity">
+        {/* Daily Activity Report */}
+        <Card data-testid="card-daily-activity-report">
           <CardHeader>
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -2095,8 +2100,8 @@ export default function Dashboard() {
                   <Activity className="w-4 h-4 text-blue-600" />
                 </div>
                 <div>
-                  <CardTitle>Recent Activity</CardTitle>
-                  <CardDescription>Audit trail of recent actions</CardDescription>
+                  <CardTitle>Daily Activity Report</CardTitle>
+                  <CardDescription>Today's document tasks: Create, Submit, Review, Approve</CardDescription>
                 </div>
               </div>
               <Link href="/audit-log">
@@ -2111,7 +2116,7 @@ export default function Dashboard() {
               {activityLoading ? (
                 Array.from({ length: 3 }).map((_, i) => (
                   <div key={i} className="flex items-center gap-3 p-2 rounded">
-                    <Skeleton className="w-2 h-2 rounded-full" />
+                    <Skeleton className="w-8 h-8 rounded-full" />
                     <div className="flex-1">
                       <Skeleton className="h-4 w-40 mb-1" />
                       <Skeleton className="h-3 w-24" />
@@ -2119,25 +2124,55 @@ export default function Dashboard() {
                   </div>
                 ))
               ) : activity && activity.length > 0 ? (
-                activity.slice(0, 5).map((log, idx) => {
+                activity.slice(0, 8).map((log, idx) => {
                   const isDocumentActivity = log.entityType === 'document' && log.documentTitle && log.entityId;
                   const isAdmin = currentUser?.role === 'admin';
+                  
+                  const getActionDisplay = (action: string) => {
+                    switch (action) {
+                      case 'create':
+                        return { label: 'Created', icon: <FilePlus className="w-4 h-4" />, color: 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' };
+                      case 'submit_for_review':
+                        return { label: 'Submitted', icon: <Send className="w-4 h-4" />, color: 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400' };
+                      case 'approve':
+                        return { label: 'Approved', icon: <CheckCircle2 className="w-4 h-4" />, color: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400' };
+                      case 'reject':
+                        return { label: 'Rejected', icon: <XCircle className="w-4 h-4" />, color: 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' };
+                      case 'update':
+                        return { label: 'Reviewed', icon: <FileCheck className="w-4 h-4" />, color: 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400' };
+                      case 'publish':
+                        return { label: 'Published', icon: <FileSignature className="w-4 h-4" />, color: 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400' };
+                      case 'archive':
+                        return { label: 'Archived', icon: <Archive className="w-4 h-4" />, color: 'bg-gray-100 text-gray-600 dark:bg-gray-800/50 dark:text-gray-400' };
+                      case 'assign_task':
+                        return { label: 'Assigned Task', icon: <UserPlus className="w-4 h-4" />, color: 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400' };
+                      case 'complete_task':
+                        return { label: 'Completed Task', icon: <CheckSquare className="w-4 h-4" />, color: 'bg-teal-100 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400' };
+                      case 'delete':
+                        return { label: 'Deleted', icon: <Trash2 className="w-4 h-4" />, color: 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' };
+                      default:
+                        return { label: action.replace('_', ' '), icon: <Activity className="w-4 h-4" />, color: 'bg-muted text-muted-foreground' };
+                    }
+                  };
+                  
+                  const actionDisplay = getActionDisplay(log.action);
                   
                   return (
                     <div 
                       key={log.id} 
                       className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors"
-                      style={{ animation: `slideIn 0.3s ease-out ${idx * 0.1}s backwards` }}
+                      style={{ animation: `slideIn 0.3s ease-out ${idx * 0.05}s backwards` }}
                       data-testid={`activity-${log.id}`}
                     >
-                      <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                      <div className={`p-2 rounded-full ${actionDisplay.color}`}>
+                        {actionDisplay.icon}
+                      </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate" data-testid={`text-activity-action-${log.id}`}>
                           <span className="text-primary">{log.userName || 'System'}</span>{' '}
-                          {log.action.replace('_', ' ')}{' '}
+                          <span className="font-semibold">{actionDisplay.label}</span>{' '}
                           {isDocumentActivity ? (
                             <>
-                              on document{' '}
                               {isAdmin ? (
                                 <span
                                   className="text-primary underline cursor-pointer hover:text-primary/80"
@@ -2147,11 +2182,11 @@ export default function Dashboard() {
                                   {log.documentTitle}
                                 </span>
                               ) : (
-                                <span className="font-semibold">{log.documentTitle}</span>
+                                <span>{log.documentTitle}</span>
                               )}
                             </>
                           ) : (
-                            <>on {log.entityType}</>
+                            <span className="text-muted-foreground">{log.entityType}</span>
                           )}
                         </p>
                         <p className="text-xs text-muted-foreground" data-testid={`text-activity-time-${log.id}`}>
@@ -2163,7 +2198,7 @@ export default function Dashboard() {
                 })
               ) : (
                 <div className="text-center py-8 text-muted-foreground" data-testid="text-no-activity">
-                  No recent activity
+                  No activity recorded today
                 </div>
               )}
             </div>
