@@ -22,6 +22,18 @@ import path from "path";
 import fs from "fs";
 import { listEmails, getEmail, sendEmail as sendEmailGmail, getUnreadCount, markAsRead, getLabels } from "./gmail";
 import { isSmtpConfigured, sendEmailSmtp } from "./email-smtp";
+import { 
+  isGoogleOAuthConfigured, 
+  getAuthUrl, 
+  exchangeCodeForTokens, 
+  saveUserGmailTokens, 
+  getUserGmailTokens, 
+  disconnectUserGmail,
+  sendEmailWithUserAccount,
+  getEmailsWithUserAccount,
+  getUnreadCountWithUserAccount,
+  markEmailAsReadWithUserAccount
+} from "./gmail-oauth";
 
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) {
@@ -4352,25 +4364,131 @@ Remember: Always be specific about WHERE to click (sidebar, button names, tabs) 
   });
 
   // Gmail API Routes
+  
+  // Check if Google OAuth is configured (for admin setup)
+  app.get('/api/gmail/oauth-configured', requireAuth, async (req, res) => {
+    res.json({ configured: isGoogleOAuthConfigured() });
+  });
+  
+  // Get user's Gmail connection status
   app.get('/api/gmail/status', requireAuth, async (req, res) => {
     try {
-      // First check if SMTP is configured (preferred for production)
-      if (isSmtpConfigured()) {
-        res.json({ connected: true, mode: 'smtp' });
+      const userId = getCurrentUserId(req);
+      
+      // Check if user has connected their Gmail via OAuth
+      const tokens = await getUserGmailTokens(userId);
+      if (tokens?.gmailAccessToken) {
+        res.json({ 
+          connected: true, 
+          mode: 'oauth',
+          connectedAt: tokens.gmailConnectedAt
+        });
         return;
       }
       
-      // Fall back to Replit connector check
-      await getLabels();
-      res.json({ connected: true, mode: 'connector' });
+      // Check if SMTP is configured (company-wide send-only)
+      if (isSmtpConfigured()) {
+        res.json({ connected: true, mode: 'smtp', sendOnly: true });
+        return;
+      }
+      
+      // Check if Google OAuth is configured for setup
+      if (isGoogleOAuthConfigured()) {
+        res.json({ connected: false, oauthAvailable: true });
+        return;
+      }
+      
+      res.json({ connected: false, oauthAvailable: false });
     } catch (error: any) {
       res.json({ connected: false, error: error.message });
+    }
+  });
+  
+  // Start Gmail OAuth flow
+  app.get('/api/gmail/connect', requireAuth, async (req, res) => {
+    try {
+      if (!isGoogleOAuthConfigured()) {
+        return res.status(400).json({ 
+          message: 'Google OAuth not configured. Admin needs to add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.' 
+        });
+      }
+      
+      const userId = getCurrentUserId(req);
+      const protocol = req.headers['x-forwarded-proto'] || 'https';
+      const host = req.headers['x-forwarded-host'] || req.headers.host;
+      const redirectUri = `${protocol}://${host}/api/gmail/callback`;
+      const state = Buffer.from(JSON.stringify({ userId })).toString('base64');
+      
+      const authUrl = getAuthUrl(redirectUri, state);
+      res.json({ authUrl });
+    } catch (error: any) {
+      console.error('Gmail connect error:', error);
+      res.status(500).json({ message: error.message || 'Failed to start Gmail connection' });
+    }
+  });
+  
+  // Gmail OAuth callback
+  app.get('/api/gmail/callback', async (req, res) => {
+    try {
+      const { code, state, error: oauthError } = req.query;
+      
+      if (oauthError) {
+        return res.redirect('/email?error=access_denied');
+      }
+      
+      if (!code || !state) {
+        return res.redirect('/email?error=missing_params');
+      }
+      
+      const stateData = JSON.parse(Buffer.from(state as string, 'base64').toString());
+      const userId = stateData.userId;
+      
+      const protocol = req.headers['x-forwarded-proto'] || 'https';
+      const host = req.headers['x-forwarded-host'] || req.headers.host;
+      const redirectUri = `${protocol}://${host}/api/gmail/callback`;
+      
+      const tokens = await exchangeCodeForTokens(code as string, redirectUri);
+      
+      await saveUserGmailTokens(
+        userId,
+        tokens.access_token!,
+        tokens.refresh_token,
+        tokens.expiry_date
+      );
+      
+      res.redirect('/email?connected=true');
+    } catch (error: any) {
+      console.error('Gmail callback error:', error);
+      res.redirect('/email?error=token_exchange_failed');
+    }
+  });
+  
+  // Disconnect Gmail
+  app.post('/api/gmail/disconnect', requireAuth, async (req, res) => {
+    try {
+      const userId = getCurrentUserId(req);
+      await disconnectUserGmail(userId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Gmail disconnect error:', error);
+      res.status(500).json({ message: error.message || 'Failed to disconnect Gmail' });
     }
   });
 
   app.get('/api/gmail/emails', requireAuth, async (req, res) => {
     try {
+      const userId = getCurrentUserId(req);
       const maxResults = parseInt(req.query.maxResults as string) || 20;
+      
+      // Try user's OAuth connection first
+      const tokens = await getUserGmailTokens(userId);
+      if (tokens?.gmailAccessToken) {
+        const emails = await getEmailsWithUserAccount(userId, maxResults);
+        res.json(emails);
+        return;
+      }
+      
+      // Fall back to Replit connector
       const label = req.query.label as string || 'INBOX';
       const labelIds = label === 'UNREAD' ? ['INBOX', 'UNREAD'] : [label];
       const emails = await listEmails(maxResults, labelIds);
@@ -4393,12 +4511,21 @@ Remember: Always be specific about WHERE to click (sidebar, button names, tabs) 
 
   app.post('/api/gmail/send', requireAuth, async (req, res) => {
     try {
+      const userId = getCurrentUserId(req);
       const { to, subject, body } = req.body;
       if (!to || !subject || !body) {
         return res.status(400).json({ message: 'Missing required fields: to, subject, body' });
       }
       
-      // Use SMTP if configured (preferred for production)
+      // Try user's OAuth connection first
+      const tokens = await getUserGmailTokens(userId);
+      if (tokens?.gmailAccessToken) {
+        const result = await sendEmailWithUserAccount(userId, to, subject, body);
+        res.json({ id: result.id, threadId: result.threadId });
+        return;
+      }
+      
+      // Use SMTP if configured (company-wide send)
       if (isSmtpConfigured()) {
         const result = await sendEmailSmtp(to, subject, body);
         res.json({ id: result.messageId, threadId: null });
@@ -4416,6 +4543,17 @@ Remember: Always be specific about WHERE to click (sidebar, button names, tabs) 
 
   app.get('/api/gmail/unread-count', requireAuth, async (req, res) => {
     try {
+      const userId = getCurrentUserId(req);
+      
+      // Try user's OAuth connection first
+      const tokens = await getUserGmailTokens(userId);
+      if (tokens?.gmailAccessToken) {
+        const count = await getUnreadCountWithUserAccount(userId);
+        res.json({ count });
+        return;
+      }
+      
+      // Fall back to Replit connector
       const count = await getUnreadCount();
       res.json({ count });
     } catch (error: any) {
@@ -4426,6 +4564,17 @@ Remember: Always be specific about WHERE to click (sidebar, button names, tabs) 
 
   app.post('/api/gmail/mark-read/:id', requireAuth, async (req, res) => {
     try {
+      const userId = getCurrentUserId(req);
+      
+      // Try user's OAuth connection first
+      const tokens = await getUserGmailTokens(userId);
+      if (tokens?.gmailAccessToken) {
+        await markEmailAsReadWithUserAccount(userId, req.params.id);
+        res.json({ success: true });
+        return;
+      }
+      
+      // Fall back to Replit connector
       await markAsRead(req.params.id);
       res.json({ success: true });
     } catch (error: any) {
