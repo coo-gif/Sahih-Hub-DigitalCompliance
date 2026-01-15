@@ -1870,7 +1870,7 @@ export default function Dashboard() {
               </div>
               <div>
                 <CardTitle>Updates Wall</CardTitle>
-                <CardDescription>Share news and announcements with your team</CardDescription>
+                <CardDescription>New features, improvements, and system updates</CardDescription>
               </div>
             </div>
           </div>
@@ -1883,7 +1883,7 @@ export default function Dashboard() {
             </div>
             <div className="flex-1">
               <Textarea
-                placeholder="Share an update with your team..."
+                placeholder="Announce a new feature, improvement, or system update..."
                 value={newPostContent}
                 onChange={(e) => setNewPostContent(e.target.value)}
                 className="min-h-[80px] resize-none"
@@ -1991,7 +1991,7 @@ export default function Dashboard() {
               <div className="text-center py-8 text-muted-foreground">
                 <MessageSquarePlus className="w-12 h-12 mx-auto mb-3 opacity-30" />
                 <p className="font-medium">No updates yet</p>
-                <p className="text-sm">Be the first to share an update with your team!</p>
+                <p className="text-sm">New features and improvements will be announced here</p>
               </div>
             )}
           </div>
