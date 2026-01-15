@@ -1065,6 +1065,27 @@ export type Certificate = typeof certificates.$inferSelect;
 export type InsertCertificate = z.infer<typeof insertCertificateSchema>;
 
 // ============================================
+// WALL POSTS (Dashboard Updates)
+// ============================================
+export const wallPosts = pgTable("wall_posts", {
+  id: serial("id").primaryKey(),
+  authorId: integer("author_id").notNull().references(() => users.id),
+  content: text("content").notNull(),
+  isPinned: boolean("is_pinned").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertWallPostSchema = createInsertSchema(wallPosts).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type WallPost = typeof wallPosts.$inferSelect;
+export type InsertWallPost = z.infer<typeof insertWallPostSchema>;
+
+// ============================================
 // API REQUEST/RESPONSE TYPES
 // ============================================
 

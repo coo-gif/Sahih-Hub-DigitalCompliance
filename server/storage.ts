@@ -4,7 +4,7 @@ import {
   employees, employeeTasks, downloadRequests, documentFeedback, documentTasks, taskPokes,
   documentAccessRequests, documentAccess, userRecords, buddyStatus, pushSubscriptions, buddyDialogues,
   userActivityLogs, monthlyPerformanceReports, bugReports,
-  certificationApplications, certificationAudits, auditFindings, certificates,
+  certificationApplications, certificationAudits, auditFindings, certificates, wallPosts,
   type User, type InsertUser,
   type Document, type InsertDocument,
   type DocumentVersion, type InsertDocumentVersion,
@@ -30,6 +30,7 @@ import {
   type CertificationAudit, type InsertCertificationAudit,
   type AuditFinding, type InsertAuditFinding,
   type Certificate, type InsertCertificate,
+  type WallPost, type InsertWallPost,
   DocumentStatus, InductionStatus, TaskStatus, FeedbackStatus, DocumentTaskStatus,
   EmployeeRecordStatus, DocumentAccessRequestStatus, BuddyState, MonthlyReportStatus,
   BugReportStatus,
@@ -255,6 +256,13 @@ export interface IStorage {
   getCertificateByNumber(certificateNumber: string): Promise<Certificate | undefined>;
   createCertificate(cert: InsertCertificate): Promise<Certificate>;
   updateCertificate(id: number, cert: Partial<InsertCertificate>): Promise<Certificate>;
+
+  // Wall Posts
+  getWallPosts(limit?: number): Promise<Array<WallPost & { authorName: string; authorRole: string }>>;
+  createWallPost(post: InsertWallPost): Promise<WallPost>;
+  updateWallPost(id: number, post: Partial<InsertWallPost>): Promise<WallPost>;
+  deleteWallPost(id: number): Promise<void>;
+  pinWallPost(id: number, isPinned: boolean): Promise<WallPost>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1813,6 +1821,57 @@ export class DatabaseStorage implements IStorage {
     const [updated] = await db.update(certificates)
       .set({ ...data, updatedAt: new Date() })
       .where(eq(certificates.id, id))
+      .returning();
+    return updated;
+  }
+
+  // ============================================
+  // WALL POSTS
+  // ============================================
+  async getWallPosts(limit: number = 50): Promise<Array<WallPost & { authorName: string; authorRole: string }>> {
+    const posts = await db.select({
+      id: wallPosts.id,
+      authorId: wallPosts.authorId,
+      content: wallPosts.content,
+      isPinned: wallPosts.isPinned,
+      createdAt: wallPosts.createdAt,
+      updatedAt: wallPosts.updatedAt,
+      authorName: users.name,
+      authorRole: users.role,
+    })
+    .from(wallPosts)
+    .leftJoin(users, eq(wallPosts.authorId, users.id))
+    .orderBy(desc(wallPosts.isPinned), desc(wallPosts.createdAt))
+    .limit(limit);
+    
+    return posts.map(p => ({
+      ...p,
+      authorName: p.authorName || 'Unknown',
+      authorRole: p.authorRole || 'staff',
+    }));
+  }
+
+  async createWallPost(data: InsertWallPost): Promise<WallPost> {
+    const [post] = await db.insert(wallPosts).values(data).returning();
+    return post;
+  }
+
+  async updateWallPost(id: number, data: Partial<InsertWallPost>): Promise<WallPost> {
+    const [updated] = await db.update(wallPosts)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(wallPosts.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteWallPost(id: number): Promise<void> {
+    await db.delete(wallPosts).where(eq(wallPosts.id, id));
+  }
+
+  async pinWallPost(id: number, isPinned: boolean): Promise<WallPost> {
+    const [updated] = await db.update(wallPosts)
+      .set({ isPinned, updatedAt: new Date() })
+      .where(eq(wallPosts.id, id))
       .returning();
     return updated;
   }

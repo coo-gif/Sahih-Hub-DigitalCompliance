@@ -4265,6 +4265,72 @@ Remember: Always be specific about WHERE to click (sidebar, button names, tabs) 
     }
   });
 
+  // ============================================
+  // WALL POSTS (Dashboard Updates)
+  // ============================================
+  app.get('/api/wall-posts', requireAuth, async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 50;
+      const posts = await storage.getWallPosts(limit);
+      res.json(posts);
+    } catch (error: any) {
+      console.error('Error fetching wall posts:', error);
+      res.status(500).json({ message: error.message || 'Failed to fetch wall posts' });
+    }
+  });
+
+  app.post('/api/wall-posts', requireAuth, async (req, res) => {
+    try {
+      const { content } = req.body;
+      if (!content || !content.trim()) {
+        return res.status(400).json({ message: 'Content is required' });
+      }
+      const post = await storage.createWallPost({
+        authorId: req.user!.id,
+        content: content.trim(),
+      });
+      res.status(201).json(post);
+    } catch (error: any) {
+      console.error('Error creating wall post:', error);
+      res.status(500).json({ message: error.message || 'Failed to create wall post' });
+    }
+  });
+
+  app.patch('/api/wall-posts/:id', requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { content } = req.body;
+      const post = await storage.updateWallPost(id, { content });
+      res.json(post);
+    } catch (error: any) {
+      console.error('Error updating wall post:', error);
+      res.status(500).json({ message: error.message || 'Failed to update wall post' });
+    }
+  });
+
+  app.delete('/api/wall-posts/:id', requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteWallPost(id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Error deleting wall post:', error);
+      res.status(500).json({ message: error.message || 'Failed to delete wall post' });
+    }
+  });
+
+  app.post('/api/wall-posts/:id/pin', requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { isPinned } = req.body;
+      const post = await storage.pinWallPost(id, isPinned);
+      res.json(post);
+    } catch (error: any) {
+      console.error('Error pinning wall post:', error);
+      res.status(500).json({ message: error.message || 'Failed to pin wall post' });
+    }
+  });
+
   await seedDatabase();
 
   return httpServer;
