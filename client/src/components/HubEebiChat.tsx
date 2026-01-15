@@ -59,7 +59,7 @@ export function HubEebiChat() {
     {
       id: '1',
       type: 'hubeebi',
-      message: "Hi there! I'm Hub-eebi, your AI-powered assistant for Sahih Hub! I can guide you step-by-step through any feature.\n\nTry asking me:\n• How do I create a document?\n• Where can I see my tasks?\n• How does the approval process work?\n\nI'm here to help you navigate the app with ease!",
+      message: "Hi there! I'm Hub-eeeebi, your ISO 17021 expert and app assistant! I can help you with:\n\n📋 **App Navigation:**\n• How do I create a document?\n• Where can I see my tasks?\n\n📚 **ISO 17021 Standards:**\n• What are the Stage 1 and Stage 2 audit requirements?\n• What are the impartiality requirements?\n• Explain ISO 17021-10 OH&S competence requirements\n\nAsk me anything about the app or ISO certification standards!",
       timestamp: new Date(),
     }
   ]);
@@ -237,7 +237,7 @@ export function HubEebiChat() {
             data-testid="button-open-hubeebi-chat"
           >
             <MessageCircle className="w-4 h-4" />
-            <span className="font-medium text-xs">Hub-eebi</span>
+            <span className="font-medium text-xs">Hub-eeeebi</span>
           </button>
         </div>
       </Draggable>
@@ -257,8 +257,8 @@ export function HubEebiChat() {
                   <img src={dailyOutfit} alt="Hub-eebi" className="h-full w-full object-contain" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-white">Hub-eebi</h3>
-                  <p className="text-xs text-white/80">Your Compliance Buddy</p>
+                  <h3 className="font-bold text-white">Hub-eeeebi</h3>
+                  <p className="text-xs text-white/80">ISO 17021 Expert & App Guide</p>
                 </div>
               </div>
               <Button
