@@ -3,8 +3,10 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { 
   Bug, Search, Filter, CheckCircle, Clock, AlertCircle, 
-  XCircle, Eye, MessageSquare, Sparkles, User, Calendar
+  XCircle, Eye, MessageSquare, Sparkles, User, Calendar,
+  Upload, Image, X
 } from "lucide-react";
+import { useUpload } from "@/hooks/use-upload";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +32,7 @@ interface BugReport {
   reportedById: number;
   assignedToId: number | null;
   resolutionNotes: string | null;
+  resolutionEvidenceUrl: string | null;
   resolvedById: number | null;
   resolvedAt: string | null;
   closedAt: string | null;
@@ -51,7 +54,18 @@ export default function BugReports() {
   const [selectedReport, setSelectedReport] = useState<BugReport | null>(null);
   const [showDetailDialog, setShowDetailDialog] = useState(false);
   const [resolutionNotes, setResolutionNotes] = useState("");
+  const [resolutionEvidenceUrl, setResolutionEvidenceUrl] = useState<string | null>(null);
   const { toast } = useToast();
+  
+  const { uploadFile, isUploading } = useUpload({
+    onSuccess: (response) => {
+      setResolutionEvidenceUrl(response.objectPath);
+      toast({ title: "Image Uploaded", description: "Evidence image has been uploaded successfully." });
+    },
+    onError: (error) => {
+      toast({ title: "Upload Failed", description: error.message, variant: "destructive" });
+    }
+  });
 
   const { data: currentUser } = useAuth();
 
@@ -68,14 +82,15 @@ export default function BugReports() {
   const canManage = isCOO || isAdmin;
 
   const resolveMutation = useMutation({
-    mutationFn: async ({ id, resolutionNotes }: { id: number; resolutionNotes: string }) => {
-      return apiRequest("POST", `/api/bug-reports/${id}/resolve`, { resolutionNotes });
+    mutationFn: async ({ id, resolutionNotes, resolutionEvidenceUrl }: { id: number; resolutionNotes: string; resolutionEvidenceUrl?: string | null }) => {
+      return apiRequest("POST", `/api/bug-reports/${id}/resolve`, { resolutionNotes, resolutionEvidenceUrl });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/bug-reports"] });
       toast({ title: "Bug Resolved", description: "The bug report has been marked as resolved." });
       setShowDetailDialog(false);
       setResolutionNotes("");
+      setResolutionEvidenceUrl(null);
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -368,12 +383,25 @@ export default function BugReports() {
               )}
 
               {selectedReport?.status === 'resolved' && selectedReport?.resolutionNotes && (
-                <div className="p-4 bg-green-500/10 rounded-lg border border-green-500/20">
+                <div className="p-4 bg-green-500/10 rounded-lg border border-green-500/20 space-y-3">
                   <Label className="text-green-700 dark:text-green-400 text-xs flex items-center gap-1">
                     <CheckCircle className="w-3 h-3" />
                     Resolution Notes
                   </Label>
                   <p className="text-sm mt-1">{selectedReport.resolutionNotes}</p>
+                  {selectedReport?.resolutionEvidenceUrl && (
+                    <div className="mt-2">
+                      <Label className="text-green-700 dark:text-green-400 text-xs flex items-center gap-1 mb-1">
+                        <Image className="w-3 h-3" />
+                        Evidence Screenshot
+                      </Label>
+                      <img 
+                        src={selectedReport.resolutionEvidenceUrl}
+                        alt="Resolution evidence"
+                        className="rounded-lg border max-h-48 object-contain"
+                      />
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -405,7 +433,7 @@ export default function BugReports() {
                   )}
 
                   {(selectedReport?.status === 'open' || selectedReport?.status === 'in_progress') && (
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       <Textarea
                         placeholder="Enter resolution notes..."
                         value={resolutionNotes}
@@ -413,9 +441,64 @@ export default function BugReports() {
                         rows={3}
                         data-testid="input-resolution-notes"
                       />
+                      
+                      <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                          <Image className="w-3 h-3" />
+                          Attach Evidence Screenshot (Optional)
+                        </Label>
+                        
+                        {resolutionEvidenceUrl ? (
+                          <div className="relative inline-block">
+                            <img 
+                              src={resolutionEvidenceUrl}
+                              alt="Evidence preview"
+                              className="rounded-lg border max-h-32 object-contain"
+                            />
+                            <Button
+                              size="icon"
+                              variant="destructive"
+                              className="absolute -top-2 -right-2 h-6 w-6"
+                              onClick={() => setResolutionEvidenceUrl(null)}
+                              data-testid="button-remove-evidence"
+                            >
+                              <X className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              id="evidence-upload"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) uploadFile(file);
+                              }}
+                              data-testid="input-evidence-file"
+                            />
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => document.getElementById('evidence-upload')?.click()}
+                              disabled={isUploading}
+                              data-testid="button-upload-evidence"
+                            >
+                              <Upload className="w-4 h-4 mr-2" />
+                              {isUploading ? "Uploading..." : "Upload Screenshot"}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                      
                       <Button
                         className="w-full"
-                        onClick={() => selectedReport && resolveMutation.mutate({ id: selectedReport.id, resolutionNotes })}
+                        onClick={() => selectedReport && resolveMutation.mutate({ 
+                          id: selectedReport.id, 
+                          resolutionNotes,
+                          resolutionEvidenceUrl 
+                        })}
                         disabled={resolveMutation.isPending || !resolutionNotes.trim()}
                         data-testid="button-resolve-bug"
                       >

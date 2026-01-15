@@ -919,6 +919,7 @@ export const bugReports = pgTable("bug_reports", {
   reportedById: integer("reported_by_id").notNull(),
   assignedToId: integer("assigned_to_id"),
   resolutionNotes: text("resolution_notes"),
+  resolutionEvidenceUrl: text("resolution_evidence_url"),
   resolvedById: integer("resolved_by_id"),
   resolvedAt: timestamp("resolved_at"),
   closedAt: timestamp("closed_at"),

@@ -34,6 +34,7 @@ import {
   getUnreadCountWithUserAccount,
   markEmailAsReadWithUserAccount
 } from "./gmail-oauth";
+import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) {
@@ -246,6 +247,9 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+
+  // Register object storage routes for file uploads
+  registerObjectStorageRoutes(app);
 
   // ============================================
   // AUTHENTICATION ROUTES
@@ -3645,8 +3649,8 @@ export async function registerRoutes(
         return res.status(403).json({ message: 'Only COO or Admin can resolve bug reports' });
       }
 
-      const { resolutionNotes } = req.body;
-      const updated = await storage.resolveBugReport(id, userId, resolutionNotes || 'Issue resolved');
+      const { resolutionNotes, resolutionEvidenceUrl } = req.body;
+      const updated = await storage.resolveBugReport(id, userId, resolutionNotes || 'Issue resolved', resolutionEvidenceUrl);
       res.json(updated);
     } catch (err) {
       console.error('Error resolving bug report:', err);

@@ -153,3 +153,13 @@ Per-user Gmail OAuth integration allows each team member to connect their Google
 
 ### Dashboard Time Display
 Dashboard shows both user's local time and Qatar Standard Time (AST, UTC+3) for international team coordination.
+
+### Bug Report Evidence Attachments
+When resolving bug reports, Admin and COO can attach evidence screenshots to demonstrate the fix:
+- **Resolution Form:** Includes optional image upload for evidence
+- **Storage:** Uses Replit Object Storage for secure file hosting
+- **Display:** Evidence images shown in resolution notes section
+- **Key Files:**
+  - `client/src/pages/BugReports.tsx` - Bug reports UI with evidence upload
+  - `server/replit_integrations/object_storage/` - Object storage service
+  - `client/src/hooks/use-upload.ts` - File upload hook

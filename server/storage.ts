@@ -1643,12 +1643,13 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async resolveBugReport(id: number, resolvedById: number, resolutionNotes: string): Promise<BugReport> {
+  async resolveBugReport(id: number, resolvedById: number, resolutionNotes: string, resolutionEvidenceUrl?: string): Promise<BugReport> {
     const [updated] = await db.update(bugReports)
       .set({
         status: BugReportStatus.RESOLVED,
         resolvedById,
         resolutionNotes,
+        resolutionEvidenceUrl: resolutionEvidenceUrl || null,
         resolvedAt: new Date(),
         updatedAt: new Date(),
       })
