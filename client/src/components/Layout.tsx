@@ -26,7 +26,8 @@ import {
   FolderOpen,
   BarChart3,
   Bug,
-  Award
+  Award,
+  Mail
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -34,6 +35,7 @@ import sahihLogoPath from "@assets/sahih_logo-1.png";
 import sahihCertifyBanner from "@assets/WhatsApp_Image_2026-01-14_at_14.49.11_(1)_1768391647558.jpeg";
 import { BuddySidebarWidget } from "@/components/BuddyAvatar";
 import { NotificationManager } from "@/components/NotificationManager";
+import { useUnreadCount } from "@/hooks/use-gmail";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -52,12 +54,14 @@ type NavItem = {
   icon: React.ComponentType<{ className?: string }>;
   adminOnly?: boolean;
   canAccess?: (user: { role: string; email: string }) => boolean;
+  showBadge?: 'email';
 };
 
 const navItems: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/documents", label: "Documents", icon: FileText },
   { href: "/tasks", label: "My Tasks", icon: ClipboardList },
+  { href: "/email", label: "Email", icon: Mail, showBadge: 'email' },
   { href: "/user-records", label: "My Records", icon: FolderOpen },
   { href: "/users", label: "Users", icon: Users },
   { 
@@ -87,8 +91,10 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
   const { data: notifications } = useNotifications();
   const markAllRead = useMarkAllNotificationsRead();
   const markRead = useMarkNotificationRead();
+  const { data: emailUnreadData } = useUnreadCount();
   
   const unreadCount = notifications?.filter(n => !n.isRead).length || 0;
+  const emailUnreadCount = emailUnreadData?.count || 0;
 
   const handleNotificationClick = (notification: { id: number; relatedDocumentId?: number | null }) => {
     markRead.mutate(notification.id);
@@ -134,7 +140,12 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
                   data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
                 >
                   <item.icon className="w-5 h-5" />
-                  <span className="text-sm">{item.label}</span>
+                  <span className="text-sm flex-1">{item.label}</span>
+                  {item.showBadge === 'email' && emailUnreadCount > 0 && (
+                    <Badge variant="destructive" className="h-5 min-w-5 px-1.5 text-xs">
+                      {emailUnreadCount > 99 ? '99+' : emailUnreadCount}
+                    </Badge>
+                  )}
                 </div>
               </Link>
             );

@@ -17,6 +17,7 @@ import UserRecords from "@/pages/UserRecords";
 import PerformanceReports from "@/pages/PerformanceReports";
 import BugReports from "@/pages/BugReports";
 import CertificationProcess from "@/pages/CertificationProcess";
+import Email from "@/pages/Email";
 import Login from "@/pages/Login";
 import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/Layout";
@@ -49,6 +50,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: User; onLogout: () => v
             <Route path="/performance-reports" component={PerformanceReports} />
             <Route path="/bug-reports" component={BugReports} />
             <Route path="/certification" component={CertificationProcess} />
+            <Route path="/email" component={Email} />
             <Route path="/audit-log" component={AuditLog} />
             <Route component={NotFound} />
           </Switch>
