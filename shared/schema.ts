@@ -214,6 +214,11 @@ export const users = pgTable("users", {
   dateJoined: timestamp("date_joined").defaultNow(),
   lastLogin: timestamp("last_login"),
   lastActivity: timestamp("last_activity"),
+  // Gmail OAuth tokens for per-user email integration
+  gmailAccessToken: text("gmail_access_token"),
+  gmailRefreshToken: text("gmail_refresh_token"),
+  gmailTokenExpiry: timestamp("gmail_token_expiry"),
+  gmailConnectedAt: timestamp("gmail_connected_at"),
 });
 
 // ============================================

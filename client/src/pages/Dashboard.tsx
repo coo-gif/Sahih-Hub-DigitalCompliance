@@ -1085,9 +1085,17 @@ export default function Dashboard() {
                     {timeInfo.greeting}!
                   </h1>
                 </div>
-                <p className="text-white/80 text-[10px] sm:text-xs font-medium">
-                  {format(currentTime, "EEE, MMM d")} • {format(currentTime, "h:mm a")}
-                </p>
+                <div className="text-white/80 text-[10px] sm:text-xs font-medium space-y-0.5">
+                  <p>{format(currentTime, "EEE, MMM d")} • {format(currentTime, "h:mm a")} (Local)</p>
+                  <p className="text-white/60">
+                    Qatar: {new Date().toLocaleTimeString('en-US', { 
+                      timeZone: 'Asia/Qatar', 
+                      hour: 'numeric', 
+                      minute: '2-digit',
+                      hour12: true 
+                    })} AST
+                  </p>
+                </div>
                 <div className="bg-white/10 backdrop-blur-sm rounded-md px-2 py-1.5 border border-white/20">
                   <p className="text-white italic text-[10px] sm:text-xs drop-shadow-md line-clamp-2" data-testid="text-quote">
                     "{dailyQuote.quote}"
