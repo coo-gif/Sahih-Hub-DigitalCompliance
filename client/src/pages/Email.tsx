@@ -110,6 +110,7 @@ export default function Email() {
         'access_denied': 'You denied access to your Gmail account.',
         'missing_params': 'Invalid callback parameters.',
         'token_exchange_failed': 'Failed to complete the connection. Please try again.',
+        'invalid_state': 'Security validation failed. Please try connecting again.',
       };
       toast({ 
         title: "Connection Failed", 

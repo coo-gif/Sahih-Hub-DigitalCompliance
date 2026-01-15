@@ -105,11 +105,21 @@ export async function getAuthenticatedGmailClient(userId: number) {
   
   oauth2Client.on('tokens', async (newTokens) => {
     if (newTokens.access_token) {
+      const updateData: { 
+        gmailAccessToken: string; 
+        gmailTokenExpiry: Date | null;
+        gmailRefreshToken?: string;
+      } = {
+        gmailAccessToken: newTokens.access_token,
+        gmailTokenExpiry: newTokens.expiry_date ? new Date(newTokens.expiry_date) : null
+      };
+      
+      if (newTokens.refresh_token) {
+        updateData.gmailRefreshToken = newTokens.refresh_token;
+      }
+      
       await db.update(users)
-        .set({
-          gmailAccessToken: newTokens.access_token,
-          gmailTokenExpiry: newTokens.expiry_date ? new Date(newTokens.expiry_date) : null
-        })
+        .set(updateData)
         .where(eq(users.id, userId));
     }
   });
@@ -151,13 +161,21 @@ export async function sendEmailWithUserAccount(
   return response.data;
 }
 
-export async function getEmailsWithUserAccount(userId: number, maxResults: number = 20) {
+export async function getEmailsWithUserAccount(
+  userId: number, 
+  maxResults: number = 20,
+  label: 'INBOX' | 'SENT' | 'UNREAD' = 'INBOX'
+) {
   const gmail = await getAuthenticatedGmailClient(userId);
+  
+  const labelIds: string[] = label === 'UNREAD' 
+    ? ['INBOX', 'UNREAD']
+    : [label];
   
   const response = await gmail.users.messages.list({
     userId: 'me',
     maxResults: maxResults,
-    labelIds: ['INBOX']
+    labelIds: labelIds
   });
   
   const messages = response.data.messages || [];

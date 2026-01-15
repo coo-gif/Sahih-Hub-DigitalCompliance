@@ -4417,7 +4417,21 @@ Remember: Always be specific about WHERE to click (sidebar, button names, tabs) 
       const protocol = req.headers['x-forwarded-proto'] || 'https';
       const host = req.headers['x-forwarded-host'] || req.headers.host;
       const redirectUri = `${protocol}://${host}/api/gmail/callback`;
-      const state = Buffer.from(JSON.stringify({ userId })).toString('base64');
+      
+      // Generate a cryptographically random state token for CSRF protection
+      const crypto = await import('crypto');
+      const randomToken = crypto.randomBytes(32).toString('hex');
+      const stateData = { userId, token: randomToken };
+      const state = Buffer.from(JSON.stringify(stateData)).toString('base64');
+      
+      // Store the token in session for validation on callback
+      (req.session as any).oauthState = randomToken;
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
       
       const authUrl = getAuthUrl(redirectUri, state);
       res.json({ authUrl });
@@ -4440,9 +4454,24 @@ Remember: Always be specific about WHERE to click (sidebar, button names, tabs) 
         return res.redirect('/email?error=missing_params');
       }
       
-      const stateData = JSON.parse(Buffer.from(state as string, 'base64').toString());
-      const userId = stateData.userId;
+      // Parse state and validate CSRF token
+      let stateData: { userId: number; token: string };
+      try {
+        stateData = JSON.parse(Buffer.from(state as string, 'base64').toString());
+      } catch {
+        return res.redirect('/email?error=invalid_state');
+      }
       
+      const sessionToken = (req.session as any)?.oauthState;
+      if (!sessionToken || sessionToken !== stateData.token) {
+        console.error('CSRF token mismatch - possible attack attempt');
+        return res.redirect('/email?error=invalid_state');
+      }
+      
+      // Clear the state token from session
+      delete (req.session as any).oauthState;
+      
+      const userId = stateData.userId;
       const protocol = req.headers['x-forwarded-proto'] || 'https';
       const host = req.headers['x-forwarded-host'] || req.headers.host;
       const redirectUri = `${protocol}://${host}/api/gmail/callback`;
@@ -4479,17 +4508,17 @@ Remember: Always be specific about WHERE to click (sidebar, button names, tabs) 
     try {
       const userId = getCurrentUserId(req);
       const maxResults = parseInt(req.query.maxResults as string) || 20;
+      const label = (req.query.label as string || 'INBOX') as 'INBOX' | 'SENT' | 'UNREAD';
       
       // Try user's OAuth connection first
       const tokens = await getUserGmailTokens(userId);
       if (tokens?.gmailAccessToken) {
-        const emails = await getEmailsWithUserAccount(userId, maxResults);
+        const emails = await getEmailsWithUserAccount(userId, maxResults, label);
         res.json(emails);
         return;
       }
       
       // Fall back to Replit connector
-      const label = req.query.label as string || 'INBOX';
       const labelIds = label === 'UNREAD' ? ['INBOX', 'UNREAD'] : [label];
       const emails = await listEmails(maxResults, labelIds);
       res.json(emails);
