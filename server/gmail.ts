@@ -2,13 +2,25 @@
 import { google } from 'googleapis';
 
 let connectionSettings: any;
+let tokenExpiresAt: number = 0;
 
 async function getAccessToken() {
-  if (connectionSettings && connectionSettings.settings.expires_at && new Date(connectionSettings.settings.expires_at).getTime() > Date.now()) {
-    return connectionSettings.settings.access_token;
+  const now = Date.now();
+  const bufferMs = 60000; // 1 minute buffer before expiry
+  
+  if (connectionSettings && tokenExpiresAt > now + bufferMs) {
+    const cachedToken = connectionSettings?.settings?.access_token || 
+                        connectionSettings?.settings?.oauth?.credentials?.access_token;
+    if (cachedToken) {
+      return cachedToken;
+    }
   }
   
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
+  if (!hostname) {
+    throw new Error('Gmail integration not configured. Please set up the Gmail connector.');
+  }
+  
   const xReplitToken = process.env.REPL_IDENTITY 
     ? 'repl ' + process.env.REPL_IDENTITY 
     : process.env.WEB_REPL_RENEWAL 
@@ -16,24 +28,47 @@ async function getAccessToken() {
     : null;
 
   if (!xReplitToken) {
-    throw new Error('X_REPLIT_TOKEN not found for repl/depl');
+    throw new Error('Gmail authentication token not available. Please ensure the Gmail connector is properly configured.');
   }
 
-  connectionSettings = await fetch(
-    'https://' + hostname + '/api/v2/connection?include_secrets=true&connector_names=google-mail',
-    {
-      headers: {
-        'Accept': 'application/json',
-        'X_REPLIT_TOKEN': xReplitToken
+  try {
+    const response = await fetch(
+      'https://' + hostname + '/api/v2/connection?include_secrets=true&connector_names=google-mail',
+      {
+        headers: {
+          'Accept': 'application/json',
+          'X_REPLIT_TOKEN': xReplitToken
+        }
       }
+    );
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch Gmail connection settings');
     }
-  ).then(res => res.json()).then(data => data.items?.[0]);
+    
+    const data = await response.json();
+    connectionSettings = data.items?.[0];
+  } catch (error) {
+    connectionSettings = null;
+    tokenExpiresAt = 0;
+    throw new Error('Unable to connect to Gmail. Please check your Gmail integration setup.');
+  }
 
-  const accessToken = connectionSettings?.settings?.access_token || connectionSettings.settings?.oauth?.credentials?.access_token;
+  const accessToken = connectionSettings?.settings?.access_token || 
+                      connectionSettings?.settings?.oauth?.credentials?.access_token;
 
   if (!connectionSettings || !accessToken) {
-    throw new Error('Gmail not connected');
+    throw new Error('Gmail not connected. Please connect your Gmail account in the integrations panel.');
   }
+  
+  // Set expiry time
+  if (connectionSettings?.settings?.expires_at) {
+    tokenExpiresAt = new Date(connectionSettings.settings.expires_at).getTime();
+  } else {
+    // Default to 1 hour from now if no expiry provided
+    tokenExpiresAt = now + 3600000;
+  }
+  
   return accessToken;
 }
 

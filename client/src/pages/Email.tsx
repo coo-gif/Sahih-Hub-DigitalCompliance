@@ -154,22 +154,22 @@ export default function Email() {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as typeof activeTab); setSelectedEmailId(null); }}>
+      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as typeof activeTab); setSelectedEmailId(null); }} data-testid="tabs-email">
         <TabsList>
-          <TabsTrigger value="INBOX" className="flex items-center gap-2">
+          <TabsTrigger value="INBOX" className="flex items-center gap-2" data-testid="tab-inbox">
             <Inbox className="w-4 h-4" />
             Inbox
           </TabsTrigger>
-          <TabsTrigger value="UNREAD" className="flex items-center gap-2">
+          <TabsTrigger value="UNREAD" className="flex items-center gap-2" data-testid="tab-unread">
             <Circle className="w-3 h-3 fill-primary text-primary" />
             Unread
             {unreadData?.count ? (
-              <Badge variant="secondary" className="ml-1 h-5 px-1.5">
+              <Badge variant="secondary" className="ml-1 h-5 px-1.5" data-testid="badge-unread-count">
                 {unreadData.count}
               </Badge>
             ) : null}
           </TabsTrigger>
-          <TabsTrigger value="SENT" className="flex items-center gap-2">
+          <TabsTrigger value="SENT" className="flex items-center gap-2" data-testid="tab-sent">
             <Send className="w-4 h-4" />
             Sent
           </TabsTrigger>
