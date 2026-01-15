@@ -1923,7 +1923,20 @@ export async function registerRoutes(
         ]
       });
       const page = await browser.newPage();
-      await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+      
+      // Block all external network requests to prevent SSRF vulnerabilities
+      await page.setRequestInterception(true);
+      page.on('request', (request) => {
+        const url = request.url();
+        // Only allow data: URLs (for embedded base64 images like the logo)
+        if (url.startsWith('data:')) {
+          request.continue();
+        } else {
+          request.abort();
+        }
+      });
+      
+      await page.setContent(htmlContent, { waitUntil: 'domcontentloaded' });
       
       const pdfBuffer = await page.pdf({
         format: 'A4',
