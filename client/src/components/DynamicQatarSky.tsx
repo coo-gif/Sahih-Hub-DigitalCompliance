@@ -1,5 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
 
+// Qatar's geographical coordinates
+const QATAR_LAT = 25.2854; // degrees North
+const QATAR_LON = 51.5310; // degrees East
+
 interface NamedStar {
   name: string;
   arabicName?: string;
@@ -8,25 +12,173 @@ interface NamedStar {
   magnitude: number;
   distance: string;
   color: string;
+  ra: number;  // Right Ascension in hours (0-24)
+  dec: number; // Declination in degrees (-90 to +90)
 }
 
+// Real star catalog with accurate celestial coordinates (J2000 epoch)
 const NAMED_STARS: NamedStar[] = [
-  { name: "Sirius", arabicName: "الشعرى", constellation: "Canis Major", fact: "The brightest star in the night sky, known as the 'Dog Star'. Ancient Egyptians based their calendar on its rising.", magnitude: -1.46, distance: "8.6 light-years", color: "rgba(200, 220, 255, 1)" },
-  { name: "Canopus", arabicName: "سهيل", constellation: "Carina", fact: "The second brightest star. Named after the navigator of the Greek fleet in the Trojan War.", magnitude: -0.74, distance: "310 light-years", color: "rgba(255, 255, 240, 1)" },
-  { name: "Arcturus", arabicName: "السماك الرامح", constellation: "Boötes", fact: "An orange giant star, 25 times larger than our Sun. Its light was used to open the 1933 World's Fair.", magnitude: -0.05, distance: "37 light-years", color: "rgba(255, 200, 150, 1)" },
-  { name: "Vega", arabicName: "الواقع", constellation: "Lyra", fact: "Will be Earth's North Star in about 12,000 years. One of the first stars to be photographed.", magnitude: 0.03, distance: "25 light-years", color: "rgba(200, 220, 255, 1)" },
-  { name: "Capella", arabicName: "العيوق", constellation: "Auriga", fact: "Actually a system of 4 stars! The name means 'little she-goat' in Latin.", magnitude: 0.08, distance: "43 light-years", color: "rgba(255, 244, 234, 1)" },
-  { name: "Rigel", arabicName: "رجل الجبار", constellation: "Orion", fact: "A blue supergiant, about 120,000 times more luminous than our Sun. It marks Orion's left foot.", magnitude: 0.13, distance: "860 light-years", color: "rgba(180, 200, 255, 1)" },
-  { name: "Betelgeuse", arabicName: "إبط الجوزاء", constellation: "Orion", fact: "A red supergiant that could explode as a supernova anytime in the next million years!", magnitude: 0.42, distance: "700 light-years", color: "rgba(255, 150, 100, 1)" },
-  { name: "Aldebaran", arabicName: "الدبران", constellation: "Taurus", fact: "The 'Eye of the Bull' - an orange giant 44 times larger than our Sun.", magnitude: 0.85, distance: "65 light-years", color: "rgba(255, 180, 120, 1)" },
-  { name: "Antares", arabicName: "قلب العقرب", constellation: "Scorpius", fact: "Its name means 'rival of Mars' due to its red color. 700 times larger than our Sun!", magnitude: 0.96, distance: "550 light-years", color: "rgba(255, 100, 80, 1)" },
-  { name: "Spica", arabicName: "السماك الأعزل", constellation: "Virgo", fact: "A binary star system spinning so fast the stars are egg-shaped, not spherical.", magnitude: 0.97, distance: "250 light-years", color: "rgba(180, 200, 255, 1)" },
-  { name: "Polaris", arabicName: "نجم الشمال", constellation: "Ursa Minor", fact: "The current North Star! Ancient sailors used it for navigation. It's actually a triple star system.", magnitude: 1.98, distance: "433 light-years", color: "rgba(255, 255, 220, 1)" },
-  { name: "Deneb", arabicName: "ذنب الدجاجة", constellation: "Cygnus", fact: "One of the most luminous stars known - if placed where our Sun is, Earth would be vaporized!", magnitude: 1.25, distance: "2,600 light-years", color: "rgba(200, 220, 255, 1)" },
-  { name: "Fomalhaut", arabicName: "فم الحوت", constellation: "Piscis Austrinus", fact: "One of the first stars discovered to have an exoplanet. Called the 'Loneliest Star' due to its isolation.", magnitude: 1.16, distance: "25 light-years", color: "rgba(255, 255, 255, 1)" },
-  { name: "Altair", arabicName: "الطائر", constellation: "Aquila", fact: "Rotates so fast (once every 9 hours) that it's flattened at the poles. Part of the Summer Triangle.", magnitude: 0.76, distance: "17 light-years", color: "rgba(255, 255, 240, 1)" },
-  { name: "Regulus", arabicName: "قلب الأسد", constellation: "Leo", fact: "The 'Heart of the Lion' - spins so fast it's nearly tearing itself apart!", magnitude: 1.40, distance: "79 light-years", color: "rgba(180, 200, 255, 1)" },
+  { name: "Sirius", arabicName: "الشعرى", constellation: "Canis Major", fact: "The brightest star in the night sky, known as the 'Dog Star'. Ancient Egyptians based their calendar on its rising.", magnitude: -1.46, distance: "8.6 light-years", color: "rgba(200, 220, 255, 1)", ra: 6.7525, dec: -16.7161 },
+  { name: "Canopus", arabicName: "سهيل", constellation: "Carina", fact: "The second brightest star. Named after the navigator of the Greek fleet in the Trojan War.", magnitude: -0.74, distance: "310 light-years", color: "rgba(255, 255, 240, 1)", ra: 6.3992, dec: -52.6956 },
+  { name: "Arcturus", arabicName: "السماك الرامح", constellation: "Boötes", fact: "An orange giant star, 25 times larger than our Sun. Its light was used to open the 1933 World's Fair.", magnitude: -0.05, distance: "37 light-years", color: "rgba(255, 200, 150, 1)", ra: 14.2611, dec: 19.1822 },
+  { name: "Vega", arabicName: "الواقع", constellation: "Lyra", fact: "Will be Earth's North Star in about 12,000 years. One of the first stars to be photographed.", magnitude: 0.03, distance: "25 light-years", color: "rgba(200, 220, 255, 1)", ra: 18.6156, dec: 38.7836 },
+  { name: "Capella", arabicName: "العيوق", constellation: "Auriga", fact: "Actually a system of 4 stars! The name means 'little she-goat' in Latin.", magnitude: 0.08, distance: "43 light-years", color: "rgba(255, 244, 234, 1)", ra: 5.2783, dec: 45.9981 },
+  { name: "Rigel", arabicName: "رجل الجبار", constellation: "Orion", fact: "A blue supergiant, about 120,000 times more luminous than our Sun. It marks Orion's left foot.", magnitude: 0.13, distance: "860 light-years", color: "rgba(180, 200, 255, 1)", ra: 5.2422, dec: -8.2017 },
+  { name: "Betelgeuse", arabicName: "إبط الجوزاء", constellation: "Orion", fact: "A red supergiant that could explode as a supernova anytime in the next million years!", magnitude: 0.42, distance: "700 light-years", color: "rgba(255, 150, 100, 1)", ra: 5.9194, dec: 7.4069 },
+  { name: "Aldebaran", arabicName: "الدبران", constellation: "Taurus", fact: "The 'Eye of the Bull' - an orange giant 44 times larger than our Sun.", magnitude: 0.85, distance: "65 light-years", color: "rgba(255, 180, 120, 1)", ra: 4.5989, dec: 16.5092 },
+  { name: "Antares", arabicName: "قلب العقرب", constellation: "Scorpius", fact: "Its name means 'rival of Mars' due to its red color. 700 times larger than our Sun!", magnitude: 0.96, distance: "550 light-years", color: "rgba(255, 100, 80, 1)", ra: 16.4903, dec: -26.4319 },
+  { name: "Spica", arabicName: "السماك الأعزل", constellation: "Virgo", fact: "A binary star system spinning so fast the stars are egg-shaped, not spherical.", magnitude: 0.97, distance: "250 light-years", color: "rgba(180, 200, 255, 1)", ra: 13.4197, dec: -11.1614 },
+  { name: "Polaris", arabicName: "نجم الشمال", constellation: "Ursa Minor", fact: "The current North Star! Ancient sailors used it for navigation. It's actually a triple star system.", magnitude: 1.98, distance: "433 light-years", color: "rgba(255, 255, 220, 1)", ra: 2.5303, dec: 89.2641 },
+  { name: "Deneb", arabicName: "ذنب الدجاجة", constellation: "Cygnus", fact: "One of the most luminous stars known - if placed where our Sun is, Earth would be vaporized!", magnitude: 1.25, distance: "2,600 light-years", color: "rgba(200, 220, 255, 1)", ra: 20.6903, dec: 45.2803 },
+  { name: "Fomalhaut", arabicName: "فم الحوت", constellation: "Piscis Austrinus", fact: "One of the first stars discovered to have an exoplanet. Called the 'Loneliest Star' due to its isolation.", magnitude: 1.16, distance: "25 light-years", color: "rgba(255, 255, 255, 1)", ra: 22.9603, dec: -29.6222 },
+  { name: "Altair", arabicName: "الطائر", constellation: "Aquila", fact: "Rotates so fast (once every 9 hours) that it's flattened at the poles. Part of the Summer Triangle.", magnitude: 0.76, distance: "17 light-years", color: "rgba(255, 255, 240, 1)", ra: 19.8464, dec: 8.8683 },
+  { name: "Regulus", arabicName: "قلب الأسد", constellation: "Leo", fact: "The 'Heart of the Lion' - spins so fast it's nearly tearing itself apart!", magnitude: 1.40, distance: "79 light-years", color: "rgba(180, 200, 255, 1)", ra: 10.1394, dec: 11.9672 },
+  { name: "Procyon", arabicName: "الشعرى الشامية", constellation: "Canis Minor", fact: "The 'Little Dog Star' - 8th brightest star. It will become a white dwarf in about 10 million years.", magnitude: 0.34, distance: "11.5 light-years", color: "rgba(255, 255, 240, 1)", ra: 7.6553, dec: 5.2250 },
+  { name: "Achernar", arabicName: "آخر النهر", constellation: "Eridanus", fact: "One of the flattest stars known - spins so fast it's 56% wider at the equator!", magnitude: 0.46, distance: "139 light-years", color: "rgba(180, 200, 255, 1)", ra: 1.6286, dec: -57.2367 },
+  { name: "Hadar", arabicName: "حضار", constellation: "Centaurus", fact: "Also called Beta Centauri - a triple star system 390 light-years away.", magnitude: 0.61, distance: "390 light-years", color: "rgba(180, 200, 255, 1)", ra: 14.0636, dec: -60.3731 },
+  { name: "Acrux", arabicName: "نجم الصليب", constellation: "Crux", fact: "The brightest star in the Southern Cross, visible from Qatar near the southern horizon.", magnitude: 0.76, distance: "320 light-years", color: "rgba(180, 200, 255, 1)", ra: 12.4433, dec: -63.0992 },
+  { name: "Pollux", arabicName: "رأس التوأم المؤخر", constellation: "Gemini", fact: "The brightest star in Gemini and the closest giant star to the Sun. Has an exoplanet!", magnitude: 1.14, distance: "34 light-years", color: "rgba(255, 200, 150, 1)", ra: 7.7553, dec: 28.0261 },
 ];
+
+// Astronomical calculation functions
+const toRadians = (degrees: number): number => degrees * Math.PI / 180;
+const toDegrees = (radians: number): number => radians * 180 / Math.PI;
+
+// Calculate Julian Date from a JavaScript Date
+const getJulianDate = (date: Date): number => {
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth() + 1;
+  const day = date.getUTCDate();
+  const hour = date.getUTCHours();
+  const minute = date.getUTCMinutes();
+  const second = date.getUTCSeconds();
+  
+  let y = year;
+  let m = month;
+  if (m <= 2) {
+    y -= 1;
+    m += 12;
+  }
+  
+  const A = Math.floor(y / 100);
+  const B = 2 - A + Math.floor(A / 4);
+  
+  const JD = Math.floor(365.25 * (y + 4716)) + 
+             Math.floor(30.6001 * (m + 1)) + 
+             day + B - 1524.5 +
+             (hour + minute / 60 + second / 3600) / 24;
+  
+  return JD;
+};
+
+// Calculate Local Sidereal Time in degrees
+const getLocalSiderealTime = (jd: number, longitude: number): number => {
+  const T = (jd - 2451545.0) / 36525.0;
+  
+  // Greenwich Mean Sidereal Time in degrees
+  let GMST = 280.46061837 + 
+             360.98564736629 * (jd - 2451545.0) +
+             0.000387933 * T * T -
+             T * T * T / 38710000.0;
+  
+  // Normalize to 0-360
+  GMST = GMST % 360;
+  if (GMST < 0) GMST += 360;
+  
+  // Local Sidereal Time
+  let LST = GMST + longitude;
+  LST = LST % 360;
+  if (LST < 0) LST += 360;
+  
+  return LST;
+};
+
+// Convert RA/Dec to Altitude/Azimuth for a given location and time
+const raDecToAltAz = (
+  ra: number,      // Right Ascension in hours
+  dec: number,     // Declination in degrees
+  lat: number,     // Observer latitude in degrees
+  lst: number      // Local Sidereal Time in degrees
+): { altitude: number; azimuth: number } => {
+  // Convert RA from hours to degrees
+  const raDeg = ra * 15;
+  
+  // Hour Angle in degrees
+  let ha = lst - raDeg;
+  if (ha < 0) ha += 360;
+  if (ha > 180) ha -= 360;
+  
+  // Convert to radians
+  const haRad = toRadians(ha);
+  const decRad = toRadians(dec);
+  const latRad = toRadians(lat);
+  
+  // Calculate altitude
+  const sinAlt = Math.sin(decRad) * Math.sin(latRad) + 
+                 Math.cos(decRad) * Math.cos(latRad) * Math.cos(haRad);
+  const altitude = toDegrees(Math.asin(sinAlt));
+  
+  // Calculate azimuth
+  const cosAz = (Math.sin(decRad) - Math.sin(latRad) * sinAlt) / 
+                (Math.cos(latRad) * Math.cos(toRadians(altitude)));
+  let azimuth = toDegrees(Math.acos(Math.max(-1, Math.min(1, cosAz))));
+  
+  // Correct azimuth for quadrant
+  if (Math.sin(haRad) > 0) {
+    azimuth = 360 - azimuth;
+  }
+  
+  return { altitude, azimuth };
+};
+
+// Convert altitude/azimuth to screen coordinates using stereographic projection
+// This is astronomically correct - preserves angular relationships
+// View: Looking south with zenith at top center, horizon at bottom
+const altAzToScreen = (
+  altitude: number,  // degrees above horizon (0-90)
+  azimuth: number    // degrees from North clockwise (0-360)
+): { x: number; y: number; visible: boolean } => {
+  // Star must be above horizon to be visible
+  if (altitude < 0) {
+    return { x: 0, y: 0, visible: false };
+  }
+  
+  // Use stereographic projection (preserves shapes and angles)
+  // Convert to radians
+  const altRad = toRadians(altitude);
+  const azRad = toRadians(azimuth);
+  
+  // Stereographic projection from zenith
+  // r = distance from center (zenith), ranging from 0 (zenith) to 1 (horizon)
+  const zenithAngle = toRadians(90 - altitude);
+  const r = Math.tan(zenithAngle / 2);
+  
+  // Normalize r so horizon (alt=0) maps to edge of visible area
+  // tan(45°) = 1, so horizon maps to r=1
+  const rNormalized = Math.min(r, 1);
+  
+  // Convert polar to Cartesian
+  // Azimuth: 0° = North (up), 90° = East (right), 180° = South (down), 270° = West (left)
+  // For south-facing view, rotate so South (180°) is at bottom
+  const viewAz = azRad - Math.PI; // Rotate so South is at 0
+  
+  // x: East is positive (right), West is negative (left)
+  // y: zenith at top, horizon at bottom
+  const xNorm = rNormalized * Math.sin(viewAz);
+  const yNorm = rNormalized * Math.cos(viewAz);
+  
+  // Map to screen coordinates (0-100%)
+  // Center is at (50, 30) to give more sky view
+  const x = 50 + xNorm * 45; // Scale to use 90% of width
+  const y = 30 + yNorm * 60; // Scale to use more vertical space
+  
+  // Check if within visible screen bounds
+  if (x < 0 || x > 100 || y < 0 || y > 100) {
+    return { x: 0, y: 0, visible: false };
+  }
+  
+  return { x, y, visible: true };
+};
 
 interface StarData {
   id: number;
@@ -205,54 +357,52 @@ export function DynamicQatarSky() {
     }
   }, [qatarTime]);
   
+  // Calculate star positions based on current Qatar time - updates every minute
   const stars = useMemo(() => {
     const starList: StarData[] = [];
     
-    // Named stars at fixed positions (these are the clickable ones)
-    const namedStarPositions = [
-      { x: 15, y: 8 },   // Polaris (North Star - top)
-      { x: 72, y: 12 },  // Sirius
-      { x: 28, y: 18 },  // Vega
-      { x: 85, y: 22 },  // Canopus
-      { x: 42, y: 15 },  // Arcturus
-      { x: 58, y: 28 },  // Capella
-      { x: 35, y: 35 },  // Rigel
-      { x: 78, y: 38 },  // Betelgeuse
-      { x: 12, y: 42 },  // Aldebaran
-      { x: 92, y: 8 },   // Antares
-      { x: 48, y: 45 },  // Spica
-      { x: 65, y: 5 },   // Deneb
-      { x: 22, y: 52 },  // Fomalhaut
-      { x: 55, y: 18 },  // Altair
-      { x: 38, y: 8 },   // Regulus
-    ];
+    // Calculate Julian Date and Local Sidereal Time for Qatar
+    const jd = getJulianDate(qatarTime);
+    const lst = getLocalSiderealTime(jd, QATAR_LON);
     
-    // Add named stars first (bright, clickable)
+    // Add named stars with astronomically calculated positions
     NAMED_STARS.forEach((namedStar, index) => {
-      const pos = namedStarPositions[index];
-      starList.push({
-        id: index,
-        x: pos.x,
-        y: pos.y,
-        size: 3.5 + (1.5 - namedStar.magnitude) * 0.5, // Brighter = larger
-        brightness: 0.9,
-        twinkleSpeed: 2,
-        twinkleDelay: index * 0.3,
-        color: namedStar.color,
-        namedStar: namedStar,
-      });
+      const { altitude, azimuth } = raDecToAltAz(namedStar.ra, namedStar.dec, QATAR_LAT, lst);
+      const { x, y, visible } = altAzToScreen(altitude, azimuth);
+      
+      if (visible) {
+        starList.push({
+          id: index,
+          x,
+          y,
+          size: 3.5 + (1.5 - namedStar.magnitude) * 0.8, // Brighter = larger
+          brightness: 0.9,
+          twinkleSpeed: 2,
+          twinkleDelay: index * 0.3,
+          color: namedStar.color,
+          namedStar: namedStar,
+        });
+      }
     });
+    
+    // Generate background stars with semi-random but consistent positions
+    // Using a seeded approach so they don't jump around on re-render
+    const seed = Math.floor(qatarTime.getTime() / 3600000); // Changes every hour
+    const pseudoRandom = (i: number): number => {
+      const x = Math.sin(seed + i * 12.9898) * 43758.5453;
+      return x - Math.floor(x);
+    };
     
     // Dim background stars
     for (let i = NAMED_STARS.length; i < 200 + NAMED_STARS.length; i++) {
       starList.push({
         id: i,
-        x: Math.random() * 100,
-        y: Math.random() * 100,
-        size: Math.random() * 1 + 0.5,
-        brightness: Math.random() * 0.3 + 0.2,
-        twinkleSpeed: Math.random() * 4 + 3,
-        twinkleDelay: Math.random() * 5,
+        x: pseudoRandom(i) * 100,
+        y: pseudoRandom(i + 1000) * 100,
+        size: pseudoRandom(i + 2000) * 1 + 0.5,
+        brightness: pseudoRandom(i + 3000) * 0.3 + 0.2,
+        twinkleSpeed: pseudoRandom(i + 4000) * 4 + 3,
+        twinkleDelay: pseudoRandom(i + 5000) * 5,
         color: 'rgba(255, 255, 255, 0.6)',
       });
     }
@@ -261,12 +411,12 @@ export function DynamicQatarSky() {
     for (let i = 200 + NAMED_STARS.length; i < 280 + NAMED_STARS.length; i++) {
       starList.push({
         id: i,
-        x: Math.random() * 100,
-        y: Math.random() * 100,
-        size: Math.random() * 1.5 + 1,
-        brightness: Math.random() * 0.4 + 0.4,
-        twinkleSpeed: Math.random() * 3 + 2,
-        twinkleDelay: Math.random() * 4,
+        x: pseudoRandom(i) * 100,
+        y: pseudoRandom(i + 1000) * 100,
+        size: pseudoRandom(i + 2000) * 1.5 + 1,
+        brightness: pseudoRandom(i + 3000) * 0.4 + 0.4,
+        twinkleSpeed: pseudoRandom(i + 4000) * 3 + 2,
+        twinkleDelay: pseudoRandom(i + 5000) * 4,
         color: getStarColor(),
       });
     }
@@ -275,18 +425,18 @@ export function DynamicQatarSky() {
     for (let i = 280 + NAMED_STARS.length; i < 300 + NAMED_STARS.length; i++) {
       starList.push({
         id: i,
-        x: Math.random() * 100,
-        y: Math.random() * 100,
-        size: Math.random() * 2 + 2,
-        brightness: Math.random() * 0.3 + 0.7,
-        twinkleSpeed: Math.random() * 2 + 1.5,
-        twinkleDelay: Math.random() * 3,
+        x: pseudoRandom(i) * 100,
+        y: pseudoRandom(i + 1000) * 100,
+        size: pseudoRandom(i + 2000) * 2 + 2,
+        brightness: pseudoRandom(i + 3000) * 0.3 + 0.7,
+        twinkleSpeed: pseudoRandom(i + 4000) * 2 + 1.5,
+        twinkleDelay: pseudoRandom(i + 5000) * 3,
         color: getStarColor(),
       });
     }
     
     return starList;
-  }, []);
+  }, [qatarTime]);
   
   const planets = useMemo((): PlanetData[] => {
     const hour = qatarTime.getHours();
@@ -529,6 +679,8 @@ export function DynamicQatarSky() {
         Qatar Time: {qatarTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}
         <span className="mx-1">|</span>
         <span className="capitalize">{timeOfDay.replace('_', ' ')}</span>
+        <span className="mx-1">|</span>
+        <span className="text-amber-300/70">Astronomically Accurate Sky</span>
       </div>
       
       {/* Star Information Popup */}
