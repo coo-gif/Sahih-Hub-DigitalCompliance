@@ -1,5 +1,33 @@
 import { useState, useEffect, useMemo } from "react";
 
+interface NamedStar {
+  name: string;
+  arabicName?: string;
+  constellation: string;
+  fact: string;
+  magnitude: number;
+  distance: string;
+  color: string;
+}
+
+const NAMED_STARS: NamedStar[] = [
+  { name: "Sirius", arabicName: "الشعرى", constellation: "Canis Major", fact: "The brightest star in the night sky, known as the 'Dog Star'. Ancient Egyptians based their calendar on its rising.", magnitude: -1.46, distance: "8.6 light-years", color: "rgba(200, 220, 255, 1)" },
+  { name: "Canopus", arabicName: "سهيل", constellation: "Carina", fact: "The second brightest star. Named after the navigator of the Greek fleet in the Trojan War.", magnitude: -0.74, distance: "310 light-years", color: "rgba(255, 255, 240, 1)" },
+  { name: "Arcturus", arabicName: "السماك الرامح", constellation: "Boötes", fact: "An orange giant star, 25 times larger than our Sun. Its light was used to open the 1933 World's Fair.", magnitude: -0.05, distance: "37 light-years", color: "rgba(255, 200, 150, 1)" },
+  { name: "Vega", arabicName: "الواقع", constellation: "Lyra", fact: "Will be Earth's North Star in about 12,000 years. One of the first stars to be photographed.", magnitude: 0.03, distance: "25 light-years", color: "rgba(200, 220, 255, 1)" },
+  { name: "Capella", arabicName: "العيوق", constellation: "Auriga", fact: "Actually a system of 4 stars! The name means 'little she-goat' in Latin.", magnitude: 0.08, distance: "43 light-years", color: "rgba(255, 244, 234, 1)" },
+  { name: "Rigel", arabicName: "رجل الجبار", constellation: "Orion", fact: "A blue supergiant, about 120,000 times more luminous than our Sun. It marks Orion's left foot.", magnitude: 0.13, distance: "860 light-years", color: "rgba(180, 200, 255, 1)" },
+  { name: "Betelgeuse", arabicName: "إبط الجوزاء", constellation: "Orion", fact: "A red supergiant that could explode as a supernova anytime in the next million years!", magnitude: 0.42, distance: "700 light-years", color: "rgba(255, 150, 100, 1)" },
+  { name: "Aldebaran", arabicName: "الدبران", constellation: "Taurus", fact: "The 'Eye of the Bull' - an orange giant 44 times larger than our Sun.", magnitude: 0.85, distance: "65 light-years", color: "rgba(255, 180, 120, 1)" },
+  { name: "Antares", arabicName: "قلب العقرب", constellation: "Scorpius", fact: "Its name means 'rival of Mars' due to its red color. 700 times larger than our Sun!", magnitude: 0.96, distance: "550 light-years", color: "rgba(255, 100, 80, 1)" },
+  { name: "Spica", arabicName: "السماك الأعزل", constellation: "Virgo", fact: "A binary star system spinning so fast the stars are egg-shaped, not spherical.", magnitude: 0.97, distance: "250 light-years", color: "rgba(180, 200, 255, 1)" },
+  { name: "Polaris", arabicName: "نجم الشمال", constellation: "Ursa Minor", fact: "The current North Star! Ancient sailors used it for navigation. It's actually a triple star system.", magnitude: 1.98, distance: "433 light-years", color: "rgba(255, 255, 220, 1)" },
+  { name: "Deneb", arabicName: "ذنب الدجاجة", constellation: "Cygnus", fact: "One of the most luminous stars known - if placed where our Sun is, Earth would be vaporized!", magnitude: 1.25, distance: "2,600 light-years", color: "rgba(200, 220, 255, 1)" },
+  { name: "Fomalhaut", arabicName: "فم الحوت", constellation: "Piscis Austrinus", fact: "One of the first stars discovered to have an exoplanet. Called the 'Loneliest Star' due to its isolation.", magnitude: 1.16, distance: "25 light-years", color: "rgba(255, 255, 255, 1)" },
+  { name: "Altair", arabicName: "الطائر", constellation: "Aquila", fact: "Rotates so fast (once every 9 hours) that it's flattened at the poles. Part of the Summer Triangle.", magnitude: 0.76, distance: "17 light-years", color: "rgba(255, 255, 240, 1)" },
+  { name: "Regulus", arabicName: "قلب الأسد", constellation: "Leo", fact: "The 'Heart of the Lion' - spins so fast it's nearly tearing itself apart!", magnitude: 1.40, distance: "79 light-years", color: "rgba(180, 200, 255, 1)" },
+];
+
 interface StarData {
   id: number;
   x: number;
@@ -9,6 +37,7 @@ interface StarData {
   twinkleSpeed: number;
   twinkleDelay: number;
   color: string;
+  namedStar?: NamedStar;
 }
 
 interface PlanetData {
@@ -144,6 +173,7 @@ const getMoonPosition = (hour: number): { x: number; y: number; visible: boolean
 export function DynamicQatarSky() {
   const [qatarTime, setQatarTime] = useState(getQatarTime());
   const [meteorShower, setMeteorShower] = useState<MeteorData[]>([]);
+  const [selectedStar, setSelectedStar] = useState<{star: NamedStar, x: number, y: number} | null>(null);
   
   useEffect(() => {
     const interval = setInterval(() => {
@@ -178,7 +208,43 @@ export function DynamicQatarSky() {
   const stars = useMemo(() => {
     const starList: StarData[] = [];
     
-    for (let i = 0; i < 200; i++) {
+    // Named stars at fixed positions (these are the clickable ones)
+    const namedStarPositions = [
+      { x: 15, y: 8 },   // Polaris (North Star - top)
+      { x: 72, y: 12 },  // Sirius
+      { x: 28, y: 18 },  // Vega
+      { x: 85, y: 22 },  // Canopus
+      { x: 42, y: 15 },  // Arcturus
+      { x: 58, y: 28 },  // Capella
+      { x: 35, y: 35 },  // Rigel
+      { x: 78, y: 38 },  // Betelgeuse
+      { x: 12, y: 42 },  // Aldebaran
+      { x: 92, y: 8 },   // Antares
+      { x: 48, y: 45 },  // Spica
+      { x: 65, y: 5 },   // Deneb
+      { x: 22, y: 52 },  // Fomalhaut
+      { x: 55, y: 18 },  // Altair
+      { x: 38, y: 8 },   // Regulus
+    ];
+    
+    // Add named stars first (bright, clickable)
+    NAMED_STARS.forEach((namedStar, index) => {
+      const pos = namedStarPositions[index];
+      starList.push({
+        id: index,
+        x: pos.x,
+        y: pos.y,
+        size: 3.5 + (1.5 - namedStar.magnitude) * 0.5, // Brighter = larger
+        brightness: 0.9,
+        twinkleSpeed: 2,
+        twinkleDelay: index * 0.3,
+        color: namedStar.color,
+        namedStar: namedStar,
+      });
+    });
+    
+    // Dim background stars
+    for (let i = NAMED_STARS.length; i < 200 + NAMED_STARS.length; i++) {
       starList.push({
         id: i,
         x: Math.random() * 100,
@@ -191,7 +257,8 @@ export function DynamicQatarSky() {
       });
     }
     
-    for (let i = 200; i < 280; i++) {
+    // Medium brightness stars
+    for (let i = 200 + NAMED_STARS.length; i < 280 + NAMED_STARS.length; i++) {
       starList.push({
         id: i,
         x: Math.random() * 100,
@@ -204,7 +271,8 @@ export function DynamicQatarSky() {
       });
     }
     
-    for (let i = 280; i < 300; i++) {
+    // Bright unnamed stars
+    for (let i = 280 + NAMED_STARS.length; i < 300 + NAMED_STARS.length; i++) {
       starList.push({
         id: i,
         x: Math.random() * 100,
@@ -381,7 +449,14 @@ export function DynamicQatarSky() {
           {stars.map((star) => (
             <div
               key={star.id}
-              className="absolute rounded-full"
+              className={`absolute rounded-full ${star.namedStar ? 'cursor-pointer hover:scale-150 transition-transform duration-200' : ''}`}
+              onClick={(e) => {
+                if (star.namedStar) {
+                  e.stopPropagation();
+                  setSelectedStar({ star: star.namedStar, x: star.x, y: star.y });
+                }
+              }}
+              data-testid={star.namedStar ? `star-${star.namedStar.name.toLowerCase()}` : undefined}
               style={{
                 left: `${star.x}%`,
                 top: `${star.y}%`,
@@ -392,9 +467,12 @@ export function DynamicQatarSky() {
                 animation: star.size > 2.5 
                   ? `twinkle ${star.twinkleSpeed}s ease-in-out ${star.twinkleDelay}s infinite, glow ${star.twinkleSpeed * 1.5}s ease-in-out ${star.twinkleDelay}s infinite`
                   : `twinkle ${star.twinkleSpeed}s ease-in-out ${star.twinkleDelay}s infinite`,
-                boxShadow: star.size > 1.5 
-                  ? `0 0 ${star.size}px ${star.color.replace('1)', '0.5)')}`
-                  : 'none',
+                boxShadow: star.namedStar 
+                  ? `0 0 ${star.size * 2}px ${star.color}, 0 0 ${star.size * 4}px ${star.color.replace('1)', '0.5)')}`
+                  : star.size > 1.5 
+                    ? `0 0 ${star.size}px ${star.color.replace('1)', '0.5)')}`
+                    : 'none',
+                zIndex: star.namedStar ? 10 : 1,
               } as React.CSSProperties}
             />
           ))}
@@ -452,6 +530,89 @@ export function DynamicQatarSky() {
         <span className="mx-1">|</span>
         <span className="capitalize">{timeOfDay.replace('_', ' ')}</span>
       </div>
+      
+      {/* Star Information Popup */}
+      {selectedStar && (
+        <div 
+          className="fixed inset-0 z-[100]"
+          onClick={() => setSelectedStar(null)}
+        >
+          <div 
+            className="absolute z-[101] max-w-xs animate-in fade-in zoom-in-95 duration-200"
+            style={{
+              left: `${Math.min(Math.max(selectedStar.x, 15), 75)}%`,
+              top: `${Math.min(Math.max(selectedStar.y + 5, 10), 60)}%`,
+              transform: 'translateX(-50%)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div 
+              className="rounded-xl p-4 backdrop-blur-md border shadow-2xl"
+              style={{
+                background: 'linear-gradient(135deg, rgba(10, 10, 30, 0.95) 0%, rgba(20, 20, 50, 0.95) 100%)',
+                borderColor: selectedStar.star.color.replace('1)', '0.5)'),
+                boxShadow: `0 0 30px ${selectedStar.star.color.replace('1)', '0.3)')}, 0 10px 40px rgba(0,0,0,0.5)`,
+              }}
+            >
+              {/* Header with star glow */}
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <div className="flex items-center gap-3">
+                  <div 
+                    className="w-4 h-4 rounded-full animate-pulse"
+                    style={{ 
+                      backgroundColor: selectedStar.star.color,
+                      boxShadow: `0 0 10px ${selectedStar.star.color}, 0 0 20px ${selectedStar.star.color.replace('1)', '0.5)')}`,
+                    }}
+                  />
+                  <div>
+                    <h3 className="text-lg font-bold text-white">{selectedStar.star.name}</h3>
+                    {selectedStar.star.arabicName && (
+                      <p className="text-sm" style={{ color: selectedStar.star.color }}>{selectedStar.star.arabicName}</p>
+                    )}
+                  </div>
+                </div>
+                <button 
+                  className="text-white/50 hover:text-white transition-colors text-xl leading-none"
+                  onClick={() => setSelectedStar(null)}
+                  data-testid="button-close-star-info"
+                >
+                  ×
+                </button>
+              </div>
+              
+              {/* Constellation */}
+              <div className="text-xs text-amber-200/80 mb-2">
+                Constellation: <span className="text-amber-100">{selectedStar.star.constellation}</span>
+              </div>
+              
+              {/* Stats */}
+              <div className="flex gap-4 mb-3 text-xs">
+                <div>
+                  <span className="text-white/50">Magnitude:</span>
+                  <span className="text-white ml-1">{selectedStar.star.magnitude}</span>
+                </div>
+                <div>
+                  <span className="text-white/50">Distance:</span>
+                  <span className="text-white ml-1">{selectedStar.star.distance}</span>
+                </div>
+              </div>
+              
+              {/* Divider */}
+              <div className="h-px bg-gradient-to-r from-transparent via-white/20 to-transparent mb-3" />
+              
+              {/* Fun Fact */}
+              <div className="text-sm text-white/90 leading-relaxed">
+                {selectedStar.star.fact}
+              </div>
+              
+              {/* Tap hint */}
+              <p className="text-[10px] text-white/30 mt-3 text-center">
+                Tap anywhere to close
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
