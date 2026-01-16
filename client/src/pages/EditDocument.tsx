@@ -251,10 +251,50 @@ export default function EditDocument() {
               {/* Document Content */}
               <div 
                 className="prose prose-base max-w-none document-content"
+                style={{
+                  color: '#000',
+                }}
                 dangerouslySetInnerHTML={{ 
                   __html: DOMPurify.sanitize(formData.content || '<p class="text-gray-400 italic">No content yet</p>') 
                 }}
               />
+              <style>{`
+                .document-content table {
+                  width: 100%;
+                  border-collapse: collapse;
+                  margin: 1rem 0;
+                  font-size: 12px;
+                  table-layout: fixed;
+                }
+                .document-content th,
+                .document-content td {
+                  border: 1px solid #333;
+                  padding: 8px 10px;
+                  text-align: left;
+                  vertical-align: top;
+                  word-wrap: break-word;
+                }
+                .document-content th {
+                  background-color: #f5f5f5;
+                  font-weight: 600;
+                }
+                .document-content h1, .document-content h2, .document-content h3, .document-content h4 {
+                  color: #000;
+                  margin-top: 1.5rem;
+                  margin-bottom: 0.5rem;
+                }
+                .document-content p {
+                  color: #000;
+                  margin: 0.5rem 0;
+                }
+                .document-content ul, .document-content ol {
+                  margin: 0.5rem 0;
+                  padding-left: 1.5rem;
+                }
+                .document-content li {
+                  color: #000;
+                }
+              `}</style>
             </div>
           </div>
           <DialogFooter className="flex-shrink-0 border-t pt-4">
