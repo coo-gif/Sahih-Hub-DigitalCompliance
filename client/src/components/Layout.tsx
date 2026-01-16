@@ -27,7 +27,8 @@ import {
   BarChart3,
   Bug,
   Award,
-  Mail
+  Mail,
+  Lock
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -60,6 +61,12 @@ type NavItem = {
 const navItems: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/documents", label: "Documents", icon: FileText },
+  { 
+    href: "/document-hub", 
+    label: "Document Hub", 
+    icon: Lock,
+    canAccess: (user) => user.email === 'coo@sahihcertify.com'
+  },
   { href: "/tasks", label: "My Tasks", icon: ClipboardList },
   { href: "/email", label: "Email", icon: Mail, showBadge: 'email' },
   { href: "/user-records", label: "My Records", icon: FolderOpen },

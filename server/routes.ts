@@ -541,7 +541,42 @@ export async function registerRoutes(
       category: req.query.category as string | undefined,
     };
     const docs = await storage.getDocuments(filters);
-    res.json(docs);
+    
+    // Server-side access control for locked/approved documents
+    const userId = getCurrentUserId(req);
+    const currentUser = await storage.getUser(userId);
+    const COO_EMAIL = 'coo@sahihcertify.com';
+    
+    // COO gets full access to all documents
+    if (currentUser?.email === COO_EMAIL) {
+      return res.json(docs);
+    }
+    
+    // For other users, filter out locked/approved documents unless they have explicit access
+    const filteredDocs = await Promise.all(docs.map(async (doc) => {
+      // Non-locked and non-approved docs are always visible
+      if (!doc.isLocked && doc.status !== DocumentStatus.APPROVED) {
+        return doc;
+      }
+      
+      // For locked/approved docs, check if user has explicit access
+      const hasAccess = await storage.hasDocumentAccess(doc.id, userId);
+      
+      // If user has access or is part of the workflow (creator, reviewer, approver), show full doc
+      if (hasAccess || doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId) {
+        return doc;
+      }
+      
+      // Otherwise, return metadata only (no content) to allow access requests
+      return {
+        ...doc,
+        content: null,
+        fileUrl: null,
+        finalPdfUrl: null,
+      };
+    }));
+    
+    res.json(filteredDocs);
   });
 
   app.get(api.documents.get.path, async (req, res) => {
@@ -553,7 +588,37 @@ export async function registerRoutes(
     if (!doc) {
       return res.status(404).json({ message: 'Document not found' });
     }
-    res.json(doc);
+    
+    // Server-side access control for locked/approved documents
+    const userId = getCurrentUserId(req);
+    const currentUser = await storage.getUser(userId);
+    const COO_EMAIL = 'coo@sahihcertify.com';
+    
+    // COO gets full access
+    if (currentUser?.email === COO_EMAIL) {
+      return res.json(doc);
+    }
+    
+    // Non-locked and non-approved docs are fully accessible
+    if (!doc.isLocked && doc.status !== DocumentStatus.APPROVED) {
+      return res.json(doc);
+    }
+    
+    // For locked/approved docs, check access
+    const hasAccess = await storage.hasDocumentAccess(doc.id, userId);
+    
+    // If user has access or is part of the workflow
+    if (hasAccess || doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId) {
+      return res.json(doc);
+    }
+    
+    // Otherwise, return metadata only (no content)
+    res.json({
+      ...doc,
+      content: null,
+      fileUrl: null,
+      finalPdfUrl: null,
+    });
   });
 
   app.post(api.documents.create.path, async (req, res) => {
@@ -625,6 +690,11 @@ export async function registerRoutes(
       const existing = await storage.getDocument(id);
       if (!existing) {
         return res.status(404).json({ message: 'Document not found' });
+      }
+
+      // Prevent editing locked (approved) documents
+      if (existing.isLocked) {
+        return res.status(403).json({ message: 'This document is locked and cannot be edited. Approved documents are read-only.' });
       }
 
       const updateData: any = {};
@@ -980,11 +1050,12 @@ export async function registerRoutes(
           return res.status(400).json({ message: 'Document is not pending approval' });
         }
 
-        // Approve the document
+        // Approve and lock the document (approved docs are immutable)
         const updated = await storage.updateDocument(documentId, {
           status: DocumentStatus.APPROVED,
           approvedAt: new Date(),
           approvedBySignedAt: new Date(),
+          isLocked: true,
         });
 
         await storage.createAuditLog({
@@ -1847,6 +1918,20 @@ export async function registerRoutes(
       return res.status(404).json({ message: 'Document not found' });
     }
 
+    // Access control for locked/approved documents
+    const userId = getCurrentUserId(req);
+    const currentUser = await storage.getUser(userId);
+    const COO_EMAIL = 'coo@sahihcertify.com';
+    
+    if ((doc.isLocked || doc.status === DocumentStatus.APPROVED) && currentUser?.email !== COO_EMAIL) {
+      const hasAccess = await storage.hasDocumentAccess(doc.id, userId);
+      const isWorkflowMember = doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId;
+      
+      if (!hasAccess && !isWorkflowMember) {
+        return res.status(403).json({ message: 'Access denied. This document is locked.' });
+      }
+    }
+
     try {
       const users = await storage.getUsers();
       const preparedBy = users.find(u => u.id === doc.preparedById);
@@ -1979,6 +2064,20 @@ export async function registerRoutes(
     
     if (!doc.finalPdfUrl) {
       return res.status(404).json({ message: 'PDF not generated yet' });
+    }
+
+    // Access control for locked/approved documents
+    const userId = getCurrentUserId(req);
+    const currentUser = await storage.getUser(userId);
+    const COO_EMAIL = 'coo@sahihcertify.com';
+    
+    if ((doc.isLocked || doc.status === DocumentStatus.APPROVED) && currentUser?.email !== COO_EMAIL) {
+      const hasAccess = await storage.hasDocumentAccess(doc.id, userId);
+      const isWorkflowMember = doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId;
+      
+      if (!hasAccess && !isWorkflowMember) {
+        return res.status(403).json({ message: 'Access denied. This document is locked.' });
+      }
     }
 
     res.json({ pdfUrl: doc.finalPdfUrl });
@@ -2794,9 +2893,10 @@ export async function registerRoutes(
       const userId = getCurrentUserId(req);
       const currentUser = await storage.getUser(userId);
       
-      // Only admin and quality manager can approve
-      if (currentUser?.role !== UserRole.ADMIN && currentUser?.role !== UserRole.QUALITY_MANAGER) {
-        return res.status(403).json({ message: 'Only Admin or Quality Manager can approve access requests' });
+      // Only COO (coo@sahihcertify.com) can approve access requests
+      const COO_EMAIL = 'coo@sahihcertify.com';
+      if (currentUser?.email !== COO_EMAIL) {
+        return res.status(403).json({ message: 'Only the COO can approve document access requests' });
       }
       
       const request = await storage.getDocumentAccessRequest(id);
@@ -2865,9 +2965,10 @@ export async function registerRoutes(
       const userId = getCurrentUserId(req);
       const currentUser = await storage.getUser(userId);
       
-      // Only admin and quality manager can reject
-      if (currentUser?.role !== UserRole.ADMIN && currentUser?.role !== UserRole.QUALITY_MANAGER) {
-        return res.status(403).json({ message: 'Only Admin or Quality Manager can reject access requests' });
+      // Only COO (coo@sahihcertify.com) can reject access requests
+      const COO_EMAIL = 'coo@sahihcertify.com';
+      if (currentUser?.email !== COO_EMAIL) {
+        return res.status(403).json({ message: 'Only the COO can reject document access requests' });
       }
       
       const request = await storage.getDocumentAccessRequest(id);
@@ -2938,8 +3039,10 @@ export async function registerRoutes(
     const userId = getCurrentUserId(req);
     const currentUser = await storage.getUser(userId);
     
-    // Admins and Quality Managers always have access
-    if (currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.QUALITY_MANAGER) {
+    const COO_EMAIL = 'coo@sahihcertify.com';
+    
+    // COO always has access to all approved documents
+    if (currentUser?.email === COO_EMAIL) {
       return res.json({ hasAccess: true });
     }
     
@@ -2957,7 +3060,7 @@ export async function registerRoutes(
       }
     }
     
-    // For approved documents, check explicit access grant
+    // For approved (locked) documents, check explicit access grant from COO
     const hasAccess = await storage.hasDocumentAccess(documentId, userId);
     res.json({ hasAccess });
   });
@@ -2973,9 +3076,10 @@ export async function registerRoutes(
       const currentUserId = getCurrentUserId(req);
       const currentUser = await storage.getUser(currentUserId);
       
-      // Only admin and quality manager can grant access
-      if (currentUser?.role !== UserRole.ADMIN && currentUser?.role !== UserRole.QUALITY_MANAGER) {
-        return res.status(403).json({ message: 'Only Admin or Quality Manager can grant document access' });
+      // Only COO (coo@sahihcertify.com) can grant access
+      const COO_EMAIL = 'coo@sahihcertify.com';
+      if (currentUser?.email !== COO_EMAIL) {
+        return res.status(403).json({ message: 'Only the COO can grant document access' });
       }
       
       const access = await storage.grantDocumentAccess({
@@ -3026,9 +3130,10 @@ export async function registerRoutes(
       const currentUserId = getCurrentUserId(req);
       const currentUser = await storage.getUser(currentUserId);
       
-      // Only admin and quality manager can revoke access
-      if (currentUser?.role !== UserRole.ADMIN && currentUser?.role !== UserRole.QUALITY_MANAGER) {
-        return res.status(403).json({ message: 'Only Admin or Quality Manager can revoke document access' });
+      // Only COO (coo@sahihcertify.com) can revoke access
+      const COO_EMAIL = 'coo@sahihcertify.com';
+      if (currentUser?.email !== COO_EMAIL) {
+        return res.status(403).json({ message: 'Only the COO can revoke document access' });
       }
       
       const revoked = await storage.revokeDocumentAccess(documentId, input.userId, currentUserId);

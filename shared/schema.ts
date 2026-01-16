@@ -255,6 +255,7 @@ export const documents = pgTable("documents", {
   finalPdfUrl: text("final_pdf_url"),
   finalPdfGeneratedAt: timestamp("final_pdf_generated_at"),
   downloadRequiresApproval: boolean("download_requires_approval").default(true),
+  isLocked: boolean("is_locked").default(false),
   assignedStaffIds: integer("assigned_staff_ids").array(),
   assignedDepartments: text("assigned_departments").array(),
   createdAt: timestamp("created_at").defaultNow(),

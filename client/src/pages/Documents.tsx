@@ -109,8 +109,10 @@ export default function Documents() {
   const { data: users = [] } = useUsers();
   const { data: currentUser } = useAuth();
   
-  // Access control - include CEO for document management
-  const isAdminOrQM = currentUser?.role === 'admin' || currentUser?.role === 'quality_manager' || currentUser?.email === 'ceo@sahihcertify.com';
+  // Access control - only COO has automatic access to approved documents
+  const COO_EMAIL = 'coo@sahihcertify.com';
+  const isCOO = currentUser?.email === COO_EMAIL;
+  const isAdminOrQM = currentUser?.role === 'admin' || currentUser?.role === 'quality_manager';
   const { data: myAccessRequests = [] } = useDocumentAccessRequests({ 
     requesterId: currentUser?.id 
   });
@@ -119,9 +121,10 @@ export default function Documents() {
   });
   const requestAccessMutation = useCreateDocumentAccessRequest();
   
-  // Check if user has access to an approved document
+  // Check if user has access to an approved/locked document
+  // Only COO has automatic access; others need explicit grant
   const hasAccessToDocument = (docId: number): boolean => {
-    if (isAdminOrQM) return true;
+    if (isCOO) return true;
     return myDocumentAccess.some((access: any) => access.documentId === docId && !access.isRevoked);
   };
   
@@ -137,7 +140,7 @@ export default function Documents() {
         documentId: doc.id, 
         requestReason: `Request access to view document: ${doc.documentCode} - ${doc.title}` 
       });
-      toast({ title: "Access request submitted", description: "An admin will review your request." });
+      toast({ title: "Access request submitted", description: "The COO will review your request." });
     } catch (error: any) {
       toast({ title: "Error requesting access", description: error.message, variant: "destructive" });
     }
@@ -578,7 +581,7 @@ export default function Documents() {
                           </Button>
                         )}
                         
-                        {doc.status === "approved" && (
+                        {(doc.isLocked || doc.status === "approved") && (
                           <>
                             {hasAccessToDocument(doc.id) ? (
                               <Button
@@ -906,6 +909,12 @@ export default function Documents() {
                           {selectedDocument.status.replace('_', ' ').toUpperCase()}
                         </Badge>
                         <Badge variant="outline">Ed.{selectedDocument.editionNumber || 1} Rev.{selectedDocument.revisionNumber || 0}</Badge>
+                        {(selectedDocument.isLocked || selectedDocument.status === 'approved') && (
+                          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300">
+                            <Lock className="w-3 h-3 mr-1" />
+                            Locked
+                          </Badge>
+                        )}
                       </div>
                       <h2 className="text-xl font-bold text-foreground dark:text-slate-100" data-testid="text-view-title">
                         {selectedDocument.title}
@@ -926,65 +935,101 @@ export default function Documents() {
                 )}
               </div>
               
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm mb-4 p-3 bg-muted rounded-md dark:bg-slate-800">
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-muted-foreground/60" />
+              {/* Access Control for Locked/Approved Documents */}
+              {(selectedDocument.isLocked || selectedDocument.status === 'approved') && !hasAccessToDocument(selectedDocument.id) ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center space-y-4" data-testid="access-restricted-message">
+                  <div className="p-4 rounded-full bg-amber-100 dark:bg-amber-900/30">
+                    <Lock className="w-10 h-10 text-amber-600 dark:text-amber-400" />
+                  </div>
                   <div>
-                    <div className="text-muted-foreground text-xs">Created</div>
-                    <div className="font-medium">
-                      {selectedDocument.createdAt 
-                        ? format(new Date(selectedDocument.createdAt), "MMM d, yyyy")
-                        : "-"
-                      }
+                    <h3 className="text-lg font-semibold mb-2">Access Restricted</h3>
+                    <p className="text-muted-foreground max-w-md">
+                      This document has been approved and locked. You need COO approval to view its contents.
+                    </p>
+                  </div>
+                  {hasPendingAccessRequest(selectedDocument.id) ? (
+                    <Badge variant="secondary" className="bg-amber-100 text-amber-700 text-sm py-2 px-4">
+                      <Clock className="w-4 h-4 mr-2" />
+                      Access Request Pending
+                    </Badge>
+                  ) : (
+                    <Button
+                      onClick={() => handleRequestAccess(selectedDocument)}
+                      disabled={requestAccessMutation.isPending}
+                      data-testid="button-request-access-dialog"
+                    >
+                      <Lock className="w-4 h-4 mr-2" />
+                      Request Access
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm mb-4 p-3 bg-muted rounded-md dark:bg-slate-800">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-muted-foreground/60" />
+                      <div>
+                        <div className="text-muted-foreground text-xs">Created</div>
+                        <div className="font-medium">
+                          {selectedDocument.createdAt 
+                            ? format(new Date(selectedDocument.createdAt), "MMM d, yyyy")
+                            : "-"
+                          }
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-muted-foreground/60" />
+                      <div>
+                        <div className="text-muted-foreground text-xs">Next Review</div>
+                        <div className="font-medium">
+                          {selectedDocument.nextReviewDate 
+                            ? format(new Date(selectedDocument.nextReviewDate), "MMM d, yyyy")
+                            : "-"
+                          }
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-muted-foreground/60" />
+                      <div>
+                        <div className="text-muted-foreground text-xs">Edition/Revision</div>
+                        <div className="font-medium">Ed.{selectedDocument.editionNumber || 1} Rev.{selectedDocument.revisionNumber || 0}</div>
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-muted-foreground/60" />
-                  <div>
-                    <div className="text-muted-foreground text-xs">Next Review</div>
-                    <div className="font-medium">
-                      {selectedDocument.nextReviewDate 
-                        ? format(new Date(selectedDocument.nextReviewDate), "MMM d, yyyy")
-                        : "-"
-                      }
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-muted-foreground/60" />
-                  <div>
-                    <div className="text-muted-foreground text-xs">Edition/Revision</div>
-                    <div className="font-medium">Ed.{selectedDocument.editionNumber || 1} Rev.{selectedDocument.revisionNumber || 0}</div>
-                  </div>
-                </div>
-              </div>
 
-              <Separator className="my-4" />
-              
-              <ScrollArea className="h-[60vh] pr-4">
-                <div 
-                  className="prose prose-slate max-w-none dark:prose-invert document-content pb-10"
-                  style={{ fontFamily: 'Roboto, sans-serif' }}
-                  data-testid="text-view-content"
-                  dangerouslySetInnerHTML={{ 
-                    __html: DOMPurify.sanitize(selectedDocument.content || '<p class="text-muted-foreground/60 italic">No content available</p>') 
-                  }}
-                />
-              </ScrollArea>
+                  <Separator className="my-4" />
+                  
+                  <ScrollArea className="h-[60vh] pr-4">
+                    <div 
+                      className="prose prose-slate max-w-none dark:prose-invert document-content pb-10"
+                      style={{ fontFamily: 'Roboto, sans-serif' }}
+                      data-testid="text-view-content"
+                      dangerouslySetInnerHTML={{ 
+                        __html: DOMPurify.sanitize(selectedDocument.content || '<p class="text-muted-foreground/60 italic">No content available</p>') 
+                      }}
+                    />
+                  </ScrollArea>
 
-              {/* Action Buttons */}
-              <Separator className="my-4" />
-              <div className="flex flex-wrap items-center justify-end gap-3" data-testid="view-dialog-actions">
-                <Button 
-                  variant="outline"
-                  onClick={() => navigate(`/documents/${selectedDocument.id}/edit`)}
-                  data-testid="button-view-edit"
-                >
-                  <Pencil className="w-4 h-4 mr-2" />
-                  Edit
-                </Button>
-              </div>
+                  {/* Action Buttons - hide edit for locked documents */}
+                  {!selectedDocument.isLocked && selectedDocument.status !== 'approved' && (
+                    <>
+                      <Separator className="my-4" />
+                      <div className="flex flex-wrap items-center justify-end gap-3" data-testid="view-dialog-actions">
+                        <Button 
+                          variant="outline"
+                          onClick={() => navigate(`/documents/${selectedDocument.id}/edit`)}
+                          data-testid="button-view-edit"
+                        >
+                          <Pencil className="w-4 h-4 mr-2" />
+                          Edit
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
             </>
           )}
         </DialogContent>
