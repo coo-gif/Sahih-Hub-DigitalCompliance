@@ -18,11 +18,11 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
-import hubEebiFormal from "@assets/generated_images/hub-eebi_formal_suit_avatar.png";
-import hubEebiCasual from "@assets/generated_images/hub-eebi_casual_polo_avatar.png";
-import hubEebiSweater from "@assets/generated_images/hub-eebi_sweater_avatar.png";
-import hubEebiVest from "@assets/generated_images/hub-eebi_vest_avatar.png";
-import hubEebiBlazer from "@assets/generated_images/hub-eebi_blazer_avatar.png";
+import hubEebiFormal from "@assets/generated_images/smart_genie_full_body_formal.png";
+import hubEebiCasual from "@assets/generated_images/smart_genie_full_body_casual.png";
+import hubEebiSweater from "@assets/generated_images/smart_genie_sweater_outfit.png";
+import hubEebiVest from "@assets/generated_images/smart_genie_vest_outfit.png";
+import hubEebiBlazer from "@assets/generated_images/smart_genie_blazer_outfit.png";
 
 const hubEebiOutfits = [hubEebiFormal, hubEebiCasual, hubEebiSweater, hubEebiVest, hubEebiBlazer];
 
