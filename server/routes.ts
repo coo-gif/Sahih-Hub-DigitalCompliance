@@ -4431,12 +4431,12 @@ Remember: Always be specific about WHERE to click (sidebar, button names, tabs) 
       }
       
       const userId = getCurrentUserId(req);
-      const protocol = req.headers['x-forwarded-proto'] || 'https';
-      const host = req.headers['x-forwarded-host'] || req.headers.host;
-      const redirectUri = `${protocol}://${host}/api/gmail/callback`;
       
-      console.log('[Gmail OAuth] Redirect URI:', redirectUri);
-      console.log('[Gmail OAuth] Host headers:', { forwardedHost: req.headers['x-forwarded-host'], host: req.headers.host });
+      // Use custom domain if set, otherwise detect from headers
+      const customDomain = process.env.CUSTOM_DOMAIN || 'sahihhub.group';
+      const redirectUri = `https://${customDomain}/api/gmail/callback`;
+      
+      console.log('[Gmail OAuth] Using redirect URI:', redirectUri);
       
       // Generate a cryptographically random state token for CSRF protection
       const crypto = await import('crypto');
@@ -4492,9 +4492,10 @@ Remember: Always be specific about WHERE to click (sidebar, button names, tabs) 
       delete (req.session as any).oauthState;
       
       const userId = stateData.userId;
-      const protocol = req.headers['x-forwarded-proto'] || 'https';
-      const host = req.headers['x-forwarded-host'] || req.headers.host;
-      const redirectUri = `${protocol}://${host}/api/gmail/callback`;
+      
+      // Use custom domain if set, otherwise detect from headers
+      const customDomain = process.env.CUSTOM_DOMAIN || 'sahihhub.group';
+      const redirectUri = `https://${customDomain}/api/gmail/callback`;
       
       const tokens = await exchangeCodeForTokens(code as string, redirectUri);
       
