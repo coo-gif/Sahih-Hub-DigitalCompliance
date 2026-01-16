@@ -2039,53 +2039,110 @@ export async function registerRoutes(
 
       const companyLogoBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAMAAABlApw1AAAAYFBMVEUAAAD///+qqqqampra2tpDQ0Pj4+Pd3d34+PhPT0/x8fFISEi/v79YWFgQEBCWlpY2NjYjIyPp6emAgICNjY1hYWEaGhotLS2hoaEoKCh1dXW1tbXFxcVqamrLy8vS0tIYlW4WAAAI+UlEQVR4nO2ciZKzKhCFaRdEXKK4a4zv/5a30SxmMyYBJ39dvpqaGMelj8CxQRxCDAaDwWAwGAwGg8FgMBgMBsNPk+ysD+j8xYMG3aN9Ii0CfA8+IEwW43ce7pT9joB9vHRI93H8PyQgXDxi9OyIPyPgRfxPrv/vCNh/GP+vCAjLpcO5C4f7DQFhunS0J/7zQwKW689i/JoEuMM78X/oPxOtFgGkeKMIPvUfCcv1xI8K6Nr4l+uP/0fx45UTK6//ov8EyyWppwEc8fmq+D/3H83xo4IVZfCN/+iOHxW8bAdf+Y/2+F970cf5A8J2+uN/5UXL1//FzZDVi61HFUvt4Cv/kQoW+w/KFDz1oq/8Z6TeQsDTMviq/myqIHrYDr7yn4uCTWrRIy/6xn+uFGzSku+9aPn6v2y/F1jdbKHgtiV/334vaEqnFxW88M+34uf9JgKuvEiF/5wQ2xQAmXvRN/2Xv4v/4kWq/EfCN4z/VAbK/Gfz+DE6rtZ/to4f2yf7bPz2V+JHFuNfmz/8YfyLvNd+AbpNsoj1vBv/q/a0NUvjt89YduRtec9/Thz+Ouwz7/nP75XB4z7PqjLQ1KMpF/PNu/g/vP6SsNIiINgtPjG9Znn89hW6HnAs5/xz3st/NhPwImubxf/V9df5iGmdQ3wbv85nZOEKh3gv/9lYAIQvRwy+8Z8NBLz0uM/mhGwo4Nvx278XsOhFX7ffLQQsKPju/rWZgKe16Hv/0SpgdnUft2QF/qNTwNVUg+6Bm6rwH50Ckv38HPd3NDXtd0RP377srk5y25IVxs80De7W16e5zovU1R8AujxV82Mydn2euRep8p/pwJoecNxd5O7sRcr8Z0Tbc7797ZlOXqQkfzijb3xux27PNbVkhe1XMujpEiPV/ePhvfr4wdIVPyHd/dlCpf4jEa4+AeVdHcIyeGsu4ArWdrw/wlIc7APYG4M371OumnL2FZrnSmS64xdvjf+9T3N3L1CM9mfcxcqZlx+ywVSV/IETKWPQaKFnNDqRKDaIn1Sqjf8M22DSpSTR5aWbTLocFeiJv9sqfvl4/t+On5BefS3S1Q17QqtawfIbfxro1daibuv4sRujUoH1FzMMEnVJxWb+eY2qxI792SSb1FJRjbxN8ocnZN9Xo1DTMNxKim9HJPJt7f8e98FIxXq2mqO7yBf3tM3vXo+pDp+1ZbpR9ryC/IO5QexHLv+E371bCI7GNyY/IW7fsiNWB38d8R1Vvj7+wd/kPZm3CdeF/xPe+Rj/8NpShf3XUS7S7pdbs2f9kvc8JAufS6D13yY+62j6J21B5P9C+JI0eJAgiUzboy8t1Hxek9jh93z/Je2BThq4s82reepx7b0nhu53bX8FUf/ztmkwGAyG/xFReLmtdndjynGZ3kwUaLup7xh1LX4Jt3gK/JAySosxl8xmczHAu9mqqMN9l8//0WOSd1PvN5OzmGr4s2HciLZ8HAZpATuE6TQcDs7NVp0ThgegsyitIZ+evWfsbwUkebDzA8ufBNh8LIY7AWnWNmkGw2VNn0VZWe9uBAR2152l5LuGRHVozfs6hRWQXWepzsBbyCYBBZO/7wUMnDkRcfhUicrMSjG8inBxI2APHNhJgaAuCXHFMFNgQ+EBA64qD2wO4zS87CSAVExOargVYIGVQUes44SBZg9J6lGfMH5bAg1pWVeeBAQkSeMdzEbqbOAHubmq8Qt3mkd4LgGsGnLNrYABUtcbSvsoIEUBpef5hKOAltXXbSAU1UnA2EgKZl3GunajPxRc1ew5F/aB6yb5UUDiugU/JOhClTsj6WDXUyewWJ7I7/4BoojzrGG8SnJmJYl1FhDlHuTjXpUQhfwshulzPFINGf7OuKr3WpsBqOM4AksZbTTuPMeT87MBBmcOBaDAHA5i/OoxwFWOcADkvnzAvxwF1EJ0DoxbDQDeuMDHczjHZTEeT9mrxW5uj/hoIFGcycWsIvbOvma3O/6cv9ptkE0r5K+dPbVKG9Bz/OmYeZ4ft58f7bj8c/8i4Ihgl+Xab/+9LrOAIK4mEypZJzadpaKEjAPwY3MISPpvjXeNFLXd/tS/XzAY3iFOj9VXfqarBj3jRnpOmjSkeTwz+slqZQRFX5wzw+hk45y7gYD5dm5RFI/+cX0LmOj0DPb9PNe+EN31jdTSYiJweS/Ep3xa8A6BS+cCxiet4nrfJEPlGbVL1JsHGb0z/R0qbqnWlx7kqYtc3i8Tv5ICBOZz+C2KiEsZSU5lUzC2a3OZFaeyK1JWJHUxeULDHPuj4OBO41Bv6Urrb3y57EJdYulU59W4WxyMiamrbFgYxFgvCocKz5YC9lRe0iFMXCpCSndTDT4cZ46VNW4XkdazHKfAvEyUBc0x2WaiTRy81LkjvNwNqaBW2lLgtHWH/biaWiWxnNqjToJnE0JVNmoBl6H1hzwDUfkU9rgmIkyggOMykp6qUw5dhJ2YHKvToUJVrWwDpACaJQFW9gz7c3UbhDbWuAw7DV2f+EBxNS0OmKxjd612II+paHtlU+lqACZ7fFXp8UhWobKDnjCayCoUd1OWfGrQMfei+ABNLvtYsSXfaBgbMTgNCbAT1ME0uNIkOyyyWm7lM4qrsUbCIQ1xhxy3pyxXeLN2QwASDZwyKYCT9CwA5PIooKQwemoMjFLqlbL/cy0gkQLSA5MCqo5RjsFbJwGhFMCdJIRWCpAvWnBV03FkFfegCfFcznMBWPjSYuKY076pEjIKKMde2FwARio3r3HjbC5AHnEqgUkASXMBim4PXWdbjOGZ654fBYRXAqaM3uUQ1laIsYVZbpNTCXRWMhPgYYfXyeseNyr2WIVsGOxobAMwtB3UeBkmAXXee6oEyEfvXkF6AQPlUYBtYAyaT23gXAIkkvNI91g7MFu2yNgGsDeP7b6/CBhIgy2K58kB6B63aPDvvdSV2oyxuiKnEsCTMlVvZJVVksgG1SRVU8VxVcm0ICb4eV6+bIgXLU7kRykXcYsEN5O74ycuNNOqEvdKxi3wS3xeHU9HK3F7/Ps/2FEwGAwGg8FgMBgMBoPBYDAYDAbDKv4DRtuGaiLoaoAAAAAASUVORK5CYII=';
 
-      // Process content to add automatic numbering to headings
-      const processContentForNumbering = (content: string): string => {
-        if (!content) return '';
+      // Structure to hold TOC entries
+      interface TocEntry {
+        level: number;
+        number: string;
+        title: string;
+        id: string;
+      }
+      
+      // Process content to add automatic numbering, IDs to headings, and build TOC
+      const processContentWithToc = (content: string): { processedContent: string; tocEntries: TocEntry[] } => {
+        if (!content) return { processedContent: '', tocEntries: [] };
         
-        // Track counters for nested numbering
+        const tocEntries: TocEntry[] = [];
         let h1Counter = 0;
         let h2Counter = 0;
         let h3Counter = 0;
         let h4Counter = 0;
         
-        // Process headings and add numbering
-        let processed = content
-          // Handle h1 tags (1, 2, 3...)
-          .replace(/<h1([^>]*)>([^<]*)<\/h1>/gi, (match, attrs, text) => {
-            h1Counter++;
-            h2Counter = 0;
-            h3Counter = 0;
-            h4Counter = 0;
-            const cleanText = text.replace(/^[\d.]+\s*/, ''); // Remove existing numbers
-            return `<h1${attrs}><span class="section-number">${h1Counter}.</span> ${cleanText}</h1>`;
-          })
-          // Handle h2 tags (1.1, 1.2...)
-          .replace(/<h2([^>]*)>([^<]*)<\/h2>/gi, (match, attrs, text) => {
-            h2Counter++;
-            h3Counter = 0;
-            h4Counter = 0;
-            const cleanText = text.replace(/^[\d.]+\s*/, '');
-            return `<h2${attrs}><span class="section-number">${h1Counter}.${h2Counter}</span> ${cleanText}</h2>`;
-          })
-          // Handle h3 tags (1.1.1, 1.1.2...)
-          .replace(/<h3([^>]*)>([^<]*)<\/h3>/gi, (match, attrs, text) => {
-            h3Counter++;
-            h4Counter = 0;
-            const cleanText = text.replace(/^[\d.]+\s*/, '');
-            return `<h3${attrs}><span class="section-number">${h1Counter}.${h2Counter}.${h3Counter}</span> ${cleanText}</h3>`;
-          })
-          // Handle h4 tags (1.1.1.1...)
-          .replace(/<h4([^>]*)>([^<]*)<\/h4>/gi, (match, attrs, text) => {
-            h4Counter++;
-            const cleanText = text.replace(/^[\d.]+\s*/, '');
-            return `<h4${attrs}><span class="section-number">${h1Counter}.${h2Counter}.${h3Counter}.${h4Counter}</span> ${cleanText}</h4>`;
-          });
+        // First pass: collect all headings and assign IDs
+        let processed = content;
         
-        return processed;
+        // Handle h1 tags
+        processed = processed.replace(/<h1([^>]*)>([\s\S]*?)<\/h1>/gi, (match, attrs, text) => {
+          h1Counter++;
+          h2Counter = 0;
+          h3Counter = 0;
+          h4Counter = 0;
+          const cleanText = text.replace(/<[^>]*>/g, '').replace(/^[\d.]+\s*/, '').trim();
+          const sectionNum = `${h1Counter}`;
+          const anchorId = `section-${sectionNum.replace(/\./g, '-')}`;
+          tocEntries.push({ level: 1, number: sectionNum, title: cleanText, id: anchorId });
+          return `<h1${attrs} id="${anchorId}"><span class="section-number">${sectionNum}.</span> ${cleanText}</h1>`;
+        });
+        
+        // Handle h2 tags
+        processed = processed.replace(/<h2([^>]*)>([\s\S]*?)<\/h2>/gi, (match, attrs, text) => {
+          h2Counter++;
+          h3Counter = 0;
+          h4Counter = 0;
+          const cleanText = text.replace(/<[^>]*>/g, '').replace(/^[\d.]+\s*/, '').trim();
+          const sectionNum = `${h1Counter}.${h2Counter}`;
+          const anchorId = `section-${sectionNum.replace(/\./g, '-')}`;
+          tocEntries.push({ level: 2, number: sectionNum, title: cleanText, id: anchorId });
+          return `<h2${attrs} id="${anchorId}"><span class="section-number">${sectionNum}</span> ${cleanText}</h2>`;
+        });
+        
+        // Handle h3 tags
+        processed = processed.replace(/<h3([^>]*)>([\s\S]*?)<\/h3>/gi, (match, attrs, text) => {
+          h3Counter++;
+          h4Counter = 0;
+          const cleanText = text.replace(/<[^>]*>/g, '').replace(/^[\d.]+\s*/, '').trim();
+          const sectionNum = `${h1Counter}.${h2Counter}.${h3Counter}`;
+          const anchorId = `section-${sectionNum.replace(/\./g, '-')}`;
+          tocEntries.push({ level: 3, number: sectionNum, title: cleanText, id: anchorId });
+          return `<h3${attrs} id="${anchorId}"><span class="section-number">${sectionNum}</span> ${cleanText}</h3>`;
+        });
+        
+        // Handle h4 tags
+        processed = processed.replace(/<h4([^>]*)>([\s\S]*?)<\/h4>/gi, (match, attrs, text) => {
+          h4Counter++;
+          const cleanText = text.replace(/<[^>]*>/g, '').replace(/^[\d.]+\s*/, '').trim();
+          const sectionNum = `${h1Counter}.${h2Counter}.${h3Counter}.${h4Counter}`;
+          const anchorId = `section-${sectionNum.replace(/\./g, '-')}`;
+          tocEntries.push({ level: 4, number: sectionNum, title: cleanText, id: anchorId });
+          return `<h4${attrs} id="${anchorId}"><span class="section-number">${sectionNum}</span> ${cleanText}</h4>`;
+        });
+        
+        return { processedContent: processed, tocEntries };
       };
       
-      const processedContent = processContentForNumbering(doc.content || '');
+      // Generate Table of Contents HTML
+      const generateTocHtml = (entries: TocEntry[]): string => {
+        if (entries.length === 0) return '';
+        
+        let tocHtml = `
+          <div class="toc">
+            <h2 class="toc-title">TABLE OF CONTENTS</h2>
+            <div class="toc-entries">
+        `;
+        
+        entries.forEach(entry => {
+          const indent = (entry.level - 1) * 20;
+          tocHtml += `
+            <div class="toc-entry toc-level-${entry.level}" style="padding-left: ${indent}px;">
+              <a href="#${entry.id}" class="toc-link">
+                <span class="toc-number">${entry.number}</span>
+                <span class="toc-text">${entry.title}</span>
+                <span class="toc-dots"></span>
+              </a>
+            </div>
+          `;
+        });
+        
+        tocHtml += `
+            </div>
+          </div>
+          <div class="page-break"></div>
+        `;
+        
+        return tocHtml;
+      };
+      
+      const { processedContent, tocEntries } = processContentWithToc(doc.content || '');
+      const tocHtml = generateTocHtml(tocEntries);
 
       const htmlContent = `
         <!DOCTYPE html>
@@ -2096,7 +2153,7 @@ export async function registerRoutes(
             /* A4 Paper Size: 210mm x 297mm */
             @page { 
               size: A4 portrait; 
-              margin: 20mm 15mm 25mm 15mm;
+              margin: 25mm 20mm 30mm 20mm;
             }
             
             * { box-sizing: border-box; }
@@ -2107,8 +2164,14 @@ export async function registerRoutes(
               line-height: 1.5; 
               margin: 0; 
               padding: 0;
-              width: 180mm; /* A4 width minus margins */
               color: #000;
+            }
+            
+            /* Page border wrapper */
+            .page-wrapper {
+              border: 2px solid #000;
+              padding: 15px 20px;
+              min-height: 100%;
             }
             
             /* Header styling */
@@ -2118,10 +2181,10 @@ export async function registerRoutes(
               align-items: center; 
               border-bottom: 2px solid #000; 
               padding-bottom: 10px; 
-              margin-bottom: 20px; 
+              margin-bottom: 15px; 
             }
             .logo-container { display: flex; align-items: center; gap: 12px; }
-            .logo-img { height: 50px; width: auto; }
+            .logo-img { height: 45px; width: auto; }
             .company-name { font-weight: bold; font-size: 14pt; }
             .doc-info { text-align: right; font-size: 9pt; }
             
@@ -2130,13 +2193,74 @@ export async function registerRoutes(
               text-align: center;
               font-size: 16pt;
               font-weight: bold;
-              margin: 20px 0 30px 0;
+              margin: 15px 0 25px 0;
               text-transform: uppercase;
+              border: none;
             }
+            
+            /* Table of Contents styling */
+            .toc {
+              margin: 20px 0;
+              page-break-after: always;
+            }
+            
+            .toc-title {
+              text-align: center;
+              font-size: 14pt;
+              font-weight: bold;
+              margin-bottom: 20px;
+              text-transform: uppercase;
+              border-bottom: 2px solid #000;
+              padding-bottom: 10px;
+            }
+            
+            .toc-entries {
+              margin-top: 15px;
+            }
+            
+            .toc-entry {
+              margin: 8px 0;
+              display: flex;
+              align-items: baseline;
+            }
+            
+            .toc-link {
+              display: flex;
+              width: 100%;
+              text-decoration: none;
+              color: #000;
+              align-items: baseline;
+            }
+            
+            .toc-link:hover {
+              color: #0066cc;
+            }
+            
+            .toc-number {
+              font-weight: bold;
+              min-width: 50px;
+              flex-shrink: 0;
+            }
+            
+            .toc-text {
+              flex-shrink: 0;
+            }
+            
+            .toc-dots {
+              flex-grow: 1;
+              border-bottom: 1px dotted #666;
+              margin: 0 8px 4px 8px;
+              min-width: 20px;
+            }
+            
+            .toc-level-1 { font-weight: bold; font-size: 11pt; }
+            .toc-level-2 { font-size: 10pt; }
+            .toc-level-3 { font-size: 10pt; }
+            .toc-level-4 { font-size: 9pt; font-style: italic; }
             
             /* Content area */
             .content { 
-              min-height: 500px;
+              min-height: 400px;
             }
             
             /* Automatic section numbering styles */
@@ -2191,9 +2315,9 @@ export async function registerRoutes(
             }
             
             .content table th { 
-              border: 1px solid #000; 
+              border: 1.5px solid #000; 
               padding: 8px 10px; 
-              background-color: #f0f0f0;
+              background-color: #e8e8e8;
               font-weight: bold;
               text-align: left;
               vertical-align: middle;
@@ -2220,7 +2344,7 @@ export async function registerRoutes(
             
             /* Alternating row colors for readability */
             .content table tbody tr:nth-child(even) {
-              background-color: #fafafa;
+              background-color: #f5f5f5;
             }
             
             /* Table caption */
@@ -2258,7 +2382,7 @@ export async function registerRoutes(
               margin-top: 40px; 
               display: flex; 
               justify-content: space-between; 
-              border-top: 1px solid #ccc; 
+              border-top: 1px solid #000; 
               padding-top: 20px;
               page-break-inside: avoid;
             }
@@ -2276,41 +2400,68 @@ export async function registerRoutes(
             .page-break { page-break-before: always; }
             .no-break { page-break-inside: avoid; }
             
-            /* Footer with page numbers */
-            @page {
-              @bottom-center {
-                content: "Page " counter(page) " of " counter(pages);
-                font-size: 9pt;
-              }
+            /* Page number footer */
+            .page-footer {
+              position: fixed;
+              bottom: 10mm;
+              left: 0;
+              right: 0;
+              text-align: center;
+              font-size: 9pt;
+              color: #333;
+            }
+            
+            /* Document info in footer */
+            .footer-info {
+              display: flex;
+              justify-content: space-between;
+              font-size: 8pt;
+              color: #666;
+              margin-top: 20px;
+              padding-top: 10px;
+              border-top: 1px solid #ccc;
             }
           </style>
         </head>
         <body>
-          <div class="header">
-            <div class="logo-container">
-              <img src="${companyLogoBase64}" alt="Sahih Certifications" class="logo-img" />
-              <div class="company-name">SAHIH CERTIFICATIONS</div>
+          <div class="page-wrapper">
+            <div class="header">
+              <div class="logo-container">
+                <img src="${companyLogoBase64}" alt="Sahih Certifications" class="logo-img" />
+                <div class="company-name">SAHIH CERTIFICATIONS</div>
+              </div>
+              <div class="doc-info">
+                <div><strong>${doc.documentCode}</strong></div>
+                <div>Edition: ${doc.editionNumber || 1} | Revision: ${doc.revisionNumber || 0}</div>
+                <div>Status: ${doc.status.toUpperCase()}</div>
+              </div>
             </div>
-            <div class="doc-info">
-              <div><strong>${doc.documentCode}</strong></div>
-              <div>Edition: ${doc.editionNumber || 1} | Revision: ${doc.revisionNumber || 0}</div>
-              <div>Status: ${doc.status.toUpperCase()}</div>
+            
+            <h1 class="doc-title">${doc.title}</h1>
+            
+            ${tocHtml}
+            
+            <div class="content">${processedContent}</div>
+            
+            <div class="signatures">
+              <div class="signature-block">
+                <div><strong>Prepared By</strong></div>
+                <div class="signature-line">${preparedBy?.name || 'N/A'}</div>
+              </div>
+              <div class="signature-block">
+                <div><strong>Reviewed By</strong></div>
+                <div class="signature-line">${reviewedBy?.name || 'N/A'}</div>
+              </div>
+              <div class="signature-block">
+                <div><strong>Approved By</strong></div>
+                <div class="signature-line">${approvedBy?.name || 'N/A'}</div>
+              </div>
             </div>
-          </div>
-          <h1 class="doc-title">${doc.title}</h1>
-          <div class="content">${processedContent}</div>
-          <div class="signatures">
-            <div class="signature-block">
-              <div><strong>Prepared By</strong></div>
-              <div class="signature-line">${preparedBy?.name || 'N/A'}</div>
-            </div>
-            <div class="signature-block">
-              <div><strong>Reviewed By</strong></div>
-              <div class="signature-line">${reviewedBy?.name || 'N/A'}</div>
-            </div>
-            <div class="signature-block">
-              <div><strong>Approved By</strong></div>
-              <div class="signature-line">${approvedBy?.name || 'N/A'}</div>
+            
+            <div class="footer-info">
+              <span>Document: ${doc.documentCode}</span>
+              <span>Controlled Document - Sahih Certifications</span>
+              <span>Ed.${doc.editionNumber || 1} Rev.${doc.revisionNumber || 0}</span>
             </div>
           </div>
         </body>
@@ -2362,9 +2513,22 @@ export async function registerRoutes(
       console.log('Generating PDF...');
       const pdfBuffer = await page.pdf({
         format: 'A4',
-        margin: { top: '20mm', right: '20mm', bottom: '20mm', left: '20mm' },
+        margin: { top: '25mm', right: '20mm', bottom: '30mm', left: '20mm' },
         printBackground: true,
-        timeout: 60000
+        timeout: 60000,
+        displayHeaderFooter: true,
+        headerTemplate: `
+          <div style="width: 100%; font-size: 8pt; font-family: 'Times New Roman', serif; padding: 0 20mm; display: flex; justify-content: space-between; color: #666;">
+            <span>${doc.documentCode}</span>
+            <span>SAHIH CERTIFICATIONS</span>
+            <span>Ed.${doc.editionNumber || 1} Rev.${doc.revisionNumber || 0}</span>
+          </div>
+        `,
+        footerTemplate: `
+          <div style="width: 100%; font-size: 9pt; font-family: 'Times New Roman', serif; padding: 0 20mm; display: flex; justify-content: center; color: #333; border-top: 1px solid #ccc; padding-top: 5px;">
+            <span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
+          </div>
+        `
       });
       
       console.log(`PDF generated successfully, size: ${pdfBuffer.length} bytes`);
