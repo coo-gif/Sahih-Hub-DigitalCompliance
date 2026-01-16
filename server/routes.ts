@@ -1125,13 +1125,53 @@ export async function registerRoutes(
               approverName: approver?.name,
               approverSignatureDataUrl: approver?.signatureDataUrl,
               approverSignedAt: new Date(),
-              metadata: JSON.stringify({ documentCode: doc.documentCode, documentTitle: doc.title }),
+              metadata: JSON.stringify({ 
+                documentCode: doc.documentCode, 
+                documentTitle: doc.title, 
+                assignedBy: doc.createdById,
+                assignedByName: allUsers.find(u => u.id === doc.createdById)?.name || 'Unknown'
+              }),
             });
 
             await storage.createNotification({
               userId: admin.id,
               title: 'Document Approval Report Generated',
               message: `Document "${doc.title}" (${doc.documentCode}) has been approved. A completion report has been saved to your User Records.`,
+              urgencyLevel: UrgencyLevel.LOW,
+              relatedDocumentId: documentId,
+            });
+          }
+
+          // Also create a record for the document creator (if not already an admin)
+          const documentCreator = allUsers.find(u => u.id === doc.createdById);
+          if (documentCreator && !admins.find(a => a.id === documentCreator.id)) {
+            await storage.createUserRecord({
+              userId: documentCreator.id,
+              reportType: ReportType.DOCUMENT_APPROVAL,
+              reportTitle,
+              reportNumber,
+              relatedDocumentId: documentId,
+              pdfDataUrl,
+              reviewerId: reviewer?.id,
+              reviewerName: reviewer?.name,
+              reviewerSignatureDataUrl: reviewer?.signatureDataUrl,
+              reviewerSignedAt: doc.reviewedBySignedAt,
+              approverId: approver?.id,
+              approverName: approver?.name,
+              approverSignatureDataUrl: approver?.signatureDataUrl,
+              approverSignedAt: new Date(),
+              metadata: JSON.stringify({ 
+                documentCode: doc.documentCode, 
+                documentTitle: doc.title, 
+                assignedBy: doc.createdById,
+                assignedByName: documentCreator.name
+              }),
+            });
+
+            await storage.createNotification({
+              userId: documentCreator.id,
+              title: 'Your Document Has Been Approved',
+              message: `Document "${doc.title}" (${doc.documentCode}) that you created has been approved. A completion report has been saved to your User Records.`,
               urgencyLevel: UrgencyLevel.LOW,
               relatedDocumentId: documentId,
             });
@@ -1552,7 +1592,12 @@ export async function registerRoutes(
             approverName: approver?.name,
             approverSignatureDataUrl: approver?.signatureDataUrl,
             approverSignedAt: new Date(),
-            metadata: JSON.stringify({ employeeName: approvedEmployee.name, employeeNumber: approvedEmployee.employeeNumber }),
+            metadata: JSON.stringify({ 
+              employeeName: approvedEmployee.name, 
+              employeeNumber: approvedEmployee.employeeNumber,
+              assignedBy: existing.createdById,
+              assignedByName: allUsers.find(u => u.id === existing.createdById)?.name || 'Unknown'
+            }),
           });
 
           await storage.createNotification({
@@ -1580,7 +1625,12 @@ export async function registerRoutes(
             approverName: approver?.name,
             approverSignatureDataUrl: approver?.signatureDataUrl,
             approverSignedAt: new Date(),
-            metadata: JSON.stringify({ employeeName: approvedEmployee.name, employeeNumber: approvedEmployee.employeeNumber }),
+            metadata: JSON.stringify({ 
+              employeeName: approvedEmployee.name, 
+              employeeNumber: approvedEmployee.employeeNumber,
+              assignedBy: existing.createdById,
+              assignedByName: allUsers.find(u => u.id === existing.createdById)?.name || 'Unknown'
+            }),
           });
 
           await storage.createNotification({

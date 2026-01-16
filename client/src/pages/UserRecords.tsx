@@ -153,6 +153,7 @@ export default function UserRecords() {
                   <TableHead>Type</TableHead>
                   <TableHead>Title</TableHead>
                   <TableHead>Related Item</TableHead>
+                  <TableHead>Assigned By</TableHead>
                   <TableHead>Approver</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -174,6 +175,9 @@ export default function UserRecords() {
                       <TableCell>{record.reportTitle}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {metadata?.documentCode || metadata?.employeeName || "N/A"}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {metadata?.assignedByName || "N/A"}
                       </TableCell>
                       <TableCell className="text-sm">
                         {record.approverName || "N/A"}
@@ -213,7 +217,7 @@ export default function UserRecords() {
               <FileText className="w-12 h-12 text-muted-foreground/50 mb-4" />
               <h3 className="text-lg font-medium text-muted-foreground">No Records Yet</h3>
               <p className="text-sm text-muted-foreground/70 mt-1 max-w-md">
-                When documents you approve or employees you confirm are completed, 
+                When documents you create get approved, or employees you confirm are completed, 
                 completion reports will appear here for your records.
               </p>
             </div>
