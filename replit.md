@@ -12,6 +12,26 @@ A web-based Quality Management System (QMS) application for a Certification Body
 
 Preferred communication style: Simple, everyday language.
 
+### Task Completion Tracking
+After completing each task, generate a Task Completion Report using this format:
+
+```
+TASK COMPLETION NOTE
+
+DATE: [Current Date]
+TASK ASSIGNED: [Task Name]
+ASSIGNED ON: [Date Assigned]
+COMPLETED ON: [Date Completed]
+NAME OF THE DOCUMENT: [File/Output Title]
+ASSIGNED BY: [User]
+
+POINTS EARNED:
+> * (+1 POINT for on-time completion)
+> * (-1 POINT for late completion)
+```
+
+Maintain a running tally of completed tasks and points.
+
 ## System Architecture
 
 ### Frontend Architecture
