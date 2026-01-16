@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,19 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Shield, LogIn, Award, CheckCircle, Globe, Building2, Star, Sun, Moon, Sunrise, Sunset } from "lucide-react";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
 import { DynamicQatarSky } from "@/components/DynamicQatarSky";
+import { GalaxyBackground } from "@/components/GalaxyBackground";
+
+const getDayOfYear = (): number => {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), 0, 0);
+  const diff = now.getTime() - start.getTime();
+  const oneDay = 1000 * 60 * 60 * 24;
+  return Math.floor(diff / oneDay);
+};
+
+const isGalaxyDay = (): boolean => {
+  return getDayOfYear() % 2 === 0;
+};
 
 interface LoginProps {
   onLogin: () => Promise<void>;
@@ -20,6 +33,8 @@ export default function Login({ onLogin }: LoginProps) {
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  
+  const showGalaxy = useMemo(() => isGalaxyDay(), []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,8 +68,8 @@ export default function Login({ onLogin }: LoginProps) {
 
   return (
     <div className="min-h-screen flex relative overflow-hidden">
-      {/* Dynamic Qatar Sky - Real-time day/night cycle with stars, planets, and meteors */}
-      <DynamicQatarSky />
+      {/* Alternating backgrounds - Galaxy view on even days, Qatar Sky on odd days */}
+      {showGalaxy ? <GalaxyBackground /> : <DynamicQatarSky />}
 
       {/* Left Panel - Branding */}
       <div className="hidden lg:flex lg:w-1/2 relative z-10 flex-col justify-center items-center px-12 text-white">
