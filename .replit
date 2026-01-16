@@ -47,7 +47,5 @@ integrations = ["javascript_openai_ai_integrations:2.0.0", "google-mail:1.0.0", 
 [userenv.shared]
 
 [userenv.development]
-GOOGLE_CLIENT_SECRET = ""
 
 [userenv.production]
-GOOGLE_CLIENT_SECRET = "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"
