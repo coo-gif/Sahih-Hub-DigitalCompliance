@@ -208,6 +208,7 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   role: text("role").notNull().default(UserRole.STAFF),
+  designation: text("designation"), // Job title/designation e.g., "Quality Manager", "Senior Auditor"
   inductionStatus: text("induction_status").notNull().default(InductionStatus.PENDING),
   isActive: boolean("is_active").default(true),
   signatureDataUrl: text("signature_data_url"),
