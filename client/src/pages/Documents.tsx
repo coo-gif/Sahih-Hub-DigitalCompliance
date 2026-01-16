@@ -56,7 +56,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, MoreHorizontal, Pencil, Trash2, AlertCircle, Eye, FileText, Calendar, Clock, FileDown, Loader2, Send, Lock, Unlock, UserCog } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Plus, MoreHorizontal, Pencil, Trash2, AlertCircle, Eye, FileText, Calendar, Clock, FileDown, Loader2, Send, Lock, Unlock, UserCog, Shield, Users } from "lucide-react";
 import { format } from "date-fns";
 import type { Document } from "@shared/schema";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
@@ -92,6 +93,9 @@ export default function Documents() {
   const [selectedApproverId, setSelectedApproverId] = useState<string>("");
   const [reviewComment, setReviewComment] = useState("");
   const [reassignComment, setReassignComment] = useState("");
+  const [showLockDialog, setShowLockDialog] = useState(false);
+  const [selectedAccessUsers, setSelectedAccessUsers] = useState<number[]>([]);
+  const [isLocking, setIsLocking] = useState(false);
   
   const filters = {
     status: statusFilter !== "all" ? statusFilter : undefined,
@@ -144,6 +148,55 @@ export default function Documents() {
     } catch (error: any) {
       toast({ title: "Error requesting access", description: error.message, variant: "destructive" });
     }
+  };
+
+  // Open lock dialog (COO only)
+  const openLockDialog = (doc: Document) => {
+    setSelectedDocument(doc);
+    setSelectedAccessUsers([]);
+    setShowLockDialog(true);
+  };
+
+  // Handle locking document and granting access (COO only)
+  const handleLockDocument = async () => {
+    if (!selectedDocument) return;
+    setIsLocking(true);
+    try {
+      const response = await fetch(`/api/documents/${selectedDocument.id}/lock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ userIds: selectedAccessUsers }),
+      });
+      
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.message || 'Failed to lock document');
+      }
+      
+      const result = await response.json();
+      toast({ 
+        title: "Document locked", 
+        description: `Document moved to Document Hub. Access granted to ${result.accessGrantedTo} user(s).` 
+      });
+      setShowLockDialog(false);
+      setSelectedDocument(null);
+      setSelectedAccessUsers([]);
+      queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
+    } catch (error: any) {
+      toast({ title: "Error locking document", description: error.message, variant: "destructive" });
+    } finally {
+      setIsLocking(false);
+    }
+  };
+
+  // Toggle user selection for access
+  const toggleUserAccess = (userId: number) => {
+    setSelectedAccessUsers(prev => 
+      prev.includes(userId) 
+        ? prev.filter(id => id !== userId)
+        : [...prev, userId]
+    );
   };
 
   const [formData, setFormData] = useState({
@@ -634,6 +687,19 @@ export default function Documents() {
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem onClick={() => openReassignDialog(doc)} data-testid={`button-reassign-${doc.id}`}>
                                   <UserCog className="w-4 h-4 mr-2" /> Re-assign Task
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                            {/* COO can manually lock documents and move to Document Hub */}
+                            {isCOO && !doc.isLocked && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem 
+                                  onClick={() => openLockDialog(doc)} 
+                                  className="text-amber-600"
+                                  data-testid={`button-lock-${doc.id}`}
+                                >
+                                  <Shield className="w-4 h-4 mr-2" /> Lock & Move to Hub
                                 </DropdownMenuItem>
                               </>
                             )}
@@ -1265,6 +1331,81 @@ export default function Documents() {
               data-testid="button-confirm-reassign"
             >
               {updateMutation.isPending ? "Saving..." : "Re-assign"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Lock Document & Grant Access Dialog (COO only) */}
+      <Dialog open={showLockDialog} onOpenChange={setShowLockDialog}>
+        <DialogContent className="max-w-lg" data-testid="dialog-lock-document">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Shield className="w-5 h-5 text-amber-600" />
+              Lock Document & Move to Hub
+            </DialogTitle>
+            <DialogDescription>
+              Lock "{selectedDocument?.title}" and select users who will have access to view it in the Document Hub.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="p-3 bg-amber-50 dark:bg-amber-900/30 rounded-md border border-amber-200 dark:border-amber-800">
+              <p className="text-sm text-amber-800 dark:text-amber-200">
+                <strong>Note:</strong> Once locked, this document will be moved to the Document Hub and only selected users (plus yourself as COO) will be able to access it.
+              </p>
+            </div>
+            
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                Select Users with Access
+              </Label>
+              <ScrollArea className="h-[200px] border rounded-md p-2">
+                <div className="space-y-2">
+                  {users.filter((u: any) => u.email !== 'coo@sahihcertify.com').map((user: any) => (
+                    <div 
+                      key={user.id} 
+                      className="flex items-center gap-3 p-2 rounded hover-elevate cursor-pointer"
+                      onClick={() => toggleUserAccess(user.id)}
+                      data-testid={`checkbox-user-${user.id}`}
+                    >
+                      <Checkbox 
+                        checked={selectedAccessUsers.includes(user.id)}
+                        onCheckedChange={() => toggleUserAccess(user.id)}
+                      />
+                      <div className="flex-1">
+                        <div className="font-medium text-sm">{user.name}</div>
+                        <div className="text-xs text-muted-foreground">{user.email} - {user.role.replace('_', ' ')}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+              <p className="text-xs text-muted-foreground">
+                {selectedAccessUsers.length} user(s) selected
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowLockDialog(false)} data-testid="button-cancel-lock">
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleLockDocument}
+              disabled={isLocking}
+              data-testid="button-confirm-lock"
+            >
+              {isLocking ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Locking...
+                </>
+              ) : (
+                <>
+                  <Lock className="w-4 h-4 mr-2" />
+                  Lock & Move to Hub
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

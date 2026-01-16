@@ -3231,6 +3231,80 @@ export async function registerRoutes(
     }
   });
 
+  // Manual lock document and grant access to selected users (COO only)
+  app.post('/api/documents/:id/lock', requireAuth, async (req, res) => {
+    try {
+      const documentId = Number(req.params.id);
+      if (isNaN(documentId)) {
+        return res.status(400).json({ message: 'Invalid document ID' });
+      }
+      
+      const currentUserId = getCurrentUserId(req);
+      const currentUser = await storage.getUser(currentUserId);
+      
+      // Only COO can manually lock documents
+      const COO_EMAIL = 'coo@sahihcertify.com';
+      if (currentUser?.email !== COO_EMAIL) {
+        return res.status(403).json({ message: 'Only the COO can manually lock documents' });
+      }
+      
+      const document = await storage.getDocument(documentId);
+      if (!document) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+      
+      // Cannot lock already locked documents
+      if (document.isLocked) {
+        return res.status(400).json({ message: 'Document is already locked' });
+      }
+      
+      const { userIds } = req.body as { userIds?: number[] };
+      
+      // Lock the document
+      const updated = await storage.updateDocument(documentId, {
+        isLocked: true,
+      });
+      
+      // Grant access to selected users
+      if (userIds && userIds.length > 0) {
+        for (const userId of userIds) {
+          await storage.grantDocumentAccess({
+            documentId,
+            userId,
+            grantedById: currentUserId,
+          });
+          
+          // Notify each user
+          await storage.createNotification({
+            userId,
+            title: 'Document Access Granted',
+            message: `You have been granted access to locked document "${document.documentCode} - ${document.title}"`,
+            urgencyLevel: UrgencyLevel.LOW,
+            relatedDocumentId: documentId,
+          });
+        }
+      }
+      
+      // Audit log
+      await storage.createAuditLog({
+        userId: currentUserId,
+        action: AuditAction.UPDATE,
+        entityType: 'document',
+        entityId: documentId,
+        previousValue: JSON.stringify({ isLocked: false }),
+        newValue: JSON.stringify({ isLocked: true, grantedAccessTo: userIds || [] }),
+      });
+      
+      res.json({ 
+        document: updated, 
+        accessGrantedTo: userIds?.length || 0 
+      });
+    } catch (err) {
+      console.error('Error locking document:', err);
+      res.status(500).json({ message: 'Failed to lock document' });
+    }
+  });
+
   // ============================================
   // USER RECORDS (Completion Reports)
   // ============================================
