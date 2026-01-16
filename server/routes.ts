@@ -3148,6 +3148,8 @@ export async function registerRoutes(
         return res.status(404).json({ message: 'User not found' });
       }
       
+      // Get fresh task counts directly from database
+      const taskStats = await storage.getUserTaskStats(userId);
       const compliance = await storage.calculateUserCompliance(userId);
       const buddyStatus = await storage.getOrCreateBuddyStatus(userId);
       const pendingDialogues = await storage.getBuddyDialogues(userId, true);
@@ -3178,9 +3180,9 @@ export async function registerRoutes(
           state: compliance.state,
         },
         stats: {
-          totalTasks: buddyStatus.totalTasksAssigned,
-          completedTasks: buddyStatus.tasksCompleted,
-          overdueTasks: buddyStatus.tasksOverdue,
+          totalTasks: taskStats.totalTasks,
+          completedTasks: taskStats.completedTasks,
+          overdueTasks: taskStats.overdueTasks,
         },
         style: {
           colorClass,

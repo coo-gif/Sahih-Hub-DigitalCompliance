@@ -203,6 +203,7 @@ export interface IStorage {
   getOrCreateBuddyStatus(userId: number): Promise<BuddyStatus>;
   updateBuddyStatus(userId: number, updates: Partial<InsertBuddyStatus>): Promise<BuddyStatus>;
   calculateUserCompliance(userId: number): Promise<{ score: number; state: string }>;
+  getUserTaskStats(userId: number): Promise<{ totalTasks: number; completedTasks: number; overdueTasks: number }>;
 
   // Push Subscriptions
   getPushSubscriptions(userId: number): Promise<PushSubscription[]>;
@@ -1282,6 +1283,21 @@ export class DatabaseStorage implements IStorage {
     });
 
     return { score, state };
+  }
+
+  async getUserTaskStats(userId: number): Promise<{ totalTasks: number; completedTasks: number; overdueTasks: number }> {
+    const tasks = await db.select().from(documentTasks)
+      .where(eq(documentTasks.assignedToId, userId));
+
+    const totalTasks = tasks.length;
+    const completedTasks = tasks.filter(t => t.status === 'completed').length;
+    const overdueTasks = tasks.filter(t => {
+      if (t.status === 'completed') return false;
+      if (!t.targetDate) return false;
+      return new Date(t.targetDate) < new Date();
+    }).length;
+
+    return { totalTasks, completedTasks, overdueTasks };
   }
 
   // ============================================
