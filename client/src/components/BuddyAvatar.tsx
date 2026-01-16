@@ -373,12 +373,4 @@ export function BuddyAvatar({ compact = false }: { compact?: boolean }) {
   );
 }
 
-export function BuddySidebarWidget() {
-  return (
-    <div className="border-t border-sidebar-border">
-      <BuddyAvatar />
-    </div>
-  );
-}
-
 export { getDailyOutfit, hubEebiOutfits };

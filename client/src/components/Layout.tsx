@@ -34,7 +34,6 @@ import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
 import sahihCertifyBanner from "@assets/WhatsApp_Image_2026-01-14_at_14.49.11_(1)_1768391647558.jpeg";
-import { BuddySidebarWidget } from "@/components/BuddyAvatar";
 import { NotificationManager } from "@/components/NotificationManager";
 import { useUnreadCount } from "@/hooks/use-gmail";
 
@@ -158,8 +157,6 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
             );
           })}
       </nav>
-
-      <BuddySidebarWidget />
 
       <div className="p-4 border-t border-sidebar-border">
         <div className="flex items-center justify-center gap-2 text-[10px] text-sidebar-foreground/60">
