@@ -5,6 +5,7 @@ import { useDocuments, useCreateDocument, useUpdateDocument, useDeleteDocument, 
 import { useUsers } from "@/hooks/use-users";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { DocumentStatus } from "@shared/schema";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -699,8 +700,8 @@ export default function Documents() {
                                 </DropdownMenuItem>
                               </>
                             )}
-                            {/* COO can manually lock documents and move to Document Hub - only for approved documents */}
-                            {isCOO && !doc.isLocked && doc.status === 'approved' && (
+                            {/* COO can manually lock documents and move to Document Hub - ONLY for approved documents */}
+                            {isCOO && !doc.isLocked && doc.status === DocumentStatus.APPROVED && doc.status !== DocumentStatus.IN_REVIEW && doc.status !== DocumentStatus.PENDING_APPROVAL && doc.status !== DocumentStatus.DRAFT && (
                               <>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem 
