@@ -4541,13 +4541,12 @@ Remember: Always be specific about WHERE to click (sidebar, button names, tabs) 
         return;
       }
       
-      // Fall back to Replit connector
-      const labelIds = label === 'UNREAD' ? ['INBOX', 'UNREAD'] : [label];
-      const emails = await listEmails(maxResults, labelIds);
-      res.json(emails);
+      // No OAuth connected - return empty list
+      res.json([]);
     } catch (error: any) {
       console.error('Gmail list error:', error);
-      res.status(500).json({ message: error.message || 'Failed to fetch emails' });
+      // Return empty list instead of error when Gmail not connected
+      res.json([]);
     }
   });
 
@@ -4605,12 +4604,12 @@ Remember: Always be specific about WHERE to click (sidebar, button names, tabs) 
         return;
       }
       
-      // Fall back to Replit connector
-      const count = await getUnreadCount();
-      res.json({ count });
+      // No OAuth connected - return 0 instead of trying old connector
+      res.json({ count: 0 });
     } catch (error: any) {
       console.error('Gmail unread count error:', error);
-      res.status(500).json({ message: error.message || 'Failed to get unread count' });
+      // Return 0 instead of error when Gmail not connected
+      res.json({ count: 0 });
     }
   });
 
