@@ -20,6 +20,45 @@ import { z } from "zod";
 import puppeteer from "puppeteer";
 import path from "path";
 import fs from "fs";
+import { execSync } from "child_process";
+
+// Helper function to find chromium executable
+function findChromiumPath(): string | undefined {
+  // Try common paths in order of preference
+  const possiblePaths = [
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+    '/nix/store/zi4f80l169xlmivz8vja8wlphq74qqk0-chromium-125.0.6422.141/bin/chromium',
+  ];
+  
+  // Check which paths exist
+  for (const chromePath of possiblePaths) {
+    if (chromePath && fs.existsSync(chromePath)) {
+      return chromePath;
+    }
+  }
+  
+  // Try to find using which command
+  try {
+    const result = execSync('which chromium 2>/dev/null || which google-chrome 2>/dev/null', { encoding: 'utf-8' }).trim();
+    if (result && fs.existsSync(result)) {
+      return result;
+    }
+  } catch (e) {
+    // Ignore errors
+  }
+  
+  // Try to find in nix store
+  try {
+    const result = execSync('find /nix/store -name "chromium" -type f -executable 2>/dev/null | head -1', { encoding: 'utf-8' }).trim();
+    if (result && fs.existsSync(result)) {
+      return result;
+    }
+  } catch (e) {
+    // Ignore errors
+  }
+  
+  return undefined;
+}
 import { listEmails, getEmail, sendEmail as sendEmailGmail, getUnreadCount, markAsRead, getLabels } from "./gmail";
 import { isSmtpConfigured, sendEmailSmtp } from "./email-smtp";
 import { 
@@ -1992,6 +2031,7 @@ export async function registerRoutes(
     }
 
     try {
+      console.log(`PDF generation started for document ${doc.id}`);
       const users = await storage.getUsers();
       const preparedBy = users.find(u => u.id === doc.preparedById);
       const reviewedBy = users.find(u => u.id === doc.reviewerId);
@@ -2053,9 +2093,13 @@ export async function registerRoutes(
         </html>
       `;
 
-      const browser = await puppeteer.launch({ 
+      console.log('Finding Chromium executable...');
+      const chromiumPath = findChromiumPath();
+      console.log(`Chromium path: ${chromiumPath || 'Not found, using bundled'}`);
+      
+      console.log('Launching Puppeteer browser...');
+      const launchOptions: any = { 
         headless: true,
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/nix/store/zi4f80l169xlmivz8vja8wlphq74qqk0-chromium-125.0.6422.141/bin/chromium',
         args: [
           '--no-sandbox', 
           '--disable-setuid-sandbox',
@@ -2064,8 +2108,16 @@ export async function registerRoutes(
           '--no-first-run',
           '--no-zygote',
           '--single-process'
-        ]
-      });
+        ],
+        timeout: 60000
+      };
+      
+      if (chromiumPath) {
+        launchOptions.executablePath = chromiumPath;
+      }
+      
+      const browser = await puppeteer.launch(launchOptions);
+      console.log('Puppeteer browser launched successfully');
       const page = await browser.newPage();
       
       // Block all external network requests to prevent SSRF vulnerabilities
@@ -2080,14 +2132,18 @@ export async function registerRoutes(
         }
       });
       
-      await page.setContent(htmlContent, { waitUntil: 'domcontentloaded' });
+      console.log('Setting page content...');
+      await page.setContent(htmlContent, { waitUntil: 'domcontentloaded', timeout: 30000 });
       
+      console.log('Generating PDF...');
       const pdfBuffer = await page.pdf({
         format: 'A4',
         margin: { top: '20mm', right: '20mm', bottom: '20mm', left: '20mm' },
-        printBackground: true
+        printBackground: true,
+        timeout: 60000
       });
       
+      console.log(`PDF generated successfully, size: ${pdfBuffer.length} bytes`);
       await browser.close();
 
       const pdfBase64 = Buffer.from(pdfBuffer).toString('base64');

@@ -277,21 +277,30 @@ export default function Documents() {
     setShowPdfDialog(true);
     
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
+      
       const response = await fetch(`/api/documents/${doc.id}/generate-pdf`, {
         method: 'POST',
         credentials: 'include',
+        signal: controller.signal,
       });
       
+      clearTimeout(timeoutId);
+      
       if (!response.ok) {
-        throw new Error('Failed to generate PDF');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to generate PDF');
       }
       
       const data = await response.json();
       setPdfUrl(data.pdfUrl);
       toast({ title: "PDF generated successfully" });
     } catch (error: any) {
-      toast({ title: "Error generating PDF", description: error.message, variant: "destructive" });
-      setShowPdfDialog(false);
+      const errorMessage = error.name === 'AbortError' 
+        ? 'PDF generation timed out. Please try again.' 
+        : error.message || 'Failed to generate PDF';
+      toast({ title: "Error generating PDF", description: errorMessage, variant: "destructive" });
     } finally {
       setIsGeneratingPdf(false);
     }
