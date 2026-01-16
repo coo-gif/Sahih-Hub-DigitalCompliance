@@ -1226,7 +1226,9 @@ export default function Dashboard() {
                 <ClipboardList className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h2 className="text-xl font-bold text-white">My Tasks</h2>
+                <h2 className="text-xl font-bold text-white">
+                  My Tasks {myTasks && myTasks.length > 0 && <span className="text-white/80">({myTasks.length} pending)</span>}
+                </h2>
                 <p className="text-white/70 text-sm">Documents assigned to you for action</p>
               </div>
             </div>
