@@ -89,11 +89,11 @@ export default function DocumentHub() {
   const isCOO = currentUser?.email === COO_EMAIL;
   
   const { data: approvedDocuments = [], isLoading: isLoadingDocs } = useQuery<Document[]>({
-    queryKey: ["/api/documents", { status: "approved" }],
+    queryKey: ["/api/documents?status=approved"],
   });
   
   const { data: pendingRequests = [], isLoading: isLoadingRequests } = useQuery<DocumentAccessRequest[]>({
-    queryKey: ["/api/document-access-requests", { status: "pending" }],
+    queryKey: ["/api/document-access-requests?status=pending"],
     enabled: isCOO,
   });
   
