@@ -4435,6 +4435,9 @@ Remember: Always be specific about WHERE to click (sidebar, button names, tabs) 
       const host = req.headers['x-forwarded-host'] || req.headers.host;
       const redirectUri = `${protocol}://${host}/api/gmail/callback`;
       
+      console.log('[Gmail OAuth] Redirect URI:', redirectUri);
+      console.log('[Gmail OAuth] Host headers:', { forwardedHost: req.headers['x-forwarded-host'], host: req.headers.host });
+      
       // Generate a cryptographically random state token for CSRF protection
       const crypto = await import('crypto');
       const randomToken = crypto.randomBytes(32).toString('hex');
