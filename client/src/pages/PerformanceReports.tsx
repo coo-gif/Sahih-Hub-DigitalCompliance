@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -85,10 +85,21 @@ export default function PerformanceReports() {
   const isCOO = currentUser?.email === "coo@sahihcertify.com";
   const isCEO = currentUser?.email === "ceo@sahihcertify.com";
 
-  const { data: reports, isLoading } = useQuery<PerformanceReport[]>({
+  const { data: reports, isLoading, dataUpdatedAt, refetch } = useQuery<PerformanceReport[]>({
     queryKey: ["/api/performance-reports", selectedMonth, selectedYear],
     enabled: isAdmin || isCOO || isCEO,
+    refetchInterval: 30000, // Auto-refresh every 30 seconds for live updates
+    refetchOnWindowFocus: true,
   });
+
+  // Track last update time for live indicator
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  
+  useEffect(() => {
+    if (dataUpdatedAt) {
+      setLastUpdated(new Date(dataUpdatedAt));
+    }
+  }, [dataUpdatedAt]);
 
   const generateMutation = useMutation({
     mutationFn: async ({ month, year }: { month: number; year: number }) => {
@@ -192,12 +203,34 @@ export default function PerformanceReports() {
             Track user activity, document contributions, and task performance
           </p>
         </div>
-        {isAdmin && (
-          <Button onClick={() => setShowGenerateDialog(true)} data-testid="button-generate-reports">
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Generate Reports
+        <div className="flex items-center gap-2">
+          {/* Live Update Indicator */}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="flex h-2 w-2 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+            </span>
+            <span>Live</span>
+            <span className="text-muted-foreground/60">
+              Updated {format(lastUpdated, "h:mm:ss a")}
+            </span>
+          </div>
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => refetch()}
+            data-testid="button-refresh-reports"
+          >
+            <RefreshCw className="w-4 h-4 mr-1" />
+            Refresh
           </Button>
-        )}
+          {isAdmin && (
+            <Button onClick={() => setShowGenerateDialog(true)} data-testid="button-generate-reports">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Generate Reports
+            </Button>
+          )}
+        </div>
       </div>
 
       <Card>

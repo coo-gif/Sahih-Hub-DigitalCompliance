@@ -664,6 +664,9 @@ export async function registerRoutes(
         comments: 'Document created',
       });
 
+      // Update live performance report stats
+      await storage.updateLiveReportStats(getCurrentUserId(req), 'document_created');
+
       res.status(201).json(doc);
     } catch (err: any) {
       if (err instanceof z.ZodError) {
@@ -1041,6 +1044,9 @@ export async function registerRoutes(
           newValue: JSON.stringify({ status: updated.status, taskType: 'review', comments }),
         });
 
+        // Update live performance report stats
+        await storage.updateLiveReportStats(userId, 'document_reviewed');
+
         res.json(updated);
       } else if (taskType === 'approve') {
         if (doc.approverId !== userId) {
@@ -1179,6 +1185,9 @@ export async function registerRoutes(
         } catch (reportErr) {
           console.error('Error generating document approval report:', reportErr);
         }
+
+        // Update live performance report stats
+        await storage.updateLiveReportStats(userId, 'document_approved');
 
         res.json(updated);
       } else {

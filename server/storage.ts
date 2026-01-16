@@ -1669,6 +1669,89 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
+  async updateLiveReportStats(userId: number, updateType: 'task_completed' | 'document_created' | 'document_reviewed' | 'document_approved'): Promise<void> {
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    const year = now.getFullYear();
+    
+    // Find existing report for this month
+    const [existingReport] = await db.select().from(monthlyPerformanceReports)
+      .where(and(
+        eq(monthlyPerformanceReports.userId, userId),
+        eq(monthlyPerformanceReports.reportMonth, month),
+        eq(monthlyPerformanceReports.reportYear, year)
+      ));
+    
+    if (!existingReport) {
+      // No report exists for this month yet - will be generated later
+      return;
+    }
+    
+    // Only update draft reports (don't modify in-review or approved reports)
+    if (existingReport.status !== MonthlyReportStatus.DRAFT) {
+      return;
+    }
+    
+    // Recalculate task statistics for this user
+    const startDate = new Date(year, month - 1, 1);
+    const endDate = new Date(year, month, 0, 23, 59, 59);
+    
+    // Get all documents
+    const allDocs = await this.getDocuments();
+    const userDocs = allDocs.filter(doc => doc.createdById === userId);
+    
+    const documentsCreated = userDocs.filter(doc =>
+      doc.createdAt && doc.createdAt >= startDate && doc.createdAt <= endDate
+    ).length;
+    
+    const documentsReviewed = allDocs.filter(doc =>
+      doc.reviewerId === userId &&
+      doc.reviewedBySignedAt && 
+      new Date(doc.reviewedBySignedAt) >= startDate && 
+      new Date(doc.reviewedBySignedAt) <= endDate
+    ).length;
+    
+    const documentsApproved = allDocs.filter(doc =>
+      doc.approverId === userId &&
+      doc.approvedAt && 
+      new Date(doc.approvedAt) >= startDate && 
+      new Date(doc.approvedAt) <= endDate
+    ).length;
+
+    // Get task metrics from document_tasks table
+    const allTasks = await db.select().from(documentTasks)
+      .where(eq(documentTasks.assignedToId, userId));
+
+    const tasksCompleted = allTasks.filter(task => 
+      task.status === 'completed' && 
+      task.completedAt && 
+      task.completedAt >= startDate && 
+      task.completedAt <= endDate
+    ).length;
+    
+    const tasksOverdue = allTasks.filter(task => 
+      task.status === 'overdue' || 
+      (task.targetDate && new Date(task.targetDate) < new Date() && task.status !== 'completed')
+    ).length;
+    
+    const tasksPending = allTasks.filter(task => 
+      task.status === 'pending' || task.status === 'assigned' || task.status === 'in_progress'
+    ).length;
+    
+    // Update the report with live stats
+    await db.update(monthlyPerformanceReports)
+      .set({ 
+        documentsCreated,
+        documentsReviewed,
+        documentsApproved,
+        tasksCompleted,
+        tasksOverdue,
+        tasksPending,
+        updatedAt: new Date()
+      })
+      .where(eq(monthlyPerformanceReports.id, existingReport.id));
+  }
+
   // Bug Reports
   async getBugReports(filters?: { status?: string; reportedById?: number }): Promise<BugReport[]> {
     let query = db.select().from(bugReports).orderBy(desc(bugReports.createdAt));
