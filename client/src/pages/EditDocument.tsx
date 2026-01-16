@@ -15,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { ArrowLeft, FileText, Save, Eye, Maximize2, Minimize2 } from "lucide-react";
 import DOMPurify from "dompurify";
@@ -204,34 +205,63 @@ export default function EditDocument() {
         </div>
       </div>
 
+      {/* Full-Width Document Preview Dialog */}
       <Dialog open={showPreviewDialog} onOpenChange={setShowPreviewDialog}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Document Preview</DialogTitle>
+        <DialogContent className="max-w-[95vw] w-full max-h-[95vh] h-[95vh] flex flex-col" data-testid="dialog-preview">
+          <DialogHeader className="flex-shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="w-5 h-5" />
+              Document Preview - Full View
+            </DialogTitle>
           </DialogHeader>
-          <div className="border-b pb-4 mb-4">
-            <div className="flex items-start gap-4">
-              <img 
-                src={sahihLogoPath} 
-                alt="Sahih Certifications" 
-                className="h-48 object-contain"
-              />
-              <div>
-                <h2 className="text-xl font-bold">{formData.title || "Untitled Document"}</h2>
-                <p className="text-sm text-muted-foreground font-mono">{document.documentCode}</p>
-                {formData.description && (
-                  <p className="text-muted-foreground mt-2">{formData.description}</p>
-                )}
+          <div className="flex-1 overflow-y-auto">
+            <div 
+              className="bg-white mx-auto shadow-lg"
+              style={{
+                width: '100%',
+                maxWidth: '210mm',
+                minHeight: '297mm',
+                border: '2px solid black',
+                padding: '15mm',
+                fontFamily: 'Roboto, sans-serif',
+              }}
+            >
+              {/* Document Header */}
+              <div className="flex items-start justify-between mb-6 pb-4 border-b-2 border-black">
+                <img 
+                  src={sahihLogoPath} 
+                  alt="Sahih Certifications" 
+                  className="h-16 object-contain"
+                />
+                <div className="text-right">
+                  <div className="font-bold text-lg">{formData.title || "Untitled Document"}</div>
+                  <div className="text-sm text-gray-600 font-mono">{document.documentCode}</div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    Edition: {document.editionNumber || 1} | Revision: {document.revisionNumber || 0}
+                  </div>
+                </div>
               </div>
+              
+              {formData.description && (
+                <div className="mb-4 text-sm text-gray-600 italic border-l-4 border-gray-300 pl-3">
+                  {formData.description}
+                </div>
+              )}
+              
+              {/* Document Content */}
+              <div 
+                className="prose prose-base max-w-none document-content"
+                dangerouslySetInnerHTML={{ 
+                  __html: DOMPurify.sanitize(formData.content || '<p class="text-gray-400 italic">No content yet</p>') 
+                }}
+              />
             </div>
           </div>
-          <div 
-            className="prose prose-slate max-w-none"
-            style={{ fontFamily: 'Roboto, sans-serif' }}
-            dangerouslySetInnerHTML={{ 
-              __html: DOMPurify.sanitize(formData.content || '<p class="text-muted-foreground italic">No content yet</p>') 
-            }}
-          />
+          <DialogFooter className="flex-shrink-0 border-t pt-4">
+            <Button variant="outline" onClick={() => setShowPreviewDialog(false)} data-testid="button-close-preview">
+              Close Preview
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
