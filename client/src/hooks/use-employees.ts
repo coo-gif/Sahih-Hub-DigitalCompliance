@@ -109,6 +109,7 @@ export function useDeleteEmployeeTask() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/employee-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
     },
   });
 }
@@ -121,6 +122,7 @@ export function useCompleteEmployeeTask() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/employee-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
     },
   });
 }
