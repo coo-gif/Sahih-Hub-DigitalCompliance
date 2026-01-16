@@ -272,7 +272,7 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
                     </div>
                     <div className="hidden sm:block text-left">
                       <p className="text-sm font-semibold leading-none">{user.name}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">{user.role.replace('_', ' ')}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{user.designation || user.role.replace('_', ' ')}</p>
                     </div>
                   </Button>
                 </DropdownMenuTrigger>
@@ -280,6 +280,9 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
                   <div className="px-3 py-3 border-b bg-accent/50">
                     <p className="font-semibold text-sm">{user.name}</p>
                     <p className="text-xs text-muted-foreground">{user.email}</p>
+                    {user.designation && (
+                      <p className="text-xs text-muted-foreground mt-1">{user.designation}</p>
+                    )}
                     <Badge className="mt-2 text-[10px] bg-primary">
                       {user.role.replace('_', ' ').toUpperCase()}
                     </Badge>
