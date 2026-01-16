@@ -63,8 +63,9 @@ const stateEmojis: Record<string, { icon: typeof CheckCircle; label: string; mes
 };
 
 export function HubEebiFullBody({ className }: { className?: string }) {
+  // Uses SYSTEM-WIDE compliance (all tasks across all users)
   const { data: buddyStatus } = useQuery<BuddyStatusData>({
-    queryKey: ["/api/buddy/status"],
+    queryKey: ["/api/buddy/system-status"],
     refetchInterval: 30000,
   });
 
@@ -187,8 +188,9 @@ export function HubEebiFullBody({ className }: { className?: string }) {
 }
 
 export function BuddyAvatar({ compact = false }: { compact?: boolean }) {
+  // Uses SYSTEM-WIDE compliance (all tasks across all users)
   const { data: buddyStatus, isLoading } = useQuery<BuddyStatusData>({
-    queryKey: ["/api/buddy/status"],
+    queryKey: ["/api/buddy/system-status"],
     refetchInterval: 60000,
   });
 
@@ -197,7 +199,7 @@ export function BuddyAvatar({ compact = false }: { compact?: boolean }) {
       return apiRequest("POST", `/api/buddy/dialogues/${dialogueId}/acknowledge`, {});
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/buddy/status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/buddy/system-status"] });
     },
   });
 
@@ -311,6 +313,7 @@ export function BuddyAvatar({ compact = false }: { compact?: boolean }) {
             <span className={cn("text-xs font-medium", getScoreColor())}>{stateInfo.label}</span>
           </div>
           <div className={cn("text-xl font-bold mt-1", getScoreColor())}>{compliance.score}%</div>
+          <span className="text-[10px] text-muted-foreground">System Compliance</span>
         </div>
       </div>
 

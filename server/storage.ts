@@ -204,6 +204,8 @@ export interface IStorage {
   updateBuddyStatus(userId: number, updates: Partial<InsertBuddyStatus>): Promise<BuddyStatus>;
   calculateUserCompliance(userId: number): Promise<{ score: number; state: string }>;
   getUserTaskStats(userId: number): Promise<{ totalTasks: number; completedTasks: number; overdueTasks: number }>;
+  calculateSystemCompliance(): Promise<{ score: number; state: string }>;
+  getSystemTaskStats(): Promise<{ totalTasks: number; completedTasks: number; overdueTasks: number }>;
 
   // Push Subscriptions
   getPushSubscriptions(userId: number): Promise<PushSubscription[]>;
@@ -1288,6 +1290,53 @@ export class DatabaseStorage implements IStorage {
   async getUserTaskStats(userId: number): Promise<{ totalTasks: number; completedTasks: number; overdueTasks: number }> {
     const tasks = await db.select().from(documentTasks)
       .where(eq(documentTasks.assignedToId, userId));
+
+    const totalTasks = tasks.length;
+    const completedTasks = tasks.filter(t => t.status === 'completed').length;
+    const overdueTasks = tasks.filter(t => {
+      if (t.status === 'completed') return false;
+      if (!t.targetDate) return false;
+      return new Date(t.targetDate) < new Date();
+    }).length;
+
+    return { totalTasks, completedTasks, overdueTasks };
+  }
+
+  async calculateSystemCompliance(): Promise<{ score: number; state: string }> {
+    // Get ALL tasks across the entire system
+    const tasks = await db.select().from(documentTasks);
+
+    const totalTasks = tasks.length;
+    if (totalTasks === 0) {
+      return { score: 100, state: BuddyState.FLEXING };
+    }
+
+    const completedTasks = tasks.filter(t => t.status === 'completed').length;
+    const overdueTasks = tasks.filter(t => {
+      if (t.status === 'completed') return false;
+      if (!t.targetDate) return false;
+      return new Date(t.targetDate) < new Date();
+    }).length;
+
+    // Calculate compliance score
+    const completionRate = (completedTasks / totalTasks) * 100;
+    const overduePenalty = (overdueTasks / totalTasks) * 30;
+    const score = Math.max(0, Math.min(100, Math.round(completionRate - overduePenalty)));
+
+    // Determine state based on score
+    let state: string;
+    if (score >= 90) state = BuddyState.FLEXING;
+    else if (score >= 80) state = BuddyState.HEALTHY;
+    else if (score >= 70) state = BuddyState.TIRED;
+    else if (score >= 60) state = BuddyState.WEAK;
+    else state = BuddyState.CRITICAL;
+
+    return { score, state };
+  }
+
+  async getSystemTaskStats(): Promise<{ totalTasks: number; completedTasks: number; overdueTasks: number }> {
+    // Get ALL tasks across the entire system
+    const tasks = await db.select().from(documentTasks);
 
     const totalTasks = tasks.length;
     const completedTasks = tasks.filter(t => t.status === 'completed').length;

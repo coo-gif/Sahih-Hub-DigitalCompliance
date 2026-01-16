@@ -3353,6 +3353,65 @@ export async function registerRoutes(
     }
   });
 
+  // System-wide compliance status for Buddy Avatar (shows overall system compliance)
+  app.get('/api/buddy/system-status', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
+      
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      
+      // Get SYSTEM-WIDE task stats (all users combined)
+      const taskStats = await storage.getSystemTaskStats();
+      const compliance = await storage.calculateSystemCompliance();
+      const pendingDialogues = await storage.getBuddyDialogues(userId, true);
+      
+      const buddyName = 'Hub-eeeebi';
+      
+      let colorClass = 'text-green-500';
+      let bgColorClass = 'bg-green-50 dark:bg-green-900/20';
+      let animationClass = '';
+      
+      if (compliance.score < 60) {
+        colorClass = 'text-red-500';
+        bgColorClass = 'bg-red-50 dark:bg-red-900/20';
+        animationClass = 'animate-pulse';
+      } else if (compliance.score < 70) {
+        colorClass = 'text-orange-500';
+        bgColorClass = 'bg-orange-50 dark:bg-orange-900/20';
+        animationClass = 'animate-slow-blink';
+      } else if (compliance.score < 90) {
+        colorClass = 'text-yellow-500';
+        bgColorClass = 'bg-yellow-50 dark:bg-yellow-900/20';
+      }
+      
+      res.json({
+        buddyName,
+        compliance: {
+          score: compliance.score,
+          state: compliance.state,
+        },
+        stats: {
+          totalTasks: taskStats.totalTasks,
+          completedTasks: taskStats.completedTasks,
+          overdueTasks: taskStats.overdueTasks,
+        },
+        style: {
+          colorClass,
+          bgColorClass,
+          animationClass,
+        },
+        pendingDialogues,
+        lastUpdated: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('Error fetching system buddy status:', err);
+      res.status(500).json({ message: 'Failed to fetch system buddy status' });
+    }
+  });
+
   app.get('/api/buddy/dialogues', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
