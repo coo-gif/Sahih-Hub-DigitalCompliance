@@ -30,7 +30,9 @@ export function useCreateDocument() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/stats'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/alerts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/activity'] });
     },
   });
 }
@@ -43,7 +45,9 @@ export function useUpdateDocument() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/stats'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/alerts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/activity'] });
     },
   });
 }
@@ -55,7 +59,10 @@ export function useDeleteDocument() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/stats'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/alerts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/activity'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
     },
   });
 }
@@ -68,7 +75,9 @@ export function useSubmitDocumentForReview() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/stats'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/alerts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/activity'] });
       queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
       queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
     },
