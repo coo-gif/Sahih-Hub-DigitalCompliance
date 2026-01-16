@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { 
   FileText, 
@@ -1235,9 +1236,9 @@ export default function Dashboard() {
           </div>
         </div>
         <CardContent className="p-6 bg-gradient-to-b from-primary/5 to-background">
-          <div className="space-y-3">
-            {tasksLoading ? (
-              Array.from({ length: 3 }).map((_, i) => (
+          {tasksLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, i) => (
                 <div key={i} className="p-4 rounded-xl border-2 border-primary/20 bg-white dark:bg-card">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-3 flex-1">
@@ -1250,51 +1251,55 @@ export default function Dashboard() {
                     <Skeleton className="h-10 w-24" />
                   </div>
                 </div>
-              ))
-            ) : myTasks && myTasks.length > 0 ? (
-              myTasks.map((task, idx) => (
-                <div 
-                  key={`${task.documentId}-${task.taskType}`} 
-                  className="p-4 rounded-xl border-2 border-primary/20 hover:border-primary hover:shadow-xl cursor-pointer transition-all group bg-white dark:bg-card"
-                  style={{ animation: `slideIn 0.3s ease-out ${idx * 0.1}s backwards` }}
-                  onClick={() => handleOpenTask(task)}
-                  data-testid={`task-${task.documentId}-${task.taskType}`}
-                >
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-4">
-                      <div className="p-3 rounded-xl bg-gradient-to-br from-primary/10 to-primary/20 group-hover:from-primary/20 group-hover:to-primary/30 transition-all">
-                        {getTaskIcon(task.taskType)}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-bold text-lg" data-testid={`text-task-code-${task.documentId}`}>{task.documentCode}</p>
-                          <Badge className={`${getTaskBadgeColor(task.taskType)} font-semibold`} data-testid={`badge-task-type-${task.documentId}`}>
-                            {task.taskType.charAt(0).toUpperCase() + task.taskType.slice(1)}
-                          </Badge>
+              ))}
+            </div>
+          ) : myTasks && myTasks.length > 0 ? (
+            <ScrollArea className="max-h-[400px] pr-3">
+              <div className="space-y-3">
+                {myTasks.map((task, idx) => (
+                  <div 
+                    key={`${task.documentId}-${task.taskType}`} 
+                    className="p-4 rounded-xl border-2 border-primary/20 hover:border-primary hover:shadow-xl cursor-pointer transition-all group bg-white dark:bg-card"
+                    style={{ animation: `slideIn 0.3s ease-out ${idx * 0.1}s backwards` }}
+                    onClick={() => handleOpenTask(task)}
+                    data-testid={`task-${task.documentId}-${task.taskType}`}
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-4">
+                        <div className="p-3 rounded-xl bg-gradient-to-br from-primary/10 to-primary/20 group-hover:from-primary/20 group-hover:to-primary/30 transition-all">
+                          {getTaskIcon(task.taskType)}
                         </div>
-                        <p className="text-sm text-muted-foreground" data-testid={`text-task-title-${task.documentId}`}>{task.title}</p>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-bold text-lg" data-testid={`text-task-code-${task.documentId}`}>{task.documentCode}</p>
+                            <Badge className={`${getTaskBadgeColor(task.taskType)} font-semibold`} data-testid={`badge-task-type-${task.documentId}`}>
+                              {task.taskType.charAt(0).toUpperCase() + task.taskType.slice(1)}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground" data-testid={`text-task-title-${task.documentId}`}>{task.title}</p>
+                        </div>
                       </div>
+                      <Button 
+                        size="default" 
+                        className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-md group-hover:shadow-lg transition-all" 
+                        data-testid={`button-open-task-${task.documentId}`}
+                      >
+                        Open Task
+                      </Button>
                     </div>
-                    <Button 
-                      size="default" 
-                      className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-md group-hover:shadow-lg transition-all" 
-                      data-testid={`button-open-task-${task.documentId}`}
-                    >
-                      Open Task
-                    </Button>
                   </div>
-                </div>
-              ))
-            ) : (
-              <div className="text-center py-12" data-testid="text-no-tasks">
-                <div className="w-24 h-24 rounded-full bg-gradient-to-br from-green-100 to-green-50 dark:from-green-900/30 dark:to-green-950/20 mx-auto mb-4 flex items-center justify-center shadow-lg">
-                  <CheckCircle2 className="w-12 h-12 text-green-500" />
-                </div>
-                <p className="font-bold text-xl text-green-700 dark:text-green-400">All Caught Up!</p>
-                <p className="text-muted-foreground mt-1">No pending tasks. Great work!</p>
+                ))}
               </div>
-            )}
-          </div>
+            </ScrollArea>
+          ) : (
+            <div className="text-center py-12" data-testid="text-no-tasks">
+              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-green-100 to-green-50 dark:from-green-900/30 dark:to-green-950/20 mx-auto mb-4 flex items-center justify-center shadow-lg">
+                <CheckCircle2 className="w-12 h-12 text-green-500" />
+              </div>
+              <p className="font-bold text-xl text-green-700 dark:text-green-400">All Caught Up!</p>
+              <p className="text-muted-foreground mt-1">No pending tasks. Great work!</p>
+            </div>
+          )}
         </CardContent>
         </Card>
 
