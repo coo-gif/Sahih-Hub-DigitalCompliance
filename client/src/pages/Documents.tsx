@@ -699,8 +699,8 @@ export default function Documents() {
                                 </DropdownMenuItem>
                               </>
                             )}
-                            {/* COO can manually lock documents and move to Document Hub */}
-                            {isCOO && !doc.isLocked && (
+                            {/* COO can manually lock documents and move to Document Hub - only for approved documents */}
+                            {isCOO && !doc.isLocked && doc.status === 'approved' && (
                               <>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem 
@@ -1110,25 +1110,25 @@ export default function Documents() {
         </DialogContent>
       </Dialog>
 
-      {/* Preview Dialog with Black Border */}
+      {/* Preview Dialog - Full Width for Better Viewing */}
       <Dialog open={showPreviewDialog} onOpenChange={setShowPreviewDialog}>
-        <DialogContent className="max-w-4xl max-h-[90vh]" data-testid="dialog-preview-document">
-          <DialogHeader>
+        <DialogContent className="max-w-[95vw] w-full max-h-[95vh] h-[95vh]" data-testid="dialog-preview-document">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <Eye className="w-5 h-5" />
               Document Preview
             </DialogTitle>
-            <DialogDescription>Preview how your document will appear when printed or exported</DialogDescription>
+            <DialogDescription>Full preview of how your document will appear when printed or exported</DialogDescription>
           </DialogHeader>
-          <ScrollArea className="h-[70vh]">
+          <ScrollArea className="flex-1 h-[calc(95vh-140px)]">
             <div 
               className="bg-white mx-auto shadow-lg"
               style={{
-                width: '210mm',
+                width: '100%',
+                maxWidth: '210mm',
                 minHeight: '297mm',
-                maxWidth: '100%',
                 border: '2px solid black',
-                padding: '20mm',
+                padding: '15mm',
                 fontFamily: 'Roboto, sans-serif',
               }}
               data-testid="preview-document-content"
@@ -1149,14 +1149,14 @@ export default function Documents() {
               </div>
               
               <div 
-                className="prose prose-sm max-w-none document-content"
+                className="prose prose-base max-w-none document-content"
                 dangerouslySetInnerHTML={{ 
                   __html: DOMPurify.sanitize(formData.content || '<p class="text-gray-400 italic">No content to preview</p>') 
                 }}
               />
             </div>
           </ScrollArea>
-          <DialogFooter>
+          <DialogFooter className="flex-shrink-0">
             <Button variant="outline" onClick={() => setShowPreviewDialog(false)} data-testid="button-close-preview">
               Close Preview
             </Button>
