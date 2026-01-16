@@ -1215,8 +1215,10 @@ export default function Dashboard() {
         </TabsList>
       </Tabs>
 
-      {/* My Tasks Section - Primary Focus for Individual Performance */}
-      <Card data-testid="card-my-tasks" className="overflow-hidden shadow-lg border-2 border-primary/20">
+      {/* My Tasks + Stats Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* My Tasks Section - Primary Focus for Individual Performance */}
+        <Card data-testid="card-my-tasks" className="overflow-hidden shadow-lg border-2 border-primary/20">
         <div className="px-6 py-4 gradient-primary">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-3">
@@ -1292,8 +1294,148 @@ export default function Dashboard() {
             )}
           </div>
         </CardContent>
-      </Card>
+        </Card>
 
+        {/* Stats Grid - 2x2 on the right side */}
+        <div className="grid grid-cols-2 gap-4">
+          <Card 
+            data-testid="card-total-documents"
+            className="stat-card cursor-pointer overflow-hidden relative group"
+            onClick={() => navigate("/documents")}
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-blue-500/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+            <CardContent className="p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="p-2 rounded-xl bg-blue-100 dark:bg-blue-900/30">
+                  <FileText className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                </div>
+                <TrendingUp className="h-4 w-4 text-green-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
+              {statsLoading ? (
+                <>
+                  <Skeleton className="h-8 w-16 mb-1" />
+                  <Skeleton className="h-3 w-24" />
+                </>
+              ) : (
+                <>
+                  <div className="text-3xl font-bold" data-testid="text-total-documents" style={{ animation: 'countUp 0.5s ease-out' }}>
+                    {stats?.totalDocuments || 0}
+                  </div>
+                  <p className="text-sm text-muted-foreground">Total Documents</p>
+                  <div className="mt-2 flex items-center gap-1">
+                    <Badge variant="secondary" className="text-xs">{stats?.approvedDocuments || 0} approved</Badge>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card 
+            data-testid="card-pending-approvals"
+            className="stat-card cursor-pointer overflow-hidden relative group"
+            onClick={() => navigate("/documents")}
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 to-amber-500/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+            <CardContent className="p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="p-2 rounded-xl bg-amber-100 dark:bg-amber-900/30">
+                  <Clock className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                </div>
+                {(stats?.pendingApprovals || 0) > 0 && (
+                  <span className="flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-amber-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                  </span>
+                )}
+              </div>
+              {statsLoading ? (
+                <>
+                  <Skeleton className="h-8 w-16 mb-1" />
+                  <Skeleton className="h-3 w-24" />
+                </>
+              ) : (
+                <>
+                  <div className="text-3xl font-bold text-amber-600" data-testid="text-pending-approvals" style={{ animation: 'countUp 0.5s ease-out 0.1s backwards' }}>
+                    {stats?.pendingApprovals || 0}
+                  </div>
+                  <p className="text-sm text-muted-foreground">Pending Approvals</p>
+                  <div className="mt-2">
+                    <Badge variant="outline" className="text-xs border-amber-200 text-amber-700">Awaiting review</Badge>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card 
+            data-testid="card-expiring-soon"
+            className="stat-card cursor-pointer overflow-hidden relative group"
+            onClick={() => document.getElementById('compliance-section')?.scrollIntoView({ behavior: 'smooth' })}
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-yellow-500/5 to-yellow-500/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+            <CardContent className="p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="p-2 rounded-xl bg-yellow-100 dark:bg-yellow-900/30">
+                  <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
+                </div>
+              </div>
+              {statsLoading ? (
+                <>
+                  <Skeleton className="h-8 w-16 mb-1" />
+                  <Skeleton className="h-3 w-24" />
+                </>
+              ) : (
+                <>
+                  <div className="text-3xl font-bold text-yellow-600" data-testid="text-expiring-documents" style={{ animation: 'countUp 0.5s ease-out 0.2s backwards' }}>
+                    {stats?.expiringDocuments || 0}
+                  </div>
+                  <p className="text-sm text-muted-foreground">Expiring Soon</p>
+                  <div className="mt-2">
+                    <Badge variant="outline" className="text-xs border-yellow-200 text-yellow-700">Within 30 days</Badge>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card 
+            data-testid="card-non-compliant"
+            className="stat-card cursor-pointer overflow-hidden relative group"
+            onClick={() => document.getElementById('compliance-section')?.scrollIntoView({ behavior: 'smooth' })}
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 to-red-500/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+            <CardContent className="p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="p-2 rounded-xl bg-red-100 dark:bg-red-900/30">
+                  <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+                </div>
+                {(stats?.nonCompliantDocuments || 0) > 0 && (
+                  <span className="flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-red-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                  </span>
+                )}
+              </div>
+              {statsLoading ? (
+                <>
+                  <Skeleton className="h-8 w-16 mb-1" />
+                  <Skeleton className="h-3 w-24" />
+                </>
+              ) : (
+                <>
+                  <div className="text-3xl font-bold text-red-600" data-testid="text-non-compliant" style={{ animation: 'countUp 0.5s ease-out 0.3s backwards' }}>
+                    {stats?.nonCompliantDocuments || 0}
+                  </div>
+                  <p className="text-sm text-muted-foreground">Non-Compliant</p>
+                  <div className="mt-2">
+                    <Badge variant="outline" className="text-xs border-red-200 text-red-700">Overdue review</Badge>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
 
       {/* ISO 17021 Daily Tip Dialog */}
       <Dialog open={showIsoTipDialog} onOpenChange={(open) => {
@@ -1585,146 +1727,6 @@ export default function Dashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Modern Stats Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card 
-          data-testid="card-total-documents"
-          className="stat-card cursor-pointer overflow-hidden relative group"
-          onClick={() => navigate("/documents")}
-        >
-          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-blue-500/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div className="p-2 rounded-xl bg-blue-100 dark:bg-blue-900/30">
-                <FileText className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-              </div>
-              <TrendingUp className="h-4 w-4 text-green-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-            </div>
-            {statsLoading ? (
-              <>
-                <Skeleton className="h-8 w-16 mb-1" />
-                <Skeleton className="h-3 w-24" />
-              </>
-            ) : (
-              <>
-                <div className="text-3xl font-bold" data-testid="text-total-documents" style={{ animation: 'countUp 0.5s ease-out' }}>
-                  {stats?.totalDocuments || 0}
-                </div>
-                <p className="text-sm text-muted-foreground">Total Documents</p>
-                <div className="mt-2 flex items-center gap-1">
-                  <Badge variant="secondary" className="text-xs">{stats?.approvedDocuments || 0} approved</Badge>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card 
-          data-testid="card-pending-approvals"
-          className="stat-card cursor-pointer overflow-hidden relative group"
-          onClick={() => navigate("/documents")}
-        >
-          <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 to-amber-500/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div className="p-2 rounded-xl bg-amber-100 dark:bg-amber-900/30">
-                <Clock className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-              </div>
-              {(stats?.pendingApprovals || 0) > 0 && (
-                <span className="flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-amber-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-                </span>
-              )}
-            </div>
-            {statsLoading ? (
-              <>
-                <Skeleton className="h-8 w-16 mb-1" />
-                <Skeleton className="h-3 w-24" />
-              </>
-            ) : (
-              <>
-                <div className="text-3xl font-bold text-amber-600" data-testid="text-pending-approvals" style={{ animation: 'countUp 0.5s ease-out 0.1s backwards' }}>
-                  {stats?.pendingApprovals || 0}
-                </div>
-                <p className="text-sm text-muted-foreground">Pending Approvals</p>
-                <div className="mt-2">
-                  <Badge variant="outline" className="text-xs border-amber-200 text-amber-700">Awaiting review</Badge>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card 
-          data-testid="card-expiring-soon"
-          className="stat-card cursor-pointer overflow-hidden relative group"
-          onClick={() => document.getElementById('compliance-section')?.scrollIntoView({ behavior: 'smooth' })}
-        >
-          <div className="absolute inset-0 bg-gradient-to-br from-yellow-500/5 to-yellow-500/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div className="p-2 rounded-xl bg-yellow-100 dark:bg-yellow-900/30">
-                <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
-              </div>
-            </div>
-            {statsLoading ? (
-              <>
-                <Skeleton className="h-8 w-16 mb-1" />
-                <Skeleton className="h-3 w-24" />
-              </>
-            ) : (
-              <>
-                <div className="text-3xl font-bold text-yellow-600" data-testid="text-expiring-documents" style={{ animation: 'countUp 0.5s ease-out 0.2s backwards' }}>
-                  {stats?.expiringDocuments || 0}
-                </div>
-                <p className="text-sm text-muted-foreground">Expiring Soon</p>
-                <div className="mt-2">
-                  <Badge variant="outline" className="text-xs border-yellow-200 text-yellow-700">Within 30 days</Badge>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card 
-          data-testid="card-non-compliant"
-          className="stat-card cursor-pointer overflow-hidden relative group"
-          onClick={() => document.getElementById('compliance-section')?.scrollIntoView({ behavior: 'smooth' })}
-        >
-          <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 to-red-500/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div className="p-2 rounded-xl bg-red-100 dark:bg-red-900/30">
-                <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
-              </div>
-              {(stats?.nonCompliantDocuments || 0) > 0 && (
-                <span className="flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-red-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
-                </span>
-              )}
-            </div>
-            {statsLoading ? (
-              <>
-                <Skeleton className="h-8 w-16 mb-1" />
-                <Skeleton className="h-3 w-24" />
-              </>
-            ) : (
-              <>
-                <div className="text-3xl font-bold text-red-600" data-testid="text-non-compliant" style={{ animation: 'countUp 0.5s ease-out 0.3s backwards' }}>
-                  {stats?.nonCompliantDocuments || 0}
-                </div>
-                <p className="text-sm text-muted-foreground">Non-Compliant</p>
-                <div className="mt-2">
-                  <Badge variant="outline" className="text-xs border-red-200 text-red-700">Overdue review</Badge>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-      </div>
 
       {/* Compliance Health & Quick Stats */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
