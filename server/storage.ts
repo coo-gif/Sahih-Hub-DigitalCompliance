@@ -5,8 +5,12 @@ import {
   documentAccessRequests, documentAccess, userRecords, buddyStatus, pushSubscriptions, buddyDialogues,
   userActivityLogs, monthlyPerformanceReports, bugReports,
   certificationApplications, certificationAudits, auditFindings, certificates, wallPosts, revisionHistory,
+  trainings, trainingAssignments, trainingCompletions,
   type User, type InsertUser,
   type RevisionHistory, type InsertRevisionHistory,
+  type Training, type InsertTraining,
+  type TrainingAssignment, type InsertTrainingAssignment,
+  type TrainingCompletion, type InsertTrainingCompletion,
   type Document, type InsertDocument,
   type DocumentVersion, type InsertDocumentVersion,
   type WorkflowLog, type InsertWorkflowLog,
@@ -2065,6 +2069,111 @@ export class DatabaseStorage implements IStorage {
 
   async deleteRevisionHistory(id: number): Promise<void> {
     await db.delete(revisionHistory).where(eq(revisionHistory.id, id));
+  }
+
+  // ============================================
+  // TRAININGS
+  // ============================================
+  async getTrainings(): Promise<Training[]> {
+    return db.select().from(trainings).orderBy(desc(trainings.createdAt));
+  }
+
+  async getTraining(id: number): Promise<Training | undefined> {
+    const [training] = await db.select().from(trainings).where(eq(trainings.id, id));
+    return training;
+  }
+
+  async createTraining(data: InsertTraining): Promise<Training> {
+    const [training] = await db.insert(trainings).values(data).returning();
+    return training;
+  }
+
+  async updateTraining(id: number, data: Partial<InsertTraining>): Promise<Training> {
+    const [updated] = await db.update(trainings)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(trainings.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteTraining(id: number): Promise<void> {
+    await db.delete(trainings).where(eq(trainings.id, id));
+  }
+
+  // ============================================
+  // TRAINING ASSIGNMENTS
+  // ============================================
+  async getTrainingAssignments(filters?: { employeeId?: number; trainingId?: number }): Promise<TrainingAssignment[]> {
+    let query = db.select().from(trainingAssignments);
+    
+    if (filters?.employeeId) {
+      query = query.where(eq(trainingAssignments.employeeId, filters.employeeId)) as any;
+    }
+    if (filters?.trainingId) {
+      query = query.where(eq(trainingAssignments.trainingId, filters.trainingId)) as any;
+    }
+    
+    return query.orderBy(desc(trainingAssignments.createdAt));
+  }
+
+  async getTrainingAssignment(id: number): Promise<TrainingAssignment | undefined> {
+    const [assignment] = await db.select().from(trainingAssignments).where(eq(trainingAssignments.id, id));
+    return assignment;
+  }
+
+  async createTrainingAssignment(data: InsertTrainingAssignment): Promise<TrainingAssignment> {
+    const [assignment] = await db.insert(trainingAssignments).values(data).returning();
+    return assignment;
+  }
+
+  async updateTrainingAssignment(id: number, data: Partial<InsertTrainingAssignment>): Promise<TrainingAssignment> {
+    const [updated] = await db.update(trainingAssignments)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(trainingAssignments.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteTrainingAssignment(id: number): Promise<void> {
+    await db.delete(trainingAssignments).where(eq(trainingAssignments.id, id));
+  }
+
+  // ============================================
+  // TRAINING COMPLETIONS
+  // ============================================
+  async getTrainingCompletions(filters?: { employeeId?: number; trainingId?: number }): Promise<TrainingCompletion[]> {
+    let query = db.select().from(trainingCompletions);
+    
+    if (filters?.employeeId) {
+      query = query.where(eq(trainingCompletions.employeeId, filters.employeeId)) as any;
+    }
+    if (filters?.trainingId) {
+      query = query.where(eq(trainingCompletions.trainingId, filters.trainingId)) as any;
+    }
+    
+    return query.orderBy(desc(trainingCompletions.completionDate));
+  }
+
+  async getTrainingCompletion(id: number): Promise<TrainingCompletion | undefined> {
+    const [completion] = await db.select().from(trainingCompletions).where(eq(trainingCompletions.id, id));
+    return completion;
+  }
+
+  async createTrainingCompletion(data: InsertTrainingCompletion): Promise<TrainingCompletion> {
+    const [completion] = await db.insert(trainingCompletions).values(data).returning();
+    return completion;
+  }
+
+  async updateTrainingCompletion(id: number, data: Partial<InsertTrainingCompletion>): Promise<TrainingCompletion> {
+    const [updated] = await db.update(trainingCompletions)
+      .set(data)
+      .where(eq(trainingCompletions.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteTrainingCompletion(id: number): Promise<void> {
+    await db.delete(trainingCompletions).where(eq(trainingCompletions.id, id));
   }
 }
 

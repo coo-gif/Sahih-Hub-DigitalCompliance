@@ -5094,6 +5094,319 @@ export async function registerRoutes(
   });
 
   // ===========================================
+  // TRAININGS AND ASSESSMENTS
+  // ===========================================
+  
+  // Get all trainings
+  app.get('/api/trainings', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const result = await storage.getTrainings();
+      res.json(result);
+    } catch (err) {
+      console.error('Error fetching trainings:', err);
+      res.status(500).json({ message: 'Failed to fetch trainings' });
+    }
+  });
+
+  // Get single training
+  app.get('/api/trainings/:id', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const training = await storage.getTraining(id);
+      if (!training) {
+        return res.status(404).json({ message: 'Training not found' });
+      }
+      res.json(training);
+    } catch (err) {
+      console.error('Error fetching training:', err);
+      res.status(500).json({ message: 'Failed to fetch training' });
+    }
+  });
+
+  // Create training
+  app.post('/api/trainings', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const training = await storage.createTraining({
+        ...req.body,
+        createdById: userId,
+      });
+      
+      await storage.createAuditLog({
+        action: AuditAction.CREATE,
+        entityType: 'training',
+        entityId: training.id,
+        userId,
+        newValue: JSON.stringify({ title: training.title, type: training.type }),
+      });
+      
+      res.status(201).json(training);
+    } catch (err) {
+      console.error('Error creating training:', err);
+      res.status(500).json({ message: 'Failed to create training' });
+    }
+  });
+
+  // Update training
+  app.put('/api/trainings/:id', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const id = parseInt(req.params.id);
+      
+      const updated = await storage.updateTraining(id, req.body);
+      
+      await storage.createAuditLog({
+        action: AuditAction.UPDATE,
+        entityType: 'training',
+        entityId: id,
+        userId,
+        newValue: JSON.stringify(req.body),
+      });
+      
+      res.json(updated);
+    } catch (err) {
+      console.error('Error updating training:', err);
+      res.status(500).json({ message: 'Failed to update training' });
+    }
+  });
+
+  // Delete training
+  app.delete('/api/trainings/:id', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const id = parseInt(req.params.id);
+      
+      await storage.deleteTraining(id);
+      
+      await storage.createAuditLog({
+        action: AuditAction.DELETE,
+        entityType: 'training',
+        entityId: id,
+        userId,
+      });
+      
+      res.status(204).send();
+    } catch (err) {
+      console.error('Error deleting training:', err);
+      res.status(500).json({ message: 'Failed to delete training' });
+    }
+  });
+
+  // ===========================================
+  // TRAINING ASSIGNMENTS
+  // ===========================================
+  
+  // Get all training assignments
+  app.get('/api/training-assignments', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const filters: { employeeId?: number; trainingId?: number } = {};
+      if (req.query.employeeId) filters.employeeId = parseInt(req.query.employeeId as string);
+      if (req.query.trainingId) filters.trainingId = parseInt(req.query.trainingId as string);
+      
+      const result = await storage.getTrainingAssignments(filters);
+      res.json(result);
+    } catch (err) {
+      console.error('Error fetching training assignments:', err);
+      res.status(500).json({ message: 'Failed to fetch training assignments' });
+    }
+  });
+
+  // Get single training assignment
+  app.get('/api/training-assignments/:id', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const assignment = await storage.getTrainingAssignment(id);
+      if (!assignment) {
+        return res.status(404).json({ message: 'Training assignment not found' });
+      }
+      res.json(assignment);
+    } catch (err) {
+      console.error('Error fetching training assignment:', err);
+      res.status(500).json({ message: 'Failed to fetch training assignment' });
+    }
+  });
+
+  // Create training assignment (assign training to employee)
+  app.post('/api/training-assignments', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const assignment = await storage.createTrainingAssignment({
+        ...req.body,
+        assignedById: userId,
+      });
+      
+      await storage.createAuditLog({
+        action: AuditAction.ASSIGN_TASK,
+        entityType: 'training_assignment',
+        entityId: assignment.id,
+        userId,
+        newValue: JSON.stringify({ trainingId: assignment.trainingId, employeeId: assignment.employeeId }),
+      });
+      
+      // Create notification for the employee
+      const employee = await storage.getEmployee(assignment.employeeId);
+      if (employee) {
+        const training = await storage.getTraining(assignment.trainingId);
+        // Find user by employee email to send notification
+        const employeeUser = await storage.getUserByEmail(employee.email);
+        if (employeeUser) {
+          await storage.createNotification({
+            userId: employeeUser.id,
+            title: 'New Training Assigned',
+            message: `You have been assigned to complete: ${training?.title || 'Training'}`,
+            urgency: UrgencyLevel.MEDIUM,
+          });
+        }
+      }
+      
+      res.status(201).json(assignment);
+    } catch (err) {
+      console.error('Error creating training assignment:', err);
+      res.status(500).json({ message: 'Failed to create training assignment' });
+    }
+  });
+
+  // Update training assignment
+  app.put('/api/training-assignments/:id', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const id = parseInt(req.params.id);
+      
+      const updated = await storage.updateTrainingAssignment(id, req.body);
+      
+      await storage.createAuditLog({
+        action: AuditAction.UPDATE,
+        entityType: 'training_assignment',
+        entityId: id,
+        userId,
+        newValue: JSON.stringify(req.body),
+      });
+      
+      res.json(updated);
+    } catch (err) {
+      console.error('Error updating training assignment:', err);
+      res.status(500).json({ message: 'Failed to update training assignment' });
+    }
+  });
+
+  // Complete training assignment
+  app.post('/api/training-assignments/:id/complete', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const id = parseInt(req.params.id);
+      const { score, passed, remarks } = req.body;
+      
+      const assignment = await storage.getTrainingAssignment(id);
+      if (!assignment) {
+        return res.status(404).json({ message: 'Training assignment not found' });
+      }
+      
+      // Update assignment status
+      const updated = await storage.updateTrainingAssignment(id, {
+        status: 'completed',
+        completedAt: new Date(),
+        score,
+      });
+      
+      // Get training for validity period
+      const training = await storage.getTraining(assignment.trainingId);
+      
+      // Calculate expiry date if training has validity period
+      let expiryDate: Date | undefined;
+      if (training?.validityPeriod) {
+        expiryDate = new Date();
+        expiryDate.setMonth(expiryDate.getMonth() + training.validityPeriod);
+      }
+      
+      // Generate certificate number
+      const certNumber = `TC-${new Date().getFullYear()}-${String(id).padStart(5, '0')}`;
+      
+      // Create training completion record
+      const completion = await storage.createTrainingCompletion({
+        assignmentId: id,
+        trainingId: assignment.trainingId,
+        employeeId: assignment.employeeId,
+        completionDate: new Date(),
+        score,
+        passed: passed !== false,
+        certificateNumber: certNumber,
+        expiryDate,
+        issuedById: userId,
+        remarks,
+      });
+      
+      await storage.createAuditLog({
+        action: AuditAction.COMPLETE_TASK,
+        entityType: 'training_assignment',
+        entityId: id,
+        userId,
+        newValue: JSON.stringify({ score, passed, certificateNumber: certNumber }),
+      });
+      
+      res.json({ assignment: updated, completion });
+    } catch (err) {
+      console.error('Error completing training assignment:', err);
+      res.status(500).json({ message: 'Failed to complete training assignment' });
+    }
+  });
+
+  // Delete training assignment
+  app.delete('/api/training-assignments/:id', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const id = parseInt(req.params.id);
+      
+      await storage.deleteTrainingAssignment(id);
+      
+      await storage.createAuditLog({
+        action: AuditAction.DELETE,
+        entityType: 'training_assignment',
+        entityId: id,
+        userId,
+      });
+      
+      res.status(204).send();
+    } catch (err) {
+      console.error('Error deleting training assignment:', err);
+      res.status(500).json({ message: 'Failed to delete training assignment' });
+    }
+  });
+
+  // ===========================================
+  // TRAINING COMPLETIONS
+  // ===========================================
+  
+  // Get all training completions
+  app.get('/api/training-completions', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const filters: { employeeId?: number; trainingId?: number } = {};
+      if (req.query.employeeId) filters.employeeId = parseInt(req.query.employeeId as string);
+      if (req.query.trainingId) filters.trainingId = parseInt(req.query.trainingId as string);
+      
+      const result = await storage.getTrainingCompletions(filters);
+      res.json(result);
+    } catch (err) {
+      console.error('Error fetching training completions:', err);
+      res.status(500).json({ message: 'Failed to fetch training completions' });
+    }
+  });
+
+  // Get single training completion
+  app.get('/api/training-completions/:id', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const completion = await storage.getTrainingCompletion(id);
+      if (!completion) {
+        return res.status(404).json({ message: 'Training completion not found' });
+      }
+      res.json(completion);
+    } catch (err) {
+      console.error('Error fetching training completion:', err);
+      res.status(500).json({ message: 'Failed to fetch training completion' });
+    }
+  });
+
+  // ===========================================
   // HUB-EEBI AI ASSISTANT ENDPOINT
   // ===========================================
   const hubEebiSystemPrompt = `You are Hub-eeeebi (pronounced "Hub-ee-bee"), a friendly and knowledgeable AI assistant for the Sahih Certifications Quality Management System (QMS). You are an expert on ISO 17021 standards and guide users through app workflows and ISO compliance questions.
