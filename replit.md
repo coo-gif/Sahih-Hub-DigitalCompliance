@@ -198,7 +198,21 @@ Complete training management system for employee competency development:
   - `shared/schema.ts` - Training database schema
   - `server/routes.ts` - Training API endpoints
 
+### User Agreement System (ISO 27001 Compliance)
+First-time login enforcement for security and confidentiality acknowledgment:
+- **Database Field:** `agreementAcceptedAt` timestamp on users table
+- **Modal:** Non-dismissible dialog shown before any access is granted
+- **Content:** 4 sections - Terms of Use, Confidentiality Agreement, Security Policy (ISO 27001), Compliance Obligations
+- **Checkboxes:** 5 required acceptance checkboxes before enabling "Accept & Continue"
+- **Audit Trail:** All acceptances logged for compliance verification
+- **Key Files:**
+  - `client/src/components/UserAgreementModal.tsx` - Modal UI
+  - `client/src/App.tsx` - Integration in AuthenticatedRouter
+  - `server/routes.ts` - `/api/auth/accept-agreement` endpoint
+
 ## Recent Changes
 
 ### January 17, 2026
+- **Added:** User Agreement System with ISO 27001 compliant security and confidentiality clauses
+- **Added:** Document view route redirect (`/documents/:id/view` → `/documents/:id/edit`)
 - **Fixed:** Edition number save issue - Document update endpoint now properly saves `editionNumber` and `revisionNumber` changes (was missing from update handler)
