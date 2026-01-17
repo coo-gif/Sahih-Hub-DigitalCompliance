@@ -86,10 +86,21 @@ import {
 } from "./gmail-oauth";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 
-function requireAuth(req: Request, res: Response, next: NextFunction) {
+async function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) {
     return res.status(401).json({ message: 'Authentication required' });
   }
+  
+  // Populate req.user from the session userId
+  try {
+    const user = await storage.getUser(req.session.userId);
+    if (user) {
+      (req as any).user = user;
+    }
+  } catch (error) {
+    console.error('Error fetching user in requireAuth:', error);
+  }
+  
   next();
 }
 
