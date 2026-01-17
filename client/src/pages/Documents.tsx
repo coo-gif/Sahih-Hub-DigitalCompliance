@@ -484,6 +484,7 @@ export default function Documents() {
                   <SelectItem value="sop" data-testid="option-category-sop">SOP</SelectItem>
                   <SelectItem value="format" data-testid="option-category-format">Format</SelectItem>
                   <SelectItem value="job_description" data-testid="option-category-job_description">Job Description</SelectItem>
+                  <SelectItem value="training_assessment" data-testid="option-category-training">Trainings and Assessment</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -768,6 +769,7 @@ export default function Documents() {
                     <SelectItem value="sop" data-testid="option-create-sop">SOP</SelectItem>
                     <SelectItem value="format" data-testid="option-create-format">Format</SelectItem>
                     <SelectItem value="job_description" data-testid="option-create-job_description">Job Description</SelectItem>
+                    <SelectItem value="training_assessment" data-testid="option-create-training">Trainings and Assessment</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

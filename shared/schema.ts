@@ -28,6 +28,7 @@ export const DocumentCategory = {
   SOP: "sop",
   FORMAT: "format",
   JOB_DESCRIPTION: "job_description",
+  TRAINING_ASSESSMENT: "training_assessment",
 } as const;
 
 export const DocumentStatus = {

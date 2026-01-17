@@ -175,6 +175,7 @@ export default function NewDocument() {
                       <SelectItem value="sop">SOP</SelectItem>
                       <SelectItem value="format">Format</SelectItem>
                       <SelectItem value="job_description">Job Description</SelectItem>
+                      <SelectItem value="training_assessment">Trainings and Assessment</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
