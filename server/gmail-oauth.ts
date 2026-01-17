@@ -164,13 +164,36 @@ export async function sendEmailWithUserAccount(
 export async function getEmailsWithUserAccount(
   userId: number, 
   maxResults: number = 20,
-  label: 'INBOX' | 'SENT' | 'UNREAD' = 'INBOX'
+  label: string = 'INBOX'
 ) {
   const gmail = await getAuthenticatedGmailClient(userId);
   
-  const labelIds: string[] = label === 'UNREAD' 
-    ? ['INBOX', 'UNREAD']
-    : [label];
+  // Map label names to Gmail API label IDs
+  let labelIds: string[];
+  switch (label.toUpperCase()) {
+    case 'UNREAD':
+      labelIds = ['INBOX', 'UNREAD'];
+      break;
+    case 'SENT':
+      labelIds = ['SENT'];
+      break;
+    case 'STARRED':
+      labelIds = ['STARRED'];
+      break;
+    case 'SPAM':
+      labelIds = ['SPAM'];
+      break;
+    case 'TRASH':
+      labelIds = ['TRASH'];
+      break;
+    case 'DRAFT':
+      labelIds = ['DRAFT'];
+      break;
+    case 'INBOX':
+    default:
+      labelIds = ['INBOX'];
+      break;
+  }
   
   const response = await gmail.users.messages.list({
     userId: 'me',
@@ -323,6 +346,48 @@ export async function markAsUnreadWithUserAccount(userId: number, messageId: str
     id: messageId,
     requestBody: {
       addLabelIds: ['UNREAD']
+    }
+  });
+}
+
+export async function moveToFolderWithUserAccount(userId: number, messageId: string, folder: string) {
+  const gmail = await getAuthenticatedGmailClient(userId);
+  
+  const addLabelIds: string[] = [];
+  const removeLabelIds: string[] = [];
+  
+  // Map folder names to Gmail label operations
+  switch (folder.toUpperCase()) {
+    case 'INBOX':
+      addLabelIds.push('INBOX');
+      removeLabelIds.push('TRASH', 'SPAM');
+      break;
+    case 'TRASH':
+      addLabelIds.push('TRASH');
+      removeLabelIds.push('INBOX', 'SPAM');
+      break;
+    case 'SPAM':
+      addLabelIds.push('SPAM');
+      removeLabelIds.push('INBOX', 'TRASH');
+      break;
+    case 'STARRED':
+      addLabelIds.push('STARRED');
+      break;
+    case 'ARCHIVE':
+      removeLabelIds.push('INBOX');
+      break;
+    default:
+      // For custom labels, just add the label
+      addLabelIds.push(folder);
+      break;
+  }
+  
+  await gmail.users.messages.modify({
+    userId: 'me',
+    id: messageId,
+    requestBody: {
+      ...(addLabelIds.length > 0 && { addLabelIds }),
+      ...(removeLabelIds.length > 0 && { removeLabelIds })
     }
   });
 }

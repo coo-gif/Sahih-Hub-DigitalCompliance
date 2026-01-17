@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useEmails, useEmail, useSendEmail, useUnreadCount, useMarkAsRead, useDeleteEmail, useArchiveEmail, useStarEmail, useUnstarEmail, useMarkAsSpam, useMarkAsUnread, useGmailStatus, useConnectGmail, useDisconnectGmail, useThread, useAIDraft, EmailMessage, SendEmailData } from "@/hooks/use-gmail";
+import { useEmails, useEmail, useSendEmail, useUnreadCount, useMarkAsRead, useDeleteEmail, useArchiveEmail, useStarEmail, useUnstarEmail, useMarkAsSpam, useMarkAsUnread, useMoveToFolder, useGmailStatus, useConnectGmail, useDisconnectGmail, useThread, useAIDraft, EmailMessage, SendEmailData } from "@/hooks/use-gmail";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +27,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { 
   Mail, 
   Send, 
@@ -61,7 +68,9 @@ import {
   Download,
   AlertTriangle,
   Eye,
-  EyeOff
+  EyeOff,
+  FolderInput,
+  File
 } from "lucide-react";
 import { format, parseISO, isValid } from "date-fns";
 import DOMPurify from "dompurify";
@@ -127,10 +136,13 @@ function formatFileSize(bytes: number): string {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
+type EmailFolder = 'INBOX' | 'SENT' | 'UNREAD' | 'STARRED' | 'SPAM' | 'TRASH' | 'DRAFT';
+
 export default function Email() {
-  const [activeTab, setActiveTab] = useState<'INBOX' | 'SENT' | 'UNREAD'>('INBOX');
+  const [activeTab, setActiveTab] = useState<EmailFolder>('INBOX');
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [selectedEmailIds, setSelectedEmailIds] = useState<Set<string>>(new Set());
   const [showCompose, setShowCompose] = useState(false);
   const [composeData, setComposeData] = useState<SendEmailData>({ to: '', subject: '', body: '' });
   const [showCc, setShowCc] = useState(false);
@@ -156,6 +168,7 @@ export default function Email() {
   const unstarEmail = useUnstarEmail();
   const markAsSpam = useMarkAsSpam();
   const markAsUnread = useMarkAsUnread();
+  const moveToFolder = useMoveToFolder();
   const aiDraft = useAIDraft();
   const { toast } = useToast();
   const [isStarred, setIsStarred] = useState(false);
@@ -587,8 +600,8 @@ export default function Email() {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as typeof activeTab); setSelectedEmailId(null); setSelectedThreadId(null); setThreadSummary(null); }} data-testid="tabs-email">
-        <TabsList>
+      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as EmailFolder); setSelectedEmailId(null); setSelectedThreadId(null); setThreadSummary(null); setSelectedEmailIds(new Set()); }} data-testid="tabs-email">
+        <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="INBOX" className="flex items-center gap-2" data-testid="tab-inbox">
             <Inbox className="w-4 h-4" />
             Inbox
@@ -602,9 +615,25 @@ export default function Email() {
               </Badge>
             ) : null}
           </TabsTrigger>
+          <TabsTrigger value="STARRED" className="flex items-center gap-2" data-testid="tab-starred">
+            <Star className="w-4 h-4" />
+            Starred
+          </TabsTrigger>
           <TabsTrigger value="SENT" className="flex items-center gap-2" data-testid="tab-sent">
             <Send className="w-4 h-4" />
             Sent
+          </TabsTrigger>
+          <TabsTrigger value="DRAFT" className="flex items-center gap-2" data-testid="tab-drafts">
+            <File className="w-4 h-4" />
+            Drafts
+          </TabsTrigger>
+          <TabsTrigger value="SPAM" className="flex items-center gap-2" data-testid="tab-spam">
+            <AlertTriangle className="w-4 h-4" />
+            Spam
+          </TabsTrigger>
+          <TabsTrigger value="TRASH" className="flex items-center gap-2" data-testid="tab-trash">
+            <Trash2 className="w-4 h-4" />
+            Trash
           </TabsTrigger>
         </TabsList>
       </Tabs>
@@ -613,12 +642,175 @@ export default function Email() {
         {/* Email List */}
         <Card className={`flex-shrink-0 transition-all overflow-hidden ${selectedEmailId ? 'w-[280px] hidden lg:flex lg:flex-col' : 'w-full max-w-md'}`}>
           <CardHeader className="py-3 px-4 border-b">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              {activeTab === 'INBOX' && <Inbox className="w-4 h-4" />}
-              {activeTab === 'UNREAD' && <Circle className="w-4 h-4 fill-primary text-primary" />}
-              {activeTab === 'SENT' && <Send className="w-4 h-4" />}
-              {activeTab === 'INBOX' ? 'Inbox' : activeTab === 'SENT' ? 'Sent' : 'Unread'}
-            </CardTitle>
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                {activeTab === 'INBOX' && <Inbox className="w-4 h-4" />}
+                {activeTab === 'UNREAD' && <Circle className="w-4 h-4 fill-primary text-primary" />}
+                {activeTab === 'STARRED' && <Star className="w-4 h-4" />}
+                {activeTab === 'SENT' && <Send className="w-4 h-4" />}
+                {activeTab === 'DRAFT' && <File className="w-4 h-4" />}
+                {activeTab === 'SPAM' && <AlertTriangle className="w-4 h-4" />}
+                {activeTab === 'TRASH' && <Trash2 className="w-4 h-4" />}
+                {activeTab === 'INBOX' ? 'Inbox' : 
+                 activeTab === 'SENT' ? 'Sent' : 
+                 activeTab === 'UNREAD' ? 'Unread' :
+                 activeTab === 'STARRED' ? 'Starred' :
+                 activeTab === 'DRAFT' ? 'Drafts' :
+                 activeTab === 'SPAM' ? 'Spam' :
+                 activeTab === 'TRASH' ? 'Trash' : activeTab}
+              </CardTitle>
+              {selectedEmailIds.size > 0 && (
+                <div className="flex items-center gap-1">
+                  <Badge variant="secondary" className="text-xs">
+                    {selectedEmailIds.size} selected
+                  </Badge>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        for (const id of selectedEmailIds) {
+                          await deleteEmail.mutateAsync(id);
+                        }
+                        toast({ title: `${selectedEmailIds.size} email(s) moved to trash` });
+                        setSelectedEmailIds(new Set());
+                      } catch (error: any) {
+                        toast({ title: "Failed to delete", description: error.message, variant: "destructive" });
+                      }
+                    }}
+                    data-testid="button-bulk-delete"
+                  >
+                    <Trash2 className="w-4 h-4 text-destructive" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        for (const id of selectedEmailIds) {
+                          await archiveEmail.mutateAsync(id);
+                        }
+                        toast({ title: `${selectedEmailIds.size} email(s) archived` });
+                        setSelectedEmailIds(new Set());
+                      } catch (error: any) {
+                        toast({ title: "Failed to archive", description: error.message, variant: "destructive" });
+                      }
+                    }}
+                    data-testid="button-bulk-archive"
+                  >
+                    <Archive className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        for (const id of selectedEmailIds) {
+                          await markAsSpam.mutateAsync(id);
+                        }
+                        toast({ title: `${selectedEmailIds.size} email(s) marked as spam` });
+                        setSelectedEmailIds(new Set());
+                      } catch (error: any) {
+                        toast({ title: "Failed to mark as spam", description: error.message, variant: "destructive" });
+                      }
+                    }}
+                    data-testid="button-bulk-spam"
+                  >
+                    <AlertTriangle className="w-4 h-4" />
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        data-testid="button-bulk-move"
+                      >
+                        <FolderInput className="w-4 h-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={async () => {
+                          try {
+                            for (const id of selectedEmailIds) {
+                              await moveToFolder.mutateAsync({ id, folder: 'INBOX' });
+                            }
+                            toast({ title: `${selectedEmailIds.size} email(s) moved to Inbox` });
+                            setSelectedEmailIds(new Set());
+                          } catch (error: any) {
+                            toast({ title: "Failed to move", description: error.message, variant: "destructive" });
+                          }
+                        }}
+                        data-testid="move-to-inbox"
+                      >
+                        <Inbox className="w-4 h-4 mr-2" />
+                        Move to Inbox
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={async () => {
+                          try {
+                            for (const id of selectedEmailIds) {
+                              await moveToFolder.mutateAsync({ id, folder: 'STARRED' });
+                            }
+                            toast({ title: `${selectedEmailIds.size} email(s) starred` });
+                            setSelectedEmailIds(new Set());
+                          } catch (error: any) {
+                            toast({ title: "Failed to star", description: error.message, variant: "destructive" });
+                          }
+                        }}
+                        data-testid="move-to-starred"
+                      >
+                        <Star className="w-4 h-4 mr-2" />
+                        Add to Starred
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={async () => {
+                          try {
+                            for (const id of selectedEmailIds) {
+                              await moveToFolder.mutateAsync({ id, folder: 'SPAM' });
+                            }
+                            toast({ title: `${selectedEmailIds.size} email(s) moved to Spam` });
+                            setSelectedEmailIds(new Set());
+                          } catch (error: any) {
+                            toast({ title: "Failed to move", description: error.message, variant: "destructive" });
+                          }
+                        }}
+                        data-testid="move-to-spam"
+                      >
+                        <AlertTriangle className="w-4 h-4 mr-2" />
+                        Move to Spam
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={async () => {
+                          try {
+                            for (const id of selectedEmailIds) {
+                              await moveToFolder.mutateAsync({ id, folder: 'TRASH' });
+                            }
+                            toast({ title: `${selectedEmailIds.size} email(s) moved to Trash` });
+                            setSelectedEmailIds(new Set());
+                          } catch (error: any) {
+                            toast({ title: "Failed to move", description: error.message, variant: "destructive" });
+                          }
+                        }}
+                        data-testid="move-to-trash"
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Move to Trash
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setSelectedEmailIds(new Set())}
+                    data-testid="button-clear-selection"
+                  >
+                    Clear
+                  </Button>
+                </div>
+              )}
+            </div>
           </CardHeader>
           <ScrollArea className="flex-1">
             <div className="divide-y">
@@ -642,20 +834,36 @@ export default function Email() {
               ) : (
                 emails?.map((email) => {
                   const sender = extractSenderName(email.from);
-                  const isSelected = email.id === selectedEmailId;
+                  const isViewSelected = email.id === selectedEmailId;
+                  const isChecked = selectedEmailIds.has(email.id);
                   const emailIsStarred = email.labelIds?.includes('STARRED');
                   return (
                     <ContextMenu key={email.id}>
                       <ContextMenuTrigger asChild>
                         <div
-                          className={`p-3 cursor-pointer transition-colors hover:bg-muted/50 ${isSelected ? 'bg-primary/5 border-l-2 border-l-primary' : ''}`}
+                          className={`p-3 cursor-pointer transition-colors hover:bg-muted/50 ${isViewSelected ? 'bg-primary/5 border-l-2 border-l-primary' : ''} ${isChecked ? 'bg-primary/10' : ''}`}
                           onClick={() => { 
                             setSelectedEmailId(email.id); 
                             setThreadSummary(null);
                           }}
                           data-testid={`email-item-${email.id}`}
                         >
-                          <div className="flex items-start gap-3">
+                          <div className="flex items-start gap-2">
+                            <Checkbox
+                              checked={isChecked}
+                              onCheckedChange={(checked) => {
+                                const newSet = new Set(selectedEmailIds);
+                                if (checked) {
+                                  newSet.add(email.id);
+                                } else {
+                                  newSet.delete(email.id);
+                                }
+                                setSelectedEmailIds(newSet);
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="mt-1"
+                              data-testid={`checkbox-email-${email.id}`}
+                            />
                             <div className="relative">
                               <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
                                 <User className="w-4 h-4 text-primary" />

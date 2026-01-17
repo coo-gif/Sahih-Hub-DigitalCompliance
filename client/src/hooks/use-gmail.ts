@@ -238,6 +238,19 @@ export function useMarkAsUnread() {
   });
 }
 
+export function useMoveToFolder() {
+  return useMutation({
+    mutationFn: async ({ id, folder }: { id: string; folder: string }) => {
+      const response = await apiRequest('POST', `/api/gmail/move/${id}`, { folder });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/gmail/emails'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/gmail/unread-count'] });
+    },
+  });
+}
+
 export function useLabels() {
   return useQuery<{ id: string; name: string; type: string }[]>({
     queryKey: ['/api/gmail/labels'],

@@ -79,6 +79,7 @@ import {
   markAsSpamWithUserAccount,
   markAsReadWithUserAccount,
   markAsUnreadWithUserAccount,
+  moveToFolderWithUserAccount,
   getEmailWithUserAccount,
   getThreadWithUserAccount,
   sendEmailWithAttachments
@@ -5815,6 +5816,28 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
     } catch (error: any) {
       console.error('Gmail labels error:', error);
       res.status(500).json({ message: error.message || 'Failed to fetch labels' });
+    }
+  });
+
+  app.post('/api/gmail/move/:id', requireAuth, async (req, res) => {
+    try {
+      const userId = getCurrentUserId(req);
+      const { folder } = req.body;
+      
+      if (!folder) {
+        return res.status(400).json({ message: 'Folder is required' });
+      }
+      
+      const tokens = await getUserGmailTokens(userId);
+      if (!tokens?.gmailAccessToken) {
+        return res.status(400).json({ message: 'Gmail not connected' });
+      }
+      
+      await moveToFolderWithUserAccount(userId, req.params.id, folder);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Gmail move to folder error:', error);
+      res.status(500).json({ message: error.message || 'Failed to move email' });
     }
   });
 
