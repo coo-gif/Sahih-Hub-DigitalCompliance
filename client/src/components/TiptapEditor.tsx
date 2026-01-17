@@ -70,6 +70,11 @@ import {
   ChevronRight,
   ChevronUp,
   ChevronDown,
+  Search,
+  Replace,
+  ArrowUp,
+  ArrowDown,
+  X,
 } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { useToast } from '@/hooks/use-toast';
@@ -104,6 +109,15 @@ export default function TiptapEditor({ content, onChange, onPreview, onAISuggest
   const [selectedText, setSelectedText] = useState('');
   const [rewrittenText, setRewrittenText] = useState('');
   const [showRewriteDialog, setShowRewriteDialog] = useState(false);
+  
+  // Find & Replace state
+  const [showFindReplace, setShowFindReplace] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [replaceTerm, setReplaceTerm] = useState('');
+  const [matchCount, setMatchCount] = useState(0);
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+  const [caseSensitive, setCaseSensitive] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const editor = useEditor({
     extensions: [
@@ -162,6 +176,194 @@ export default function TiptapEditor({ content, onChange, onPreview, onAISuggest
       },
     },
   });
+
+  // Keyboard shortcut handler for Ctrl+F
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        setShowFindReplace(true);
+        setTimeout(() => searchInputRef.current?.focus(), 100);
+      }
+      if (e.key === 'Escape' && showFindReplace) {
+        setShowFindReplace(false);
+        clearHighlights();
+      }
+    };
+    
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [showFindReplace]);
+
+  // Clear highlights when closing find/replace
+  const clearHighlights = useCallback(() => {
+    if (!editor) return;
+    const html = editor.getHTML();
+    const cleanedHtml = html.replace(/<mark class="search-highlight[^"]*"[^>]*>(.*?)<\/mark>/gi, '$1');
+    if (html !== cleanedHtml) {
+      editor.commands.setContent(cleanedHtml);
+    }
+    setMatchCount(0);
+    setCurrentMatchIndex(0);
+  }, [editor]);
+
+  // Find and highlight matches in editor content
+  const findMatches = useCallback(() => {
+    if (!editor || !searchTerm) {
+      clearHighlights();
+      return;
+    }
+
+    const html = editor.getHTML();
+    // First clean any existing highlights
+    let cleanedHtml = html.replace(/<mark class="search-highlight[^"]*"[^>]*>(.*?)<\/mark>/gi, '$1');
+    
+    // Create regex for finding matches
+    const flags = caseSensitive ? 'g' : 'gi';
+    const escapedSearch = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(?![^<]*>)(${escapedSearch})`, flags);
+    
+    // Count matches first
+    const matches = cleanedHtml.match(regex);
+    const count = matches ? matches.length : 0;
+    setMatchCount(count);
+    
+    if (count > 0) {
+      setCurrentMatchIndex(1);
+      // Highlight all matches, with special class for current match
+      let matchIndex = 0;
+      const highlightedHtml = cleanedHtml.replace(regex, (match) => {
+        matchIndex++;
+        const isCurrentClass = matchIndex === 1 ? ' current-match' : '';
+        return `<mark class="search-highlight${isCurrentClass}" style="background-color: ${matchIndex === 1 ? '#fbbf24' : '#fef08a'}; padding: 0 2px;">${match}</mark>`;
+      });
+      editor.commands.setContent(highlightedHtml);
+    } else {
+      setCurrentMatchIndex(0);
+      editor.commands.setContent(cleanedHtml);
+    }
+  }, [editor, searchTerm, caseSensitive, clearHighlights]);
+
+  // Navigate to next match
+  const findNext = useCallback(() => {
+    if (!editor || matchCount === 0) return;
+    
+    const nextIndex = currentMatchIndex < matchCount ? currentMatchIndex + 1 : 1;
+    setCurrentMatchIndex(nextIndex);
+    
+    // Update highlighting
+    const html = editor.getHTML();
+    let matchIndex = 0;
+    const flags = caseSensitive ? 'g' : 'gi';
+    const escapedSearch = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    
+    const updatedHtml = html.replace(/<mark class="search-highlight[^"]*"[^>]*style="[^"]*">(.*?)<\/mark>/gi, (fullMatch, content) => {
+      matchIndex++;
+      const isCurrentClass = matchIndex === nextIndex ? ' current-match' : '';
+      return `<mark class="search-highlight${isCurrentClass}" style="background-color: ${matchIndex === nextIndex ? '#fbbf24' : '#fef08a'}; padding: 0 2px;">${content}</mark>`;
+    });
+    
+    editor.commands.setContent(updatedHtml);
+  }, [editor, matchCount, currentMatchIndex, caseSensitive, searchTerm]);
+
+  // Navigate to previous match
+  const findPrevious = useCallback(() => {
+    if (!editor || matchCount === 0) return;
+    
+    const prevIndex = currentMatchIndex > 1 ? currentMatchIndex - 1 : matchCount;
+    setCurrentMatchIndex(prevIndex);
+    
+    // Update highlighting
+    const html = editor.getHTML();
+    let matchIndex = 0;
+    
+    const updatedHtml = html.replace(/<mark class="search-highlight[^"]*"[^>]*style="[^"]*">(.*?)<\/mark>/gi, (fullMatch, content) => {
+      matchIndex++;
+      const isCurrentClass = matchIndex === prevIndex ? ' current-match' : '';
+      return `<mark class="search-highlight${isCurrentClass}" style="background-color: ${matchIndex === prevIndex ? '#fbbf24' : '#fef08a'}; padding: 0 2px;">${content}</mark>`;
+    });
+    
+    editor.commands.setContent(updatedHtml);
+  }, [editor, matchCount, currentMatchIndex]);
+
+  // Replace current match
+  const replaceCurrentMatch = useCallback(() => {
+    if (!editor || matchCount === 0 || !searchTerm) return;
+    
+    const html = editor.getHTML();
+    let matchIndex = 0;
+    let replaced = false;
+    
+    const updatedHtml = html.replace(/<mark class="search-highlight[^"]*"[^>]*style="[^"]*">(.*?)<\/mark>/gi, (fullMatch, content) => {
+      matchIndex++;
+      if (matchIndex === currentMatchIndex && !replaced) {
+        replaced = true;
+        return replaceTerm;
+      }
+      return `<mark class="search-highlight" style="background-color: #fef08a; padding: 0 2px;">${content}</mark>`;
+    });
+    
+    editor.commands.setContent(updatedHtml);
+    setMatchCount(prev => Math.max(0, prev - 1));
+    
+    if (matchCount - 1 > 0) {
+      setCurrentMatchIndex(prev => prev > matchCount - 1 ? 1 : prev);
+      // Re-run find to update highlights
+      setTimeout(() => findMatches(), 50);
+    } else {
+      setCurrentMatchIndex(0);
+    }
+    
+    toast({
+      title: "Replaced",
+      description: "Match replaced successfully",
+    });
+  }, [editor, matchCount, currentMatchIndex, searchTerm, replaceTerm, findMatches, toast]);
+
+  // Replace all matches
+  const replaceAll = useCallback(() => {
+    if (!editor || !searchTerm) return;
+    
+    // First clear any existing highlights
+    let html = editor.getHTML();
+    html = html.replace(/<mark class="search-highlight[^"]*"[^>]*>(.*?)<\/mark>/gi, '$1');
+    
+    // Replace all occurrences
+    const flags = caseSensitive ? 'g' : 'gi';
+    const escapedSearch = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(?![^<]*>)(${escapedSearch})`, flags);
+    
+    const matches = html.match(regex);
+    const count = matches ? matches.length : 0;
+    
+    if (count > 0) {
+      const updatedHtml = html.replace(regex, replaceTerm);
+      editor.commands.setContent(updatedHtml);
+      setMatchCount(0);
+      setCurrentMatchIndex(0);
+      
+      toast({
+        title: "Replace All Complete",
+        description: `Replaced ${count} occurrence${count > 1 ? 's' : ''}`,
+      });
+    } else {
+      toast({
+        title: "No Matches",
+        description: "No matches found to replace",
+        variant: "destructive",
+      });
+    }
+  }, [editor, searchTerm, replaceTerm, caseSensitive, toast]);
+
+  // Effect to run find when search term changes
+  useEffect(() => {
+    if (showFindReplace && searchTerm) {
+      const debounceTimer = setTimeout(() => findMatches(), 300);
+      return () => clearTimeout(debounceTimer);
+    } else if (!searchTerm) {
+      clearHighlights();
+    }
+  }, [searchTerm, showFindReplace, caseSensitive]);
 
   const handleRewriteWithAI = useCallback(async () => {
     if (!editor) return;
@@ -535,6 +737,26 @@ export default function TiptapEditor({ content, onChange, onPreview, onAISuggest
           </>
         )}
 
+        <Separator orientation="vertical" className="h-6 mx-1" />
+        <Button
+          type="button"
+          size="sm"
+          variant={showFindReplace ? 'secondary' : 'outline'}
+          onClick={() => {
+            setShowFindReplace(!showFindReplace);
+            if (!showFindReplace) {
+              setTimeout(() => searchInputRef.current?.focus(), 100);
+            } else {
+              clearHighlights();
+            }
+          }}
+          title="Find & Replace (Ctrl+F)"
+          data-testid="button-find-replace"
+        >
+          <Search className="w-4 h-4 mr-1" />
+          Find
+        </Button>
+
         {onPreview && (
           <>
             <Separator orientation="vertical" className="h-6 mx-1" />
@@ -551,6 +773,128 @@ export default function TiptapEditor({ content, onChange, onPreview, onAISuggest
           </>
         )}
       </div>
+
+      {/* Find & Replace Panel */}
+      {showFindReplace && (
+        <div className="bg-gray-100 dark:bg-gray-700 border-b p-3 flex flex-col gap-2" data-testid="find-replace-panel">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1 flex-1 min-w-[200px]">
+              <Search className="w-4 h-4 text-gray-500" />
+              <Input
+                ref={searchInputRef}
+                placeholder="Find text..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (e.shiftKey) {
+                      findPrevious();
+                    } else {
+                      findNext();
+                    }
+                  }
+                }}
+                className="h-8 flex-1"
+                data-testid="input-find"
+              />
+            </div>
+            <div className="flex items-center gap-1 flex-1 min-w-[200px]">
+              <Replace className="w-4 h-4 text-gray-500" />
+              <Input
+                placeholder="Replace with..."
+                value={replaceTerm}
+                onChange={(e) => setReplaceTerm(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    replaceCurrentMatch();
+                  }
+                }}
+                className="h-8 flex-1"
+                data-testid="input-replace"
+              />
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                onClick={findPrevious}
+                disabled={matchCount === 0}
+                title="Previous match (Shift+Enter)"
+                data-testid="button-find-previous"
+              >
+                <ArrowUp className="w-4 h-4" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                onClick={findNext}
+                disabled={matchCount === 0}
+                title="Next match (Enter)"
+                data-testid="button-find-next"
+              >
+                <ArrowDown className="w-4 h-4" />
+              </Button>
+              <span className="text-sm text-gray-600 dark:text-gray-300 min-w-[60px] text-center" data-testid="match-count">
+                {matchCount > 0 ? `${currentMatchIndex}/${matchCount}` : 'No matches'}
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={replaceCurrentMatch}
+                disabled={matchCount === 0}
+                data-testid="button-replace"
+              >
+                Replace
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={replaceAll}
+                disabled={!searchTerm}
+                data-testid="button-replace-all"
+              >
+                Replace All
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                onClick={() => {
+                  setShowFindReplace(false);
+                  clearHighlights();
+                  setSearchTerm('');
+                  setReplaceTerm('');
+                }}
+                title="Close (Esc)"
+                data-testid="button-close-find-replace"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="flex items-center gap-4 text-sm">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={caseSensitive}
+                onChange={(e) => setCaseSensitive(e.target.checked)}
+                className="rounded border-gray-300"
+                data-testid="checkbox-case-sensitive"
+              />
+              <span className="text-gray-600 dark:text-gray-300">Case sensitive</span>
+            </label>
+            <span className="text-gray-400 text-xs">Press Ctrl+F to toggle | Enter for next | Shift+Enter for previous</span>
+          </div>
+        </div>
+      )}
 
       <ContextMenu>
         <ContextMenuTrigger asChild>

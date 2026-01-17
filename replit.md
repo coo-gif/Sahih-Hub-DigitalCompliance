@@ -210,9 +210,28 @@ First-time login enforcement for security and confidentiality acknowledgment:
   - `client/src/App.tsx` - Integration in AuthenticatedRouter
   - `server/routes.ts` - `/api/auth/accept-agreement` endpoint
 
+### Document Editor Find & Replace
+Search, find, and replace functionality for mass amendments in the document editor:
+- **Keyboard Shortcut:** Ctrl+F (or Cmd+F on Mac) opens the Find & Replace panel
+- **Find Features:**
+  - Real-time search highlighting as you type
+  - Match counter showing current position (e.g., "3/15")
+  - Navigate between matches with Up/Down arrow buttons
+  - Case-sensitive search option
+- **Replace Features:**
+  - Replace current match individually
+  - Replace All for mass amendments across the document
+- **Keyboard Navigation:**
+  - Enter: Find next match
+  - Shift+Enter: Find previous match
+  - Escape: Close the panel and clear highlights
+- **Key Files:**
+  - `client/src/components/TiptapEditor.tsx` - Editor with Find & Replace implementation
+
 ## Recent Changes
 
 ### January 17, 2026
+- **Added:** Find & Replace feature in document editor (Ctrl+F) for mass amendments
 - **Added:** User Agreement System with ISO 27001 compliant security and confidentiality clauses
 - **Added:** Document view route redirect (`/documents/:id/view` → `/documents/:id/edit`)
 - **Fixed:** Edition number save issue - Document update endpoint now properly saves `editionNumber` and `revisionNumber` changes (was missing from update handler)
