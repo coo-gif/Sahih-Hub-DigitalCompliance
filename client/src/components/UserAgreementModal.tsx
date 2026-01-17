@@ -59,7 +59,12 @@ export function UserAgreementModal({ isOpen, userName }: UserAgreementModalProps
 
   return (
     <Dialog open={isOpen}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden" onPointerDownOutside={(e) => e.preventDefault()}>
+      <DialogContent 
+        className="max-w-4xl max-h-[90vh] overflow-hidden [&>button]:hidden" 
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
+        onInteractOutside={(e) => e.preventDefault()}
+      >
         <DialogHeader className="pb-4 border-b">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-primary/10 rounded-lg">
