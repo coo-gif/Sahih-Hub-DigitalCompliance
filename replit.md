@@ -228,9 +228,26 @@ Search, find, and replace functionality for mass amendments in the document edit
 - **Key Files:**
   - `client/src/components/TiptapEditor.tsx` - Editor with Find & Replace implementation
 
+### Lock and Transfer to Document Hub
+Post-approval workflow for secure document archiving with granular access control:
+- **Trigger:** Dialog appears automatically after a document approval task is completed
+- **User Selection:** Approver can select specific users who will have access to the locked document
+- **Automatic COO Access:** COO (coo@sahihcertify.com) always has access to Document Hub documents
+- **Document Locking:** Once transferred, document becomes read-only and locked for general access
+- **Access Control:** Only selected users and COO can view documents in Document Hub
+- **Notifications:** Selected users receive notifications about their granted access
+- **Audit Trail:** All lock-transfer actions are logged for compliance verification
+- **Skip Option:** Users can skip the transfer if they want to lock the document later
+- **Authorization:** Approver, COO, Admin, or Quality Manager can perform lock-transfer
+- **API Endpoint:** `POST /api/documents/:id/lock-transfer` with `{ userIds: number[] }`
+- **Key Files:**
+  - `client/src/pages/Dashboard.tsx` - Lock and transfer dialog UI
+  - `server/routes.ts` - Lock-transfer API endpoint
+
 ## Recent Changes
 
 ### January 17, 2026
+- **Added:** Lock and Transfer to Document Hub feature with granular user access control
 - **Added:** Find & Replace feature in document editor (Ctrl+F) for mass amendments
 - **Added:** User Agreement System with ISO 27001 compliant security and confidentiality clauses
 - **Added:** Document view route redirect (`/documents/:id/view` → `/documents/:id/edit`)

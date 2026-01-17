@@ -4188,6 +4188,134 @@ export async function registerRoutes(
     }
   });
 
+  // Lock and transfer to Document Hub (called after document approval)
+  app.post('/api/documents/:id/lock-transfer', requireAuth, async (req, res) => {
+    try {
+      const documentId = Number(req.params.id);
+      if (isNaN(documentId)) {
+        return res.status(400).json({ message: 'Invalid document ID' });
+      }
+      
+      // Validate request body with Zod
+      const lockTransferSchema = z.object({
+        userIds: z.array(z.number().int().positive()).optional().default([]),
+      });
+      
+      const parseResult = lockTransferSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ 
+          message: 'Invalid request body', 
+          errors: parseResult.error.errors 
+        });
+      }
+      
+      const { userIds } = parseResult.data;
+      
+      const currentUserId = getCurrentUserId(req);
+      const currentUser = await storage.getUser(currentUserId);
+      
+      const document = await storage.getDocument(documentId);
+      if (!document) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+      
+      // Only allow lock-transfer for approved documents
+      if (document.status !== DocumentStatus.APPROVED) {
+        return res.status(400).json({ message: 'Only approved documents can be transferred to Document Hub' });
+      }
+      
+      // Cannot lock already locked documents
+      if (document.isLocked) {
+        return res.status(400).json({ message: 'Document is already locked and transferred to Document Hub' });
+      }
+      
+      // Only approver, COO, admin, or quality manager can lock-transfer
+      const COO_EMAIL = 'coo@sahihcertify.com';
+      const isApprover = document.approverId === currentUserId;
+      const isCOO = currentUser?.email === COO_EMAIL;
+      const isAdmin = currentUser?.role === UserRole.ADMIN;
+      const isQM = currentUser?.role === UserRole.QUALITY_MANAGER;
+      
+      if (!isApprover && !isCOO && !isAdmin && !isQM) {
+        return res.status(403).json({ message: 'Only the approver, COO, Admin, or Quality Manager can transfer documents to Document Hub' });
+      }
+      
+      // Validate that all userIds exist
+      const validUserIds: number[] = [];
+      for (const userId of userIds) {
+        const user = await storage.getUser(userId);
+        if (user) {
+          validUserIds.push(userId);
+        }
+      }
+      
+      // Lock the document
+      const updated = await storage.updateDocument(documentId, {
+        isLocked: true,
+      });
+      
+      const accessGrantedTo: number[] = [];
+      
+      // Grant access to selected users (only valid ones)
+      for (const userId of validUserIds) {
+        try {
+          await storage.grantDocumentAccess({
+            documentId,
+            userId,
+            grantedById: currentUserId,
+          });
+          accessGrantedTo.push(userId);
+          
+          // Notify each user
+          await storage.createNotification({
+            userId,
+            title: 'Document Hub Access Granted',
+            message: `You have been granted access to document "${document.documentCode} - ${document.title}" in the Document Hub`,
+            urgencyLevel: UrgencyLevel.LOW,
+            relatedDocumentId: documentId,
+          });
+        } catch (err) {
+          // Continue with other users if one fails
+          console.error(`Failed to grant access to user ${userId}:`, err);
+        }
+      }
+      
+      // Also grant access to COO automatically
+      const cooUser = await storage.getUserByEmail(COO_EMAIL);
+      if (cooUser && cooUser.id !== currentUserId && !validUserIds.includes(cooUser.id)) {
+        try {
+          await storage.grantDocumentAccess({
+            documentId,
+            userId: cooUser.id,
+            grantedById: currentUserId,
+          });
+          accessGrantedTo.push(cooUser.id);
+        } catch (err) {
+          console.error('Failed to grant COO access:', err);
+        }
+      }
+      
+      // Audit log
+      await storage.createAuditLog({
+        userId: currentUserId,
+        action: AuditAction.UPDATE,
+        entityType: 'document',
+        entityId: documentId,
+        previousValue: JSON.stringify({ isLocked: false }),
+        newValue: JSON.stringify({ isLocked: true, transferredToHub: true, grantedAccessTo: accessGrantedTo }),
+      });
+      
+      res.json({ 
+        document: updated, 
+        accessGrantedTo: accessGrantedTo.length,
+        transferredToHub: true,
+      });
+    } catch (err) {
+      console.error('Error transferring document to hub:', err);
+      res.status(500).json({ message: 'Failed to transfer document to Document Hub' });
+    }
+  });
+
   // ============================================
   // USER RECORDS (Completion Reports)
   // ============================================

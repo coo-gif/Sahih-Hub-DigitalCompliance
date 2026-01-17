@@ -82,7 +82,11 @@ import {
   XCircle,
   Archive,
   UserPlus,
-  CheckSquare
+  CheckSquare,
+  Lock,
+  Check,
+  Loader2,
+  ThumbsUp
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
@@ -862,6 +866,34 @@ export default function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
     },
   });
+  
+  // Lock and transfer to Document Hub mutation
+  const lockAndTransferMutation = useMutation({
+    mutationFn: async ({ documentId, userIds }: { documentId: number; userIds: number[] }) => {
+      const res = await apiRequest('POST', `/api/documents/${documentId}/lock-transfer`, { userIds });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/document-access'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
+      setShowLockTransferDialog(false);
+      setApprovedDocument(null);
+      setSelectedAccessUserIds([]);
+      toast({
+        title: "Document Transferred",
+        description: "Document has been locked and transferred to Document Hub. Only selected users can access it.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Transfer Failed",
+        description: error.message || "Failed to transfer document to Document Hub",
+        variant: "destructive",
+      });
+    },
+  });
 
   const [selectedTask, setSelectedTask] = useState<MyTask | null>(null);
   const [showTaskDialog, setShowTaskDialog] = useState(false);
@@ -882,6 +914,11 @@ export default function Dashboard() {
   const [showEmployeeReassignDialog, setShowEmployeeReassignDialog] = useState(false);
   const [employeeReassigneeId, setEmployeeReassigneeId] = useState<string>("");
   const [employeeReassignComment, setEmployeeReassignComment] = useState("");
+  
+  // Lock and transfer to Document Hub state
+  const [showLockTransferDialog, setShowLockTransferDialog] = useState(false);
+  const [approvedDocument, setApprovedDocument] = useState<{ id: number; code: string; title: string } | null>(null);
+  const [selectedAccessUserIds, setSelectedAccessUserIds] = useState<number[]>([]);
   const [complianceTab, setComplianceTab] = useState<"overview" | "completed" | "pending">("overview");
   const [newPostContent, setNewPostContent] = useState("");
 
@@ -990,6 +1027,16 @@ export default function Dashboard() {
         description: `Successfully completed ${selectedTask.taskType} task for ${selectedTask.documentCode}`,
       });
       
+      // If this was an approval task, show the "Lock and transfer to Document Hub" dialog
+      if (selectedTask.taskType === 'approve') {
+        setApprovedDocument({
+          id: selectedTask.documentId,
+          code: selectedTask.documentCode || '',
+          title: selectedTask.title || '',
+        });
+        setShowLockTransferDialog(true);
+      }
+      
       setShowTaskDialog(false);
       setSelectedTask(null);
       setTaskComments("");
@@ -1000,6 +1047,24 @@ export default function Dashboard() {
         variant: "destructive",
       });
     }
+  };
+  
+  // Handle lock and transfer to Document Hub
+  const handleLockAndTransfer = () => {
+    if (!approvedDocument) return;
+    lockAndTransferMutation.mutate({
+      documentId: approvedDocument.id,
+      userIds: selectedAccessUserIds,
+    });
+  };
+  
+  // Toggle user selection for access
+  const toggleUserAccess = (userId: number) => {
+    setSelectedAccessUserIds(prev => 
+      prev.includes(userId) 
+        ? prev.filter(id => id !== userId)
+        : [...prev, userId]
+    );
   };
 
   if (statsError) {
@@ -3059,6 +3124,113 @@ export default function Dashboard() {
             <Button onClick={() => { setShowTasksFocusDialog(false); navigate("/tasks"); }}>
               <ClipboardList className="w-4 h-4 mr-2" />
               View All Tasks
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Lock and Transfer to Document Hub Dialog */}
+      <Dialog open={showLockTransferDialog} onOpenChange={(open) => {
+        if (!open) {
+          setShowLockTransferDialog(false);
+          setApprovedDocument(null);
+          setSelectedAccessUserIds([]);
+        }
+      }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Lock className="w-5 h-5 text-primary" />
+              Lock and Transfer to Document Hub
+            </DialogTitle>
+            <DialogDescription>
+              The document <strong>{approvedDocument?.code}</strong> has been approved. You can now lock it and transfer it to the Document Hub. Only selected users will have access.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5" />
+                <div>
+                  <p className="font-medium text-amber-800 dark:text-amber-300">Important Notice</p>
+                  <p className="text-sm text-amber-700 dark:text-amber-400">
+                    Once transferred to Document Hub, this document will be locked for general access. Only users you select below (and the COO) will be able to view it.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-sm font-medium mb-3 block">Select users who should have access:</Label>
+              <ScrollArea className="h-[200px] border rounded-lg p-2">
+                <div className="space-y-2">
+                  {allUsers?.filter(u => u.email !== 'coo@sahihcertify.com').map(user => (
+                    <div 
+                      key={user.id}
+                      className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
+                        selectedAccessUserIds.includes(user.id) 
+                          ? 'bg-primary/10 border border-primary' 
+                          : 'hover:bg-muted border border-transparent'
+                      }`}
+                      onClick={() => toggleUserAccess(user.id)}
+                      data-testid={`user-access-${user.id}`}
+                    >
+                      <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
+                        selectedAccessUserIds.includes(user.id)
+                          ? 'bg-primary border-primary text-white'
+                          : 'border-gray-300'
+                      }`}>
+                        {selectedAccessUserIds.includes(user.id) && (
+                          <Check className="w-3 h-3" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm truncate">{user.name}</p>
+                        <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                      </div>
+                      <Badge variant="outline" className="text-xs">
+                        {user.role?.replace('_', ' ')}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+              <p className="text-xs text-muted-foreground mt-2">
+                {selectedAccessUserIds.length} user(s) selected. COO always has access.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="flex gap-2">
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowLockTransferDialog(false);
+                setApprovedDocument(null);
+                setSelectedAccessUserIds([]);
+              }}
+              data-testid="button-skip-transfer"
+            >
+              Skip for Now
+            </Button>
+            <Button 
+              onClick={handleLockAndTransfer}
+              disabled={lockAndTransferMutation.isPending}
+              className="gap-2"
+              data-testid="button-lock-transfer"
+            >
+              {lockAndTransferMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Transferring...
+                </>
+              ) : (
+                <>
+                  <Lock className="w-4 h-4" />
+                  Lock & Transfer
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
