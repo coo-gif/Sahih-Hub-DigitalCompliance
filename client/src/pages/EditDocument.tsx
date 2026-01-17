@@ -8,7 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import TiptapEditor from "@/components/TiptapEditor";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Badge } from "@/components/ui/badge";
+import TiptapEditor, { AISuggestion } from "@/components/TiptapEditor";
 import {
   Dialog,
   DialogContent,
@@ -17,9 +19,10 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { ArrowLeft, FileText, Save, Eye, Maximize2, Minimize2 } from "lucide-react";
+import { ArrowLeft, FileText, Save, Eye, Maximize2, Minimize2, Wand2, Loader2, Check, X, Lightbulb, ChevronRight } from "lucide-react";
 import DOMPurify from "dompurify";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
+import { apiRequest } from "@/lib/queryClient";
 
 export default function EditDocument() {
   const [, navigate] = useLocation();
@@ -32,6 +35,9 @@ export default function EditDocument() {
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showAISuggestions, setShowAISuggestions] = useState(false);
+  const [aiSuggestions, setAISuggestions] = useState<AISuggestion[]>([]);
+  const [isReviewingDocument, setIsReviewingDocument] = useState(false);
 
   const document = documents?.find(d => d.id === documentId);
 
@@ -71,6 +77,89 @@ export default function EditDocument() {
     } catch (error: any) {
       toast({ title: "Error updating document", description: error.message, variant: "destructive" });
     }
+  };
+
+  const handleAIReview = async () => {
+    if (!formData.content || formData.content.length < 50) {
+      toast({
+        title: "Not enough content",
+        description: "Please add more content to the document before reviewing.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsReviewingDocument(true);
+    setShowAISuggestions(true);
+    setAISuggestions([]);
+
+    try {
+      const response = await apiRequest('/api/ai/review-document', {
+        method: 'POST',
+        body: JSON.stringify({
+          content: formData.content,
+          documentType: document?.category || 'General',
+        }),
+      });
+
+      setAISuggestions(response.suggestions || []);
+      
+      if (response.suggestions?.length === 0) {
+        toast({
+          title: "No suggestions",
+          description: "Your document looks great! No improvements needed.",
+        });
+      } else {
+        toast({
+          title: "Review complete",
+          description: `Found ${response.suggestions?.length || 0} suggestions to improve your document.`,
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Review failed",
+        description: "Could not analyze the document. Please try again.",
+        variant: "destructive",
+      });
+      setShowAISuggestions(false);
+    } finally {
+      setIsReviewingDocument(false);
+    }
+  };
+
+  const applySuggestion = (suggestion: AISuggestion) => {
+    const originalText = suggestion.original;
+    const newText = suggestion.suggestion;
+    
+    if (!formData.content.includes(originalText)) {
+      toast({
+        title: "Cannot apply suggestion",
+        description: "The original text was not found. The document may have changed since the review.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    const escapedOriginal = originalText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(escapedOriginal, 'g');
+    const newContent = formData.content.replace(regex, newText);
+    
+    setFormData({ ...formData, content: newContent });
+    setAISuggestions(prev => prev.map(s => 
+      s.id === suggestion.id ? { ...s, applied: true } : s
+    ));
+    toast({
+      title: "Suggestion applied",
+      description: "The text has been updated.",
+    });
+  };
+
+  const dismissSuggestion = (suggestionId: string) => {
+    setAISuggestions(prev => prev.filter(s => s.id !== suggestionId));
+  };
+
+  const canApplySuggestion = (suggestion: AISuggestion): boolean => {
+    return !suggestion.applied && formData.content.includes(suggestion.original);
   };
 
   if (isLoading) {
@@ -113,6 +202,24 @@ export default function EditDocument() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            onClick={handleAIReview}
+            disabled={isReviewingDocument}
+            data-testid="button-ai-review"
+          >
+            {isReviewingDocument ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Reviewing...
+              </>
+            ) : (
+              <>
+                <Wand2 className="w-4 h-4 mr-2" />
+                AI Review
+              </>
+            )}
+          </Button>
           <Button variant="outline" onClick={() => navigate("/documents")} data-testid="button-cancel">
             Cancel
           </Button>
@@ -127,7 +234,8 @@ export default function EditDocument() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 flex overflow-hidden">
+        <div className={`flex-1 overflow-y-auto transition-all ${showAISuggestions ? 'pr-0' : ''}`}>
         <div className="p-6 max-w-5xl mx-auto">
           <div className="grid gap-6">
             <Card>
@@ -203,6 +311,119 @@ export default function EditDocument() {
 
           </div>
         </div>
+        </div>
+
+        {/* AI Suggestions Panel */}
+        {showAISuggestions && (
+          <div className="w-80 border-l bg-muted/30 flex flex-col flex-shrink-0" data-testid="panel-ai-suggestions">
+            <div className="p-4 border-b bg-background flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Lightbulb className="w-5 h-5 text-yellow-500" />
+                <h3 className="font-semibold">AI Suggestions</h3>
+                {aiSuggestions.length > 0 && (
+                  <Badge variant="secondary" data-testid="badge-suggestions-count">
+                    {aiSuggestions.filter(s => !s.applied).length}
+                  </Badge>
+                )}
+              </div>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={() => setShowAISuggestions(false)}
+                data-testid="button-close-suggestions"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            <ScrollArea className="flex-1">
+              <div className="p-4 space-y-3">
+                {isReviewingDocument ? (
+                  <div className="flex flex-col items-center justify-center py-8 gap-3" data-testid="status-reviewing">
+                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                    <p className="text-sm text-muted-foreground">Analyzing document...</p>
+                  </div>
+                ) : aiSuggestions.length === 0 ? (
+                  <div className="text-center py-8" data-testid="status-no-suggestions">
+                    <Check className="w-10 h-10 text-green-500 mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">Your document looks great!</p>
+                    <p className="text-xs text-muted-foreground mt-1">No improvements needed.</p>
+                  </div>
+                ) : (
+                  aiSuggestions.map((suggestion) => (
+                    <Card 
+                      key={suggestion.id} 
+                      className={`${suggestion.applied ? 'opacity-50' : ''}`}
+                      data-testid={`card-suggestion-${suggestion.id}`}
+                    >
+                      <CardContent className="p-3 space-y-2">
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1 font-medium">Original text:</p>
+                          <p 
+                            className="text-sm line-through text-red-600 dark:text-red-400"
+                            data-testid={`text-original-${suggestion.id}`}
+                          >
+                            "{suggestion.original}"
+                          </p>
+                        </div>
+                        <div className="flex items-center">
+                          <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1 font-medium">Suggested replacement:</p>
+                          <p 
+                            className="text-sm text-green-600 dark:text-green-400"
+                            data-testid={`text-suggestion-${suggestion.id}`}
+                          >
+                            "{suggestion.suggestion}"
+                          </p>
+                        </div>
+                        <div 
+                          className="bg-muted/50 p-2 rounded text-xs text-muted-foreground"
+                          data-testid={`text-reason-${suggestion.id}`}
+                        >
+                          <span className="font-medium">Reason: </span>{suggestion.reason}
+                        </div>
+                        {!suggestion.applied && canApplySuggestion(suggestion) && (
+                          <div className="flex items-center gap-2 pt-1">
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              className="flex-1"
+                              onClick={() => applySuggestion(suggestion)}
+                              data-testid={`button-apply-suggestion-${suggestion.id}`}
+                            >
+                              <Check className="w-3 h-3 mr-1" />
+                              Apply
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="ghost" 
+                              onClick={() => dismissSuggestion(suggestion.id)}
+                              data-testid={`button-dismiss-suggestion-${suggestion.id}`}
+                            >
+                              <X className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        )}
+                        {!suggestion.applied && !canApplySuggestion(suggestion) && (
+                          <Badge variant="outline" className="w-full justify-center text-muted-foreground">
+                            Text no longer in document
+                          </Badge>
+                        )}
+                        {suggestion.applied && (
+                          <Badge variant="secondary" className="w-full justify-center" data-testid={`badge-applied-${suggestion.id}`}>
+                            <Check className="w-3 h-3 mr-1" />
+                            Applied
+                          </Badge>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))
+                )}
+              </div>
+            </ScrollArea>
+          </div>
+        )}
       </div>
 
       {/* Full-Width Document Preview Dialog */}

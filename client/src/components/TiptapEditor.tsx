@@ -8,7 +8,8 @@ import { TableRow } from '@tiptap/extension-table-row';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import TextAlign from '@tiptap/extension-text-align';
-import { useCallback, useEffect, useState } from 'react';
+import TextStyle from '@tiptap/extension-text-style';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -23,10 +24,21 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import {
   Bold,
   Italic,
@@ -48,16 +60,38 @@ import {
   RowsIcon,
   ColumnsIcon,
   Eye,
+  Type,
+  Wand2,
+  SpellCheck,
+  Loader2,
+  Merge,
+  Split,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react';
 import DOMPurify from 'dompurify';
+import { useToast } from '@/hooks/use-toast';
+import { apiRequest } from '@/lib/queryClient';
 
 interface TiptapEditorProps {
   content: string;
   onChange: (content: string) => void;
   onPreview?: () => void;
+  onAISuggestionsChange?: (suggestions: AISuggestion[]) => void;
 }
 
-export default function TiptapEditor({ content, onChange, onPreview }: TiptapEditorProps) {
+export interface AISuggestion {
+  id: string;
+  original: string;
+  suggestion: string;
+  reason: string;
+  applied: boolean;
+}
+
+export default function TiptapEditor({ content, onChange, onPreview, onAISuggestionsChange }: TiptapEditorProps) {
+  const { toast } = useToast();
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [showImageDialog, setShowImageDialog] = useState(false);
   const [showTableDialog, setShowTableDialog] = useState(false);
@@ -66,12 +100,17 @@ export default function TiptapEditor({ content, onChange, onPreview }: TiptapEdi
   const [imageWidth, setImageWidth] = useState('400');
   const [tableRows, setTableRows] = useState('3');
   const [tableCols, setTableCols] = useState('3');
+  const [isRewriting, setIsRewriting] = useState(false);
+  const [selectedText, setSelectedText] = useState('');
+  const [rewrittenText, setRewrittenText] = useState('');
+  const [showRewriteDialog, setShowRewriteDialog] = useState(false);
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
         heading: false,
       }),
+      TextStyle,
       Underline.configure({
         HTMLAttributes: {
           class: 'underline',
@@ -119,9 +158,69 @@ export default function TiptapEditor({ content, onChange, onPreview }: TiptapEdi
       attributes: {
         class: 'prose prose-sm max-w-none min-h-[200px] p-4 focus:outline-none',
         style: 'font-family: Roboto, sans-serif;',
+        spellcheck: 'true',
       },
     },
   });
+
+  const handleRewriteWithAI = useCallback(async () => {
+    if (!editor) return;
+    
+    const { from, to } = editor.state.selection;
+    const text = editor.state.doc.textBetween(from, to, ' ');
+    
+    if (!text.trim()) {
+      toast({
+        title: "No text selected",
+        description: "Please select some text to rewrite",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    setSelectedText(text);
+    setIsRewriting(true);
+    setShowRewriteDialog(true);
+    
+    try {
+      const response = await apiRequest('/api/ai/rewrite', {
+        method: 'POST',
+        body: JSON.stringify({ text }),
+      });
+      
+      setRewrittenText(response.rewritten);
+    } catch (error) {
+      toast({
+        title: "AI Rewrite Failed",
+        description: "Could not rewrite the text. Please try again.",
+        variant: "destructive",
+      });
+      setShowRewriteDialog(false);
+    } finally {
+      setIsRewriting(false);
+    }
+  }, [editor, toast]);
+
+  const applyRewrittenText = useCallback(() => {
+    if (!editor || !rewrittenText) return;
+    
+    editor.chain().focus().insertContent(rewrittenText).run();
+    setShowRewriteDialog(false);
+    setRewrittenText('');
+    setSelectedText('');
+    
+    toast({
+      title: "Text Replaced",
+      description: "The text has been rewritten with improved grammar.",
+    });
+  }, [editor, rewrittenText, toast]);
+
+  const checkSpelling = useCallback(() => {
+    toast({
+      title: "Spell Check",
+      description: "Browser spell-check is enabled. Misspelled words are underlined in red.",
+    });
+  }, [toast]);
 
   useEffect(() => {
     if (editor && content !== editor.getHTML()) {
@@ -449,9 +548,139 @@ export default function TiptapEditor({ content, onChange, onPreview }: TiptapEdi
         )}
       </div>
 
-      <div className="max-h-[50vh] overflow-y-auto">
-        <EditorContent editor={editor} />
-      </div>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div className="max-h-[50vh] overflow-y-auto">
+            <EditorContent editor={editor} />
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-56">
+          <ContextMenuItem onClick={() => editor?.chain().focus().toggleBold().run()}>
+            <Bold className="w-4 h-4 mr-2" />
+            Bold
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => editor?.chain().focus().toggleItalic().run()}>
+            <Italic className="w-4 h-4 mr-2" />
+            Italic
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => editor?.chain().focus().toggleUnderline().run()}>
+            <UnderlineIcon className="w-4 h-4 mr-2" />
+            Underline
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => editor?.chain().focus().toggleStrike().run()}>
+            <Strikethrough className="w-4 h-4 mr-2" />
+            Strikethrough
+          </ContextMenuItem>
+          
+          <ContextMenuSeparator />
+          
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>
+              <AlignLeft className="w-4 h-4 mr-2" />
+              Alignment
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              <ContextMenuItem onClick={() => editor?.chain().focus().setTextAlign('left').run()}>
+                <AlignLeft className="w-4 h-4 mr-2" />
+                Align Left
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => editor?.chain().focus().setTextAlign('center').run()}>
+                <AlignCenter className="w-4 h-4 mr-2" />
+                Align Center
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => editor?.chain().focus().setTextAlign('right').run()}>
+                <AlignRight className="w-4 h-4 mr-2" />
+                Align Right
+              </ContextMenuItem>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>
+              <Type className="w-4 h-4 mr-2" />
+              Font Size
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              <ContextMenuItem onClick={() => editor?.chain().focus().setMark('textStyle', { fontSize: '12px' }).run()}>
+                Small (12px)
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => editor?.chain().focus().setMark('textStyle', { fontSize: '14px' }).run()}>
+                Normal (14px)
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => editor?.chain().focus().setMark('textStyle', { fontSize: '18px' }).run()}>
+                Large (18px)
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => editor?.chain().focus().setMark('textStyle', { fontSize: '24px' }).run()}>
+                Extra Large (24px)
+              </ContextMenuItem>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          
+          {editor?.isActive('table') && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuSub>
+                <ContextMenuSubTrigger>
+                  <TableIcon className="w-4 h-4 mr-2" />
+                  Table Actions
+                </ContextMenuSubTrigger>
+                <ContextMenuSubContent className="w-48">
+                  <ContextMenuItem onClick={() => editor?.chain().focus().addRowBefore().run()}>
+                    <ChevronUp className="w-4 h-4 mr-2" />
+                    Add Row Above
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={() => editor?.chain().focus().addRowAfter().run()}>
+                    <ChevronDown className="w-4 h-4 mr-2" />
+                    Add Row Below
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={() => editor?.chain().focus().addColumnBefore().run()}>
+                    <ChevronLeft className="w-4 h-4 mr-2" />
+                    Add Column Left
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={() => editor?.chain().focus().addColumnAfter().run()}>
+                    <ChevronRight className="w-4 h-4 mr-2" />
+                    Add Column Right
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem onClick={() => editor?.chain().focus().mergeCells().run()}>
+                    <Merge className="w-4 h-4 mr-2" />
+                    Merge Cells
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={() => editor?.chain().focus().splitCell().run()}>
+                    <Split className="w-4 h-4 mr-2" />
+                    Split Cell
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem onClick={() => editor?.chain().focus().deleteRow().run()} className="text-red-600">
+                    <Minus className="w-4 h-4 mr-2" />
+                    Delete Row
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={() => editor?.chain().focus().deleteColumn().run()} className="text-red-600">
+                    <Minus className="w-4 h-4 mr-2" />
+                    Delete Column
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={() => editor?.chain().focus().deleteTable().run()} className="text-red-600">
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Delete Table
+                  </ContextMenuItem>
+                </ContextMenuSubContent>
+              </ContextMenuSub>
+            </>
+          )}
+          
+          <ContextMenuSeparator />
+          
+          <ContextMenuItem onClick={handleRewriteWithAI}>
+            <Wand2 className="w-4 h-4 mr-2" />
+            Rewrite with AI Grammar
+          </ContextMenuItem>
+          
+          <ContextMenuItem onClick={checkSpelling}>
+            <SpellCheck className="w-4 h-4 mr-2" />
+            Check Spelling
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
 
       <Dialog open={showLinkDialog} onOpenChange={setShowLinkDialog}>
         <DialogContent>
@@ -567,6 +796,64 @@ export default function TiptapEditor({ content, onChange, onPreview }: TiptapEdi
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowTableDialog(false)}>Cancel</Button>
             <Button onClick={insertTable} data-testid="button-insert-table">Insert Table</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showRewriteDialog} onOpenChange={setShowRewriteDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wand2 className="w-5 h-5" />
+              AI Grammar Rewrite
+            </DialogTitle>
+            <DialogDescription>
+              AI will rewrite your selected text with proper English grammar
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Original Text</Label>
+              <div className="p-3 bg-muted rounded-md text-sm mt-1">
+                {selectedText || "No text selected"}
+              </div>
+            </div>
+            <div>
+              <Label>Rewritten Text</Label>
+              {isRewriting ? (
+                <div className="p-3 bg-muted rounded-md flex items-center gap-2 mt-1">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span className="text-sm text-muted-foreground">AI is rewriting your text...</span>
+                </div>
+              ) : rewrittenText ? (
+                <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md text-sm mt-1">
+                  {rewrittenText}
+                </div>
+              ) : (
+                <div className="p-3 bg-muted rounded-md text-sm text-muted-foreground mt-1">
+                  Waiting for AI response...
+                </div>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowRewriteDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={applyRewrittenText} 
+              disabled={isRewriting || !rewrittenText}
+              data-testid="button-apply-rewrite"
+            >
+              {isRewriting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                "Apply Rewrite"
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

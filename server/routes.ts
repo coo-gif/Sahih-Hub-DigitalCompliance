@@ -5123,6 +5123,142 @@ Remember: Always be specific about WHERE to click (sidebar, button names, tabs) 
     }
   });
 
+  // ============================================
+  // AI TEXT PROCESSING
+  // ============================================
+  
+  // AI Rewrite for Grammar
+  app.post('/api/ai/rewrite', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { text } = req.body;
+      
+      if (!text || typeof text !== 'string' || text.trim().length === 0) {
+        return res.status(400).json({ error: 'Text is required' });
+      }
+
+      const OpenAI = (await import('openai')).default;
+      const openai = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: `You are a professional English grammar and writing assistant. Your task is to rewrite the given text with:
+1. Correct grammar and punctuation
+2. Professional and clear language
+3. Proper sentence structure
+4. Maintain the original meaning and intent
+
+Only respond with the rewritten text, nothing else. Do not add explanations or comments.`
+          },
+          {
+            role: 'user',
+            content: text
+          }
+        ],
+        max_tokens: 2048,
+        temperature: 0.3,
+      });
+
+      const rewritten = response.choices[0]?.message?.content || text;
+      res.json({ rewritten });
+    } catch (error) {
+      console.error('AI rewrite error:', error);
+      res.status(500).json({ error: 'Failed to rewrite text' });
+    }
+  });
+
+  // AI Document Review - Analyze entire document and provide suggestions
+  app.post('/api/ai/review-document', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { content, documentType } = req.body;
+      
+      if (!content || typeof content !== 'string') {
+        return res.status(400).json({ error: 'Document content is required' });
+      }
+
+      // Strip HTML tags for cleaner analysis
+      const textContent = content.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+      
+      if (textContent.length < 50) {
+        return res.status(400).json({ error: 'Document is too short for meaningful review' });
+      }
+
+      const OpenAI = (await import('openai')).default;
+      const openai = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: `You are a professional document reviewer for a Quality Management System (QMS). Analyze the document and provide specific, actionable suggestions to improve:
+1. Grammar and punctuation errors
+2. Clarity and readability
+3. Professional language
+4. Consistency in terminology
+5. Compliance with standard documentation practices
+
+For each issue found, provide:
+- The original text that needs improvement
+- A suggested replacement
+- A brief reason for the change
+
+Format your response as a JSON array with objects containing: "original", "suggestion", "reason"
+
+Example:
+[
+  {"original": "we will done this", "suggestion": "we will do this", "reason": "Corrected verb tense"},
+  {"original": "The document should contains", "suggestion": "The document should contain", "reason": "Subject-verb agreement"}
+]
+
+If the document is well-written, return an empty array: []
+Limit to the top 10 most important suggestions.`
+          },
+          {
+            role: 'user',
+            content: `Document type: ${documentType || 'General'}\n\nDocument content:\n${textContent}`
+          }
+        ],
+        max_tokens: 2048,
+        temperature: 0.2,
+        response_format: { type: 'json_object' },
+      });
+
+      const responseContent = response.choices[0]?.message?.content || '{"suggestions":[]}';
+      let suggestions = [];
+      
+      try {
+        const parsed = JSON.parse(responseContent);
+        suggestions = Array.isArray(parsed) ? parsed : (parsed.suggestions || []);
+      } catch (e) {
+        console.error('Failed to parse AI response:', e);
+        suggestions = [];
+      }
+
+      // Add unique IDs to suggestions
+      const suggestionsWithIds = suggestions.map((s: any, index: number) => ({
+        id: `suggestion-${Date.now()}-${index}`,
+        original: s.original || '',
+        suggestion: s.suggestion || '',
+        reason: s.reason || '',
+        applied: false,
+      }));
+
+      res.json({ suggestions: suggestionsWithIds });
+    } catch (error) {
+      console.error('AI document review error:', error);
+      res.status(500).json({ error: 'Failed to review document' });
+    }
+  });
+
   // Gmail API Routes
   
   // Check if Google OAuth is configured (for admin setup)
