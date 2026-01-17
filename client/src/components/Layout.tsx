@@ -29,7 +29,8 @@ import {
   Award,
   Mail,
   Lock,
-  GraduationCap
+  GraduationCap,
+  Sparkles
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -95,6 +96,12 @@ const navItems: NavItem[] = [
     label: "Training", 
     icon: GraduationCap,
     canAccess: (user) => user.role === 'admin' || user.role === 'quality_manager' || user.email === 'hr@sahihcertify.com'
+  },
+  { 
+    href: "/docugenie", 
+    label: "DocuGenie", 
+    icon: Sparkles,
+    canAccess: (user) => user.role === 'admin' || user.role === 'quality_manager' || user.email === 'coo@sahihcertify.com'
   },
   { href: "/audit-log", label: "Audit Log", icon: History, adminOnly: true },
 ];

@@ -20,6 +20,8 @@ import CertificationProcess from "@/pages/CertificationProcess";
 import Email from "@/pages/Email";
 import DocumentHub from "@/pages/DocumentHub";
 import Trainings from "@/pages/Trainings";
+import DocuGenie from "@/pages/DocuGenie";
+import FormSubmit from "@/pages/FormSubmit";
 import Login from "@/pages/Login";
 import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/Layout";
@@ -65,6 +67,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: User; onLogout: () => v
             <Route path="/email" component={Email} />
             <Route path="/document-hub" component={DocumentHub} />
             <Route path="/trainings" component={Trainings} />
+            <Route path="/docugenie" component={DocuGenie} />
             <Route path="/audit-log" component={AuditLog} />
             <Route component={NotFound} />
           </Switch>
@@ -126,11 +129,16 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        {user ? (
-          <AuthenticatedRouter user={user} onLogout={handleLogout} />
-        ) : (
-          <Login onLogin={handleLogin} />
-        )}
+        <Switch>
+          <Route path="/form/:token" component={FormSubmit} />
+          <Route>
+            {user ? (
+              <AuthenticatedRouter user={user} onLogout={handleLogout} />
+            ) : (
+              <Login onLogin={handleLogin} />
+            )}
+          </Route>
+        </Switch>
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
