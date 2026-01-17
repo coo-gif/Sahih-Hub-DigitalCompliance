@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -30,13 +31,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -58,7 +52,8 @@ import {
   UserMinus, 
   Shield,
   FileDown,
-  Loader2
+  Loader2,
+  Search
 } from "lucide-react";
 import { format } from "date-fns";
 import type { Document, User, DocumentAccessRequest, DocumentAccess } from "@shared/schema";
@@ -83,7 +78,8 @@ export default function DocumentHub() {
   const [showViewDialog, setShowViewDialog] = useState(false);
   const [showGrantAccessDialog, setShowGrantAccessDialog] = useState(false);
   const [showAccessListDialog, setShowAccessListDialog] = useState(false);
-  const [selectedUserId, setSelectedUserId] = useState<string>("");
+  const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
+  const [userSearchQuery, setUserSearchQuery] = useState("");
   const [decisionNote, setDecisionNote] = useState("");
   
   const isCOO = currentUser?.email === COO_EMAIL;
@@ -104,11 +100,7 @@ export default function DocumentHub() {
   
   const approveRequestMutation = useMutation({
     mutationFn: async ({ requestId, note }: { requestId: number; note?: string }) => {
-      return apiRequest(`/api/document-access-requests/${requestId}/approve`, {
-        method: "POST",
-        body: JSON.stringify({ decisionNote: note }),
-        headers: { "Content-Type": "application/json" },
-      });
+      return apiRequest("POST", `/api/document-access-requests/${requestId}/approve`, { decisionNote: note });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/document-access-requests"] });
@@ -122,11 +114,7 @@ export default function DocumentHub() {
   
   const rejectRequestMutation = useMutation({
     mutationFn: async ({ requestId, note }: { requestId: number; note?: string }) => {
-      return apiRequest(`/api/document-access-requests/${requestId}/reject`, {
-        method: "POST",
-        body: JSON.stringify({ decisionNote: note }),
-        headers: { "Content-Type": "application/json" },
-      });
+      return apiRequest("POST", `/api/document-access-requests/${requestId}/reject`, { decisionNote: note });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/document-access-requests"] });
@@ -137,19 +125,33 @@ export default function DocumentHub() {
     },
   });
   
-  const grantAccessMutation = useMutation({
-    mutationFn: async ({ documentId, userId }: { documentId: number; userId: number }) => {
-      return apiRequest(`/api/documents/${documentId}/grant-access`, {
-        method: "POST",
-        body: JSON.stringify({ userId }),
-        headers: { "Content-Type": "application/json" },
-      });
+  const grantMultipleAccessMutation = useMutation({
+    mutationFn: async ({ documentId, userIds }: { documentId: number; userIds: number[] }) => {
+      const response = await apiRequest("POST", `/api/documents/${documentId}/grant-access-multiple`, { userIds });
+      return response.json() as Promise<{ granted: number; results: DocumentAccess[] }>;
     },
-    onSuccess: () => {
+    onSuccess: (data, { userIds }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/document-access"] });
       setShowGrantAccessDialog(false);
-      setSelectedUserId("");
-      toast({ title: "Access granted", description: "User can now view this document." });
+      setSelectedUserIds([]);
+      setUserSearchQuery("");
+      const skipped = userIds.length - data.granted;
+      if (skipped > 0 && data.granted > 0) {
+        toast({ 
+          title: "Access granted", 
+          description: `${data.granted} user${data.granted > 1 ? 's' : ''} granted access. ${skipped} already had access.` 
+        });
+      } else if (data.granted > 0) {
+        toast({ 
+          title: "Access granted", 
+          description: `${data.granted} user${data.granted > 1 ? 's' : ''} can now view this document.` 
+        });
+      } else {
+        toast({ 
+          title: "No changes", 
+          description: "All selected users already have access to this document." 
+        });
+      }
     },
     onError: (error: any) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -158,11 +160,7 @@ export default function DocumentHub() {
   
   const revokeAccessMutation = useMutation({
     mutationFn: async ({ documentId, userId }: { documentId: number; userId: number }) => {
-      return apiRequest(`/api/documents/${documentId}/revoke-access`, {
-        method: "POST",
-        body: JSON.stringify({ userId }),
-        headers: { "Content-Type": "application/json" },
-      });
+      return apiRequest("POST", `/api/documents/${documentId}/revoke-access`, { userId });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/document-access"] });
@@ -491,61 +489,140 @@ export default function DocumentHub() {
           </DialogContent>
         </Dialog>
         
-        <Dialog open={showGrantAccessDialog} onOpenChange={setShowGrantAccessDialog}>
-          <DialogContent>
+        <Dialog open={showGrantAccessDialog} onOpenChange={(open) => {
+          setShowGrantAccessDialog(open);
+          if (!open) {
+            setSelectedUserIds([]);
+            setUserSearchQuery("");
+          }
+        }}>
+          <DialogContent className="max-w-lg">
             <DialogHeader>
-              <DialogTitle>Grant Document Access</DialogTitle>
+              <DialogTitle className="flex items-center gap-2">
+                <UserPlus className="h-5 w-5 text-primary" />
+                Share Document
+              </DialogTitle>
               <DialogDescription>
-                Select a user to grant access to "{selectedDocument?.documentCode} - {selectedDocument?.title}"
+                Select users to grant access to "{selectedDocument?.documentCode} - {selectedDocument?.title}"
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label>Select User</Label>
-                <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-                  <SelectTrigger data-testid="select-user-grant">
-                    <SelectValue placeholder="Choose a user..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {users
-                      .filter(u => u.email !== COO_EMAIL)
-                      .map(user => {
-                        const hasAccess = selectedDocument 
-                          ? getDocumentAccessList(selectedDocument.id).some(a => a.userId === user.id)
-                          : false;
-                        return (
-                          <SelectItem 
-                            key={user.id} 
-                            value={user.id.toString()}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search users..."
+                  value={userSearchQuery}
+                  onChange={(e) => setUserSearchQuery(e.target.value)}
+                  className="pl-9"
+                  data-testid="input-search-users"
+                />
+              </div>
+              
+              {selectedUserIds.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {selectedUserIds.map(userId => {
+                    const user = users.find(u => u.id === userId);
+                    return user ? (
+                      <Badge key={userId} variant="secondary" className="gap-1">
+                        {user.name}
+                        <button
+                          onClick={() => setSelectedUserIds(ids => ids.filter(id => id !== userId))}
+                          className="ml-1 rounded-full hover:bg-muted"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    ) : null;
+                  })}
+                </div>
+              )}
+              
+              <ScrollArea className="h-64 border rounded-md">
+                <div className="p-2 space-y-1">
+                  {users
+                    .filter(u => u.email !== COO_EMAIL)
+                    .filter(u => 
+                      u.name.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+                      u.email.toLowerCase().includes(userSearchQuery.toLowerCase())
+                    )
+                    .map(user => {
+                      const hasAccess = selectedDocument 
+                        ? getDocumentAccessList(selectedDocument.id).some(a => a.userId === user.id)
+                        : false;
+                      const isSelected = selectedUserIds.includes(user.id);
+                      
+                      return (
+                        <div 
+                          key={user.id}
+                          className={`flex items-center gap-3 p-2 rounded-md cursor-pointer transition-colors ${
+                            hasAccess 
+                              ? 'opacity-50 cursor-not-allowed' 
+                              : isSelected 
+                                ? 'bg-primary/10' 
+                                : 'hover:bg-muted'
+                          }`}
+                          onClick={() => {
+                            if (!hasAccess) {
+                              setSelectedUserIds(ids => 
+                                isSelected 
+                                  ? ids.filter(id => id !== user.id)
+                                  : [...ids, user.id]
+                              );
+                            }
+                          }}
+                          data-testid={`user-option-${user.id}`}
+                        >
+                          <Checkbox
+                            checked={isSelected || hasAccess}
                             disabled={hasAccess}
-                          >
-                            {user.name} ({user.email})
-                            {hasAccess && " - Already has access"}
-                          </SelectItem>
-                        );
-                      })}
-                  </SelectContent>
-                </Select>
+                            onCheckedChange={(checked) => {
+                              if (!hasAccess) {
+                                setSelectedUserIds(ids => 
+                                  checked 
+                                    ? [...ids, user.id]
+                                    : ids.filter(id => id !== user.id)
+                                );
+                              }
+                            }}
+                            data-testid={`checkbox-user-${user.id}`}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium truncate">{user.name}</div>
+                            <div className="text-sm text-muted-foreground truncate">{user.email}</div>
+                          </div>
+                          {hasAccess && (
+                            <Badge variant="outline" className="text-xs shrink-0">
+                              Has access
+                            </Badge>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              </ScrollArea>
+              
+              <div className="text-sm text-muted-foreground">
+                {selectedUserIds.length} user{selectedUserIds.length !== 1 ? 's' : ''} selected
               </div>
             </div>
-            <DialogFooter>
+            <DialogFooter className="gap-2">
               <Button variant="outline" onClick={() => setShowGrantAccessDialog(false)}>
                 Cancel
               </Button>
               <Button
                 onClick={() => {
-                  if (selectedDocument && selectedUserId) {
-                    grantAccessMutation.mutate({
+                  if (selectedDocument && selectedUserIds.length > 0) {
+                    grantMultipleAccessMutation.mutate({
                       documentId: selectedDocument.id,
-                      userId: parseInt(selectedUserId),
+                      userIds: selectedUserIds,
                     });
                   }
                 }}
-                disabled={!selectedUserId || grantAccessMutation.isPending}
+                disabled={selectedUserIds.length === 0 || grantMultipleAccessMutation.isPending}
                 data-testid="button-confirm-grant"
               >
-                {grantAccessMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Grant Access
+                {grantMultipleAccessMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Share with {selectedUserIds.length} user{selectedUserIds.length !== 1 ? 's' : ''}
               </Button>
             </DialogFooter>
           </DialogContent>

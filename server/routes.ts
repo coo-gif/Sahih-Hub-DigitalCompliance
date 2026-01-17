@@ -3632,6 +3632,80 @@ export async function registerRoutes(
     }
   });
 
+  // Grant access to multiple users at once
+  app.post(api.documentAccess.grantMultiple.path, async (req, res) => {
+    try {
+      const documentId = Number(req.params.id);
+      if (isNaN(documentId)) {
+        return res.status(400).json({ message: 'Invalid document ID' });
+      }
+      
+      const input = api.documentAccess.grantMultiple.input.parse(req.body);
+      const currentUserId = getCurrentUserId(req);
+      const currentUser = await storage.getUser(currentUserId);
+      
+      // Only COO (coo@sahihcertify.com) can grant access
+      const COO_EMAIL = 'coo@sahihcertify.com';
+      if (currentUser?.email !== COO_EMAIL) {
+        return res.status(403).json({ message: 'Only the COO can grant document access' });
+      }
+      
+      const document = await storage.getDocument(documentId);
+      if (!document) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+      
+      const results = [];
+      for (const userId of input.userIds) {
+        try {
+          // Check if user already has access
+          const hasAccess = await storage.hasDocumentAccess(documentId, userId);
+          if (hasAccess) {
+            continue; // Skip users who already have access
+          }
+          
+          const access = await storage.grantDocumentAccess({
+            documentId,
+            userId,
+            grantedById: currentUserId,
+          });
+          
+          results.push(access);
+          
+          // Notify the user
+          await storage.createNotification({
+            userId,
+            title: 'Document Access Granted',
+            message: `You have been granted access to document "${document.documentCode} - ${document.title}"`,
+            urgencyLevel: UrgencyLevel.LOW,
+            relatedDocumentId: documentId,
+          });
+          
+          // Audit log
+          await storage.createAuditLog({
+            userId: currentUserId,
+            action: AuditAction.CREATE,
+            entityType: 'document_access',
+            entityId: access.id,
+            newValue: JSON.stringify({ documentId, userId }),
+          });
+        } catch (err) {
+          console.error(`Failed to grant access to user ${userId}:`, err);
+        }
+      }
+      
+      res.status(201).json({ granted: results.length, results });
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: err.errors[0].message,
+          field: err.errors[0].path.join('.'),
+        });
+      }
+      throw err;
+    }
+  });
+
   app.post(api.documentAccess.revoke.path, async (req, res) => {
     try {
       const documentId = Number(req.params.id);

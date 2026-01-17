@@ -583,6 +583,20 @@ export const api = {
         400: errorSchemas.validation,
       },
     },
+    grantMultiple: {
+      method: 'POST' as const,
+      path: '/api/documents/:id/grant-access-multiple',
+      input: z.object({
+        userIds: z.array(z.number()).min(1),
+      }),
+      responses: {
+        201: z.object({ 
+          granted: z.number(),
+          results: z.array(z.custom<typeof documentAccess.$inferSelect>()),
+        }),
+        400: errorSchemas.validation,
+      },
+    },
     revoke: {
       method: 'POST' as const,
       path: '/api/documents/:id/revoke-access',
