@@ -279,9 +279,10 @@ export default function Documents() {
     
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout for lightweight version
       
-      const response = await fetch(`/api/documents/${doc.id}/generate-pdf`, {
+      // Use lightweight PDF generation for faster results
+      const response = await fetch(`/api/documents/${doc.id}/generate-pdf-light`, {
         method: 'POST',
         credentials: 'include',
         signal: controller.signal,

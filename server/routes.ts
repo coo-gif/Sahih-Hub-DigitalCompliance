@@ -18,6 +18,7 @@ import {
 } from "@shared/schema";
 import { z } from "zod";
 import puppeteer from "puppeteer";
+import PDFDocument from "pdfkit";
 import path from "path";
 import fs from "fs";
 import { execSync } from "child_process";
@@ -2575,6 +2576,170 @@ export async function registerRoutes(
       res.json({ success: true, pdfUrl: pdfDataUrl });
     } catch (error) {
       console.error('PDF generation error:', error);
+      res.status(500).json({ message: 'Failed to generate PDF' });
+    }
+  });
+
+  // LIGHTWEIGHT PDF GENERATION (Fast version without Puppeteer)
+  app.post('/api/documents/:id/generate-pdf-light', requireAuth, async (req, res) => {
+    const id = Number(req.params.id);
+    const doc = await storage.getDocument(id);
+    
+    if (!doc) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+
+    const userId = getCurrentUserId(req);
+    const currentUser = await storage.getUser(userId);
+    const COO_EMAIL = 'coo@sahihcertify.com';
+    
+    if ((doc.isLocked || doc.status === DocumentStatus.APPROVED) && currentUser?.email !== COO_EMAIL) {
+      const hasAccess = await storage.hasDocumentAccess(doc.id, userId);
+      const isWorkflowMember = doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId;
+      
+      if (!hasAccess && !isWorkflowMember) {
+        return res.status(403).json({ message: 'Access denied. This document is locked.' });
+      }
+    }
+
+    try {
+      console.log(`Lightweight PDF generation started for document ${doc.id}`);
+      const users = await storage.getUsers();
+      const preparedBy = users.find(u => u.id === doc.preparedById);
+      const reviewedBy = users.find(u => u.id === doc.reviewerId);
+      const approvedBy = users.find(u => u.id === doc.approverId);
+
+      // Create PDF document
+      const pdfDoc = new PDFDocument({ 
+        size: 'A4', 
+        margins: { top: 60, bottom: 60, left: 50, right: 50 },
+        bufferPages: true 
+      });
+      
+      const chunks: Buffer[] = [];
+      pdfDoc.on('data', (chunk: Buffer) => chunks.push(chunk));
+      
+      const pdfPromise = new Promise<Buffer>((resolve, reject) => {
+        pdfDoc.on('end', () => resolve(Buffer.concat(chunks)));
+        pdfDoc.on('error', reject);
+      });
+
+      // Header
+      pdfDoc.fontSize(10).fillColor('#666');
+      pdfDoc.text('SAHIH CERTIFICATIONS', 50, 30, { align: 'center' });
+      pdfDoc.text(`${doc.documentCode} | Ed.${doc.editionNumber || 2} Rev.${doc.revisionNumber || 0}`, 50, 42, { align: 'center' });
+      
+      // Horizontal line
+      pdfDoc.moveTo(50, 55).lineTo(545, 55).stroke('#000');
+      
+      // Title
+      pdfDoc.moveDown(1);
+      pdfDoc.fontSize(16).fillColor('#000');
+      pdfDoc.text(doc.title, { align: 'center' });
+      
+      // Document info
+      pdfDoc.moveDown(0.5);
+      pdfDoc.fontSize(10).fillColor('#666');
+      pdfDoc.text(`Category: ${doc.category || 'N/A'} | Status: ${doc.status}`, { align: 'center' });
+      
+      pdfDoc.moveDown(1);
+      pdfDoc.moveTo(50, pdfDoc.y).lineTo(545, pdfDoc.y).stroke('#ccc');
+      
+      // Content - Strip HTML tags and render as plain text
+      pdfDoc.moveDown(1);
+      pdfDoc.fontSize(11).fillColor('#000');
+      
+      if (doc.content) {
+        // Strip HTML tags and decode entities
+        let plainText = doc.content
+          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+          .replace(/<br\s*\/?>/gi, '\n')
+          .replace(/<\/p>/gi, '\n\n')
+          .replace(/<\/div>/gi, '\n')
+          .replace(/<\/h[1-6]>/gi, '\n\n')
+          .replace(/<li>/gi, '• ')
+          .replace(/<\/li>/gi, '\n')
+          .replace(/<[^>]+>/g, '')
+          .replace(/&nbsp;/g, ' ')
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+          .replace(/\n{3,}/g, '\n\n')
+          .trim();
+        
+        pdfDoc.text(plainText, {
+          align: 'left',
+          lineGap: 3
+        });
+      } else {
+        pdfDoc.text('No content available.', { align: 'center' });
+      }
+      
+      // Signature section - ensure it's at the bottom
+      const pageHeight = 841.89; // A4 height in points
+      const signatureY = pageHeight - 150;
+      
+      if (pdfDoc.y < signatureY - 50) {
+        pdfDoc.y = signatureY;
+      } else {
+        pdfDoc.addPage();
+        pdfDoc.y = signatureY;
+      }
+      
+      pdfDoc.moveTo(50, pdfDoc.y).lineTo(545, pdfDoc.y).stroke('#ccc');
+      pdfDoc.moveDown(0.5);
+      
+      // Signature blocks
+      pdfDoc.fontSize(9).fillColor('#333');
+      const sigY = pdfDoc.y;
+      
+      // Prepared By
+      pdfDoc.text('Prepared By:', 50, sigY);
+      pdfDoc.text(preparedBy?.name || 'N/A', 50, sigY + 12);
+      pdfDoc.text(doc.preparedBySignedAt ? new Date(doc.preparedBySignedAt).toLocaleDateString() : '-', 50, sigY + 24);
+      
+      // Reviewed By
+      pdfDoc.text('Reviewed By:', 220, sigY);
+      pdfDoc.text(reviewedBy?.name || 'N/A', 220, sigY + 12);
+      pdfDoc.text(doc.reviewedBySignedAt ? new Date(doc.reviewedBySignedAt).toLocaleDateString() : '-', 220, sigY + 24);
+      
+      // Approved By
+      pdfDoc.text('Approved By:', 390, sigY);
+      pdfDoc.text(approvedBy?.name || 'N/A', 390, sigY + 12);
+      pdfDoc.text(doc.approvedBySignedAt ? new Date(doc.approvedBySignedAt).toLocaleDateString() : '-', 390, sigY + 24);
+      
+      // Footer
+      pdfDoc.fontSize(8).fillColor('#666');
+      pdfDoc.text(`Document: ${doc.documentCode} | Controlled Document - Sahih Certifications | Ed.${doc.editionNumber || 2} Rev.${doc.revisionNumber || 0}`, 50, pageHeight - 50, { align: 'center' });
+      
+      // Finalize
+      pdfDoc.end();
+      
+      const pdfBuffer = await pdfPromise;
+      console.log(`Lightweight PDF generated successfully, size: ${pdfBuffer.length} bytes`);
+
+      const pdfBase64 = pdfBuffer.toString('base64');
+      const pdfDataUrl = `data:application/pdf;base64,${pdfBase64}`;
+
+      await storage.updateDocument(id, { 
+        finalPdfUrl: pdfDataUrl,
+        finalPdfGeneratedAt: new Date()
+      });
+
+      await storage.createAuditLog({
+        userId: getCurrentUserId(req),
+        action: AuditAction.UPDATE,
+        entityType: 'document',
+        entityId: id,
+        newValue: JSON.stringify({ action: 'PDF generated (lightweight)' }),
+      });
+
+      res.json({ success: true, pdfUrl: pdfDataUrl });
+    } catch (error) {
+      console.error('Lightweight PDF generation error:', error);
       res.status(500).json({ message: 'Failed to generate PDF' });
     }
   });
