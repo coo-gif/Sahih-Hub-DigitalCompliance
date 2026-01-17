@@ -233,6 +233,8 @@ export const api = {
         content: z.string().optional(),
         fileUrl: z.string().optional(),
         nextReviewDate: z.string().optional(),
+        editionNumber: z.number().optional(),
+        revisionNumber: z.number().optional(),
         requiresPreparedBy: z.boolean().optional(),
         requiresReviewedBy: z.boolean().optional(),
         requiresApprovedBy: z.boolean().optional(),

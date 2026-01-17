@@ -23,7 +23,7 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { ArrowLeft, FileText, Save, Eye, Maximize2, Minimize2, Wand2, Loader2, Check, X, Lightbulb, ChevronRight, Plus, History, Trash2 } from "lucide-react";
+import { ArrowLeft, FileText, Save, Eye, Maximize2, Minimize2, Wand2, Loader2, Check, X, Lightbulb, ChevronRight, Plus, Minus, History, Trash2 } from "lucide-react";
 import DOMPurify from "dompurify";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -172,6 +172,8 @@ export default function EditDocument() {
     description: "",
     content: "",
     nextReviewDate: "",
+    editionNumber: 2,
+    revisionNumber: 0,
   });
 
   useEffect(() => {
@@ -181,6 +183,8 @@ export default function EditDocument() {
         description: document.description || "",
         content: document.content || "",
         nextReviewDate: document.nextReviewDate ? String(document.nextReviewDate).split('T')[0] : "",
+        editionNumber: document.editionNumber || 2,
+        revisionNumber: document.revisionNumber || 0,
       });
       setInitialized(true);
     }
@@ -196,6 +200,8 @@ export default function EditDocument() {
           description: formData.description,
           content: formData.content,
           nextReviewDate: formData.nextReviewDate || undefined,
+          editionNumber: formData.editionNumber,
+          revisionNumber: formData.revisionNumber,
         },
       });
       toast({ title: "Document updated successfully" });
@@ -402,17 +408,59 @@ export default function EditDocument() {
                 <div>
                   <Label>Edition Number</Label>
                   <div className="flex items-center gap-2 mt-1">
-                    <Badge variant="outline" className="text-lg px-3 py-1">
-                      Ed. {document?.editionNumber || 1}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setFormData(prev => ({ ...prev, editionNumber: Math.max(1, prev.editionNumber - 1) }))}
+                      disabled={formData.editionNumber <= 1}
+                      data-testid="button-edition-minus"
+                    >
+                      <Minus className="w-4 h-4" />
+                    </Button>
+                    <Badge variant="outline" className="text-lg px-4 py-1 min-w-[70px] justify-center" data-testid="badge-edition-number">
+                      Ed. {formData.editionNumber}
                     </Badge>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setFormData(prev => ({ ...prev, editionNumber: prev.editionNumber + 1 }))}
+                      data-testid="button-edition-plus"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </Button>
                   </div>
                 </div>
                 <div>
                   <Label>Revision Number</Label>
                   <div className="flex items-center gap-2 mt-1">
-                    <Badge variant="outline" className="text-lg px-3 py-1" data-testid="badge-revision-number">
-                      Rev. {currentRevisionNumber}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setFormData(prev => ({ ...prev, revisionNumber: Math.max(0, prev.revisionNumber - 1) }))}
+                      disabled={formData.revisionNumber <= 0}
+                      data-testid="button-revision-minus"
+                    >
+                      <Minus className="w-4 h-4" />
+                    </Button>
+                    <Badge variant="outline" className="text-lg px-4 py-1 min-w-[70px] justify-center" data-testid="badge-revision-number">
+                      Rev. {formData.revisionNumber}
                     </Badge>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setFormData(prev => ({ ...prev, revisionNumber: prev.revisionNumber + 1 }))}
+                      data-testid="button-revision-plus"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </Button>
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
                     Auto-increments on each amendment
