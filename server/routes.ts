@@ -279,40 +279,51 @@ async function generateReportPdf(
     </html>
   `;
 
-  const browser = await puppeteer.launch({ 
-    headless: true,
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/nix/store/zi4f80l169xlmivz8vja8wlphq74qqk0-chromium-125.0.6422.141/bin/chromium',
-    args: [
-      '--no-sandbox', 
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--no-first-run',
-      '--no-zygote',
-      '--single-process'
-    ]
-  });
-  
-  const page = await browser.newPage();
-  await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
-  
-  const pdfBuffer = await page.pdf({
-    format: 'A4',
-    margin: { top: '15mm', right: '15mm', bottom: '25mm', left: '15mm' },
-    printBackground: true,
-    displayHeaderFooter: true,
-    headerTemplate: '<div></div>',
-    footerTemplate: `
-      <div style="width: 100%; font-size: 9pt; font-family: 'Segoe UI', Arial, sans-serif; padding: 0 15mm; display: flex; justify-content: center; color: #333;">
-        <span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
-      </div>
-    `
-  });
-  
-  await browser.close();
+  let browser;
+  try {
+    browser = await puppeteer.launch({ 
+      headless: true,
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/nix/store/zi4f80l169xlmivz8vja8wlphq74qqk0-chromium-125.0.6422.141/bin/chromium',
+      args: [
+        '--no-sandbox', 
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process'
+      ],
+      timeout: 30000, // 30 second timeout for browser launch
+    });
+    
+    const page = await browser.newPage();
+    await page.setContent(htmlContent, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      margin: { top: '15mm', right: '15mm', bottom: '25mm', left: '15mm' },
+      printBackground: true,
+      displayHeaderFooter: true,
+      headerTemplate: '<div></div>',
+      footerTemplate: `
+        <div style="width: 100%; font-size: 9pt; font-family: 'Segoe UI', Arial, sans-serif; padding: 0 15mm; display: flex; justify-content: center; color: #333;">
+          <span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
+        </div>
+      `,
+      timeout: 30000, // 30 second timeout for PDF generation
+    });
+    
+    await browser.close();
 
-  const pdfBase64 = Buffer.from(pdfBuffer).toString('base64');
-  return `data:application/pdf;base64,${pdfBase64}`;
+    const pdfBase64 = Buffer.from(pdfBuffer).toString('base64');
+    return `data:application/pdf;base64,${pdfBase64}`;
+  } catch (pdfError) {
+    console.error('PDF generation error:', pdfError);
+    if (browser) {
+      await browser.close().catch(() => {});
+    }
+    throw pdfError;
+  }
 }
 
 export async function registerRoutes(
