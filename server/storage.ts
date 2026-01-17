@@ -5,8 +5,10 @@ import {
   documentAccessRequests, documentAccess, userRecords, buddyStatus, pushSubscriptions, buddyDialogues,
   userActivityLogs, monthlyPerformanceReports, bugReports,
   certificationApplications, certificationAudits, auditFindings, certificates, wallPosts, revisionHistory,
-  trainings, trainingAssignments, trainingCompletions,
+  trainings, trainingAssignments, trainingCompletions, docugenieForms, docugenieFormSubmissions,
   type User, type InsertUser,
+  type DocuGenieForm, type InsertDocuGenieForm,
+  type DocuGenieFormSubmission, type InsertDocuGenieFormSubmission,
   type RevisionHistory, type InsertRevisionHistory,
   type Training, type InsertTraining,
   type TrainingAssignment, type InsertTrainingAssignment,
@@ -278,6 +280,19 @@ export interface IStorage {
   createRevisionHistory(entry: InsertRevisionHistory): Promise<RevisionHistory>;
   updateRevisionHistory(id: number, updates: Partial<InsertRevisionHistory>): Promise<RevisionHistory>;
   deleteRevisionHistory(id: number): Promise<void>;
+
+  // DocuGenie Forms
+  getDocuGenieForms(filters?: { status?: string; createdById?: number }): Promise<DocuGenieForm[]>;
+  getDocuGenieForm(id: number): Promise<DocuGenieForm | undefined>;
+  getDocuGenieFormByToken(token: string): Promise<DocuGenieForm | undefined>;
+  createDocuGenieForm(form: InsertDocuGenieForm): Promise<DocuGenieForm>;
+  updateDocuGenieForm(id: number, form: Partial<InsertDocuGenieForm>): Promise<DocuGenieForm>;
+  deleteDocuGenieForm(id: number): Promise<void>;
+
+  // DocuGenie Form Submissions
+  getDocuGenieFormSubmissions(formId: number): Promise<DocuGenieFormSubmission[]>;
+  getDocuGenieFormSubmission(id: number): Promise<DocuGenieFormSubmission | undefined>;
+  createDocuGenieFormSubmission(submission: InsertDocuGenieFormSubmission): Promise<DocuGenieFormSubmission>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2182,6 +2197,69 @@ export class DatabaseStorage implements IStorage {
 
   async deleteTrainingCompletion(id: number): Promise<void> {
     await db.delete(trainingCompletions).where(eq(trainingCompletions.id, id));
+  }
+
+  // ============================================
+  // DOCUGENIE FORMS
+  // ============================================
+  async getDocuGenieForms(filters?: { status?: string; createdById?: number }): Promise<DocuGenieForm[]> {
+    let query = db.select().from(docugenieForms);
+    
+    if (filters?.status) {
+      query = query.where(eq(docugenieForms.status, filters.status)) as any;
+    }
+    if (filters?.createdById) {
+      query = query.where(eq(docugenieForms.createdById, filters.createdById)) as any;
+    }
+    
+    return query.orderBy(desc(docugenieForms.createdAt));
+  }
+
+  async getDocuGenieForm(id: number): Promise<DocuGenieForm | undefined> {
+    const [form] = await db.select().from(docugenieForms).where(eq(docugenieForms.id, id));
+    return form;
+  }
+
+  async getDocuGenieFormByToken(token: string): Promise<DocuGenieForm | undefined> {
+    const [form] = await db.select().from(docugenieForms).where(eq(docugenieForms.shareToken, token));
+    return form;
+  }
+
+  async createDocuGenieForm(form: InsertDocuGenieForm): Promise<DocuGenieForm> {
+    const [created] = await db.insert(docugenieForms).values(form).returning();
+    return created;
+  }
+
+  async updateDocuGenieForm(id: number, form: Partial<InsertDocuGenieForm>): Promise<DocuGenieForm> {
+    const [updated] = await db.update(docugenieForms)
+      .set({ ...form, updatedAt: new Date() })
+      .where(eq(docugenieForms.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteDocuGenieForm(id: number): Promise<void> {
+    await db.delete(docugenieFormSubmissions).where(eq(docugenieFormSubmissions.formId, id));
+    await db.delete(docugenieForms).where(eq(docugenieForms.id, id));
+  }
+
+  // ============================================
+  // DOCUGENIE FORM SUBMISSIONS
+  // ============================================
+  async getDocuGenieFormSubmissions(formId: number): Promise<DocuGenieFormSubmission[]> {
+    return db.select().from(docugenieFormSubmissions)
+      .where(eq(docugenieFormSubmissions.formId, formId))
+      .orderBy(desc(docugenieFormSubmissions.submittedAt));
+  }
+
+  async getDocuGenieFormSubmission(id: number): Promise<DocuGenieFormSubmission | undefined> {
+    const [submission] = await db.select().from(docugenieFormSubmissions).where(eq(docugenieFormSubmissions.id, id));
+    return submission;
+  }
+
+  async createDocuGenieFormSubmission(submission: InsertDocuGenieFormSubmission): Promise<DocuGenieFormSubmission> {
+    const [created] = await db.insert(docugenieFormSubmissions).values(submission).returning();
+    return created;
   }
 }
 
