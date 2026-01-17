@@ -279,10 +279,10 @@ export default function Documents() {
     
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout for lightweight version
+      const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout for full Puppeteer version
       
-      // Use lightweight PDF generation for faster results
-      const response = await fetch(`/api/documents/${doc.id}/generate-pdf-light`, {
+      // Use full Puppeteer PDF generation for proper table and formatting support
+      const response = await fetch(`/api/documents/${doc.id}/generate-pdf`, {
         method: 'POST',
         credentials: 'include',
         signal: controller.signal,
