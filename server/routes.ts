@@ -2082,8 +2082,12 @@ export async function registerRoutes(
       const preparedBy = users.find(u => u.id === doc.preparedById);
       const reviewedBy = users.find(u => u.id === doc.reviewerId);
       const approvedBy = users.find(u => u.id === doc.approverId);
+      
+      // Fetch revision history for the document
+      const revisionHistoryEntries = await storage.getRevisionHistory(doc.id);
 
-      const companyLogoBase64 = 'data:image/png;base64,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';
+      // Proper Sahih Certifications logo (burgundy/maroon colored)
+      const companyLogoBase64 = 'data:image/png;base64,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';
 
       // Structure to hold TOC entries
       interface TocEntry {
@@ -2467,6 +2471,59 @@ export async function registerRoutes(
               padding-top: 10px;
               border-top: 1px solid #ccc;
             }
+            /* Revision History Table */
+            .revision-history {
+              margin-top: 30px;
+              page-break-inside: avoid;
+            }
+            .revision-history-title {
+              font-size: 12pt;
+              font-weight: bold;
+              margin-bottom: 10px;
+              text-transform: uppercase;
+            }
+            .revision-table {
+              width: 100%;
+              border-collapse: collapse;
+              font-size: 9pt;
+            }
+            .revision-table th {
+              background-color: #8b1538;
+              color: white;
+              padding: 8px 6px;
+              text-align: left;
+              border: 1px solid #000;
+              font-weight: bold;
+            }
+            .revision-table td {
+              padding: 6px;
+              border: 1px solid #000;
+              vertical-align: top;
+            }
+            .revision-table tr:nth-child(even) {
+              background-color: #f9f9f9;
+            }
+            
+            /* Status badge */
+            .status-badge {
+              display: inline-block;
+              padding: 4px 12px;
+              border-radius: 4px;
+              font-weight: bold;
+              font-size: 10pt;
+            }
+            .status-current {
+              background-color: #22c55e;
+              color: white;
+            }
+            .status-draft {
+              background-color: #f59e0b;
+              color: white;
+            }
+            .status-review {
+              background-color: #3b82f6;
+              color: white;
+            }
           </style>
         </head>
         <body>
@@ -2479,11 +2536,109 @@ export async function registerRoutes(
               <div class="doc-info">
                 <div><strong>${doc.documentCode}</strong></div>
                 <div>Edition: ${doc.editionNumber || 1} | Revision: ${doc.revisionNumber || 0}</div>
-                <div>Status: ${doc.status.toUpperCase()}</div>
+                <div>Status: <span class="status-badge ${doc.status === 'approved' ? 'status-current' : doc.status === 'draft' ? 'status-draft' : 'status-review'}">${doc.status === 'approved' ? 'CURRENT' : doc.status.toUpperCase().replace('_', ' ')}</span></div>
               </div>
             </div>
             
             <h1 class="doc-title">${doc.title}</h1>
+            
+            <!-- Document Info Table -->
+            <table class="revision-table" style="margin-bottom: 20px;">
+              <tr>
+                <th style="width: 25%;">REVISION DETAILS</th>
+                <th style="width: 75%;">${doc.title}</th>
+              </tr>
+              <tr>
+                <td><strong>Document Code</strong></td>
+                <td>${doc.documentCode}</td>
+              </tr>
+              <tr>
+                <td><strong>Edition / Revision</strong></td>
+                <td>Ed.${doc.editionNumber || 1} Rev.${doc.revisionNumber || 0}</td>
+              </tr>
+              <tr>
+                <td><strong>Status</strong></td>
+                <td>${doc.status === 'approved' ? 'CURRENT' : doc.status.toUpperCase().replace('_', ' ')}</td>
+              </tr>
+              <tr>
+                <td><strong>Category</strong></td>
+                <td>${doc.category || 'N/A'}</td>
+              </tr>
+              <tr>
+                <td><strong>Issue Date</strong></td>
+                <td>${doc.approvedBySignedAt ? new Date(doc.approvedBySignedAt).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB')}</td>
+              </tr>
+              <tr>
+                <td><strong>Next Review Date</strong></td>
+                <td>${doc.nextReviewDate ? new Date(doc.nextReviewDate).toLocaleDateString('en-GB') : 'N/A'}</td>
+              </tr>
+            </table>
+            
+            <!-- Signatories Table -->
+            <table class="revision-table" style="margin-bottom: 20px;">
+              <tr>
+                <th>PREPARED BY</th>
+                <th>REVIEWED BY</th>
+                <th>APPROVED BY</th>
+              </tr>
+              <tr>
+                <td style="text-align: center; padding: 15px;">
+                  <div>${preparedBy?.name || 'N/A'}</div>
+                  <div style="font-size: 8pt; color: #666; margin-top: 5px;">${doc.preparedBySignedAt ? new Date(doc.preparedBySignedAt).toLocaleDateString('en-GB') : '-'}</div>
+                </td>
+                <td style="text-align: center; padding: 15px;">
+                  <div>${reviewedBy?.name || 'N/A'}</div>
+                  <div style="font-size: 8pt; color: #666; margin-top: 5px;">${doc.reviewedBySignedAt ? new Date(doc.reviewedBySignedAt).toLocaleDateString('en-GB') : '-'}</div>
+                </td>
+                <td style="text-align: center; padding: 15px;">
+                  <div>${approvedBy?.name || 'N/A'}</div>
+                  <div style="font-size: 8pt; color: #666; margin-top: 5px;">${doc.approvedBySignedAt ? new Date(doc.approvedBySignedAt).toLocaleDateString('en-GB') : '-'}</div>
+                </td>
+              </tr>
+            </table>
+            
+            <!-- Revision History Table -->
+            <div class="revision-history">
+              <div class="revision-history-title">REVISION HISTORY</div>
+              <table class="revision-table">
+                <thead>
+                  <tr>
+                    <th style="width: 8%;">ISSUE NO</th>
+                    <th style="width: 10%;">REV NO</th>
+                    <th style="width: 12%;">DATE</th>
+                    <th style="width: 35%;">DESCRIPTION OF AMENDMENT</th>
+                    <th style="width: 20%;">REASON</th>
+                    <th style="width: 15%;">APPROVED BY</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${revisionHistoryEntries.length > 0 ? revisionHistoryEntries.map((entry, index) => {
+                    const approver = users.find(u => u.id === entry.approvedById);
+                    return `
+                      <tr>
+                        <td style="text-align: center;">${doc.editionNumber || 1}</td>
+                        <td style="text-align: center;">${entry.revisionNumber}</td>
+                        <td>${entry.amendmentDate ? new Date(entry.amendmentDate).toLocaleDateString('en-GB') : '-'}</td>
+                        <td>${entry.description || '-'}</td>
+                        <td>${entry.reason || '-'}</td>
+                        <td>${approver?.name || '-'}</td>
+                      </tr>
+                    `;
+                  }).join('') : `
+                    <tr>
+                      <td style="text-align: center;">${doc.editionNumber || 1}</td>
+                      <td style="text-align: center;">${doc.revisionNumber || 0}</td>
+                      <td>${doc.approvedBySignedAt ? new Date(doc.approvedBySignedAt).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB')}</td>
+                      <td>Initial Release</td>
+                      <td>New Document</td>
+                      <td>${approvedBy?.name || '-'}</td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+            
+            <div class="page-break"></div>
             
             ${tocHtml}
             
