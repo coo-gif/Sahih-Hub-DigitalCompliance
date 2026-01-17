@@ -221,6 +221,8 @@ export const users = pgTable("users", {
   gmailRefreshToken: text("gmail_refresh_token"),
   gmailTokenExpiry: timestamp("gmail_token_expiry"),
   gmailConnectedAt: timestamp("gmail_connected_at"),
+  // User agreement acceptance for ISO 27001 compliance
+  agreementAcceptedAt: timestamp("agreement_accepted_at"),
 });
 
 // ============================================

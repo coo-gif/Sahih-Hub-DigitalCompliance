@@ -296,6 +296,7 @@ export class DatabaseStorage implements IStorage {
       dateJoined: users.dateJoined,
       lastLogin: users.lastLogin,
       lastActivity: users.lastActivity,
+      agreementAcceptedAt: users.agreementAcceptedAt,
     }).from(users).orderBy(desc(users.dateJoined));
     return result;
   }
@@ -312,8 +313,15 @@ export class DatabaseStorage implements IStorage {
       dateJoined: users.dateJoined,
       lastLogin: users.lastLogin,
       lastActivity: users.lastActivity,
+      agreementAcceptedAt: users.agreementAcceptedAt,
     }).from(users).where(eq(users.id, id));
     return user;
+  }
+
+  async acceptUserAgreement(userId: number): Promise<void> {
+    await db.update(users)
+      .set({ agreementAcceptedAt: new Date() })
+      .where(eq(users.id, userId));
   }
 
   async updateUserActivity(userId: number): Promise<void> {

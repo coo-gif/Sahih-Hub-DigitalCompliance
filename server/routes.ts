@@ -376,6 +376,27 @@ export async function registerRoutes(
     res.json({ user });
   });
 
+  // Accept user agreement (ISO 27001 compliance)
+  app.post('/api/auth/accept-agreement', async (req, res) => {
+    if (!req.session.userId) {
+      return res.status(401).json({ message: 'Not authenticated' });
+    }
+
+    await storage.acceptUserAgreement(req.session.userId);
+    
+    // Log the action for audit trail
+    await storage.createAuditLog({
+      userId: req.session.userId,
+      action: AuditAction.CREATE,
+      entityType: 'user_agreement',
+      entityId: req.session.userId,
+      newValue: JSON.stringify({ acceptedAt: new Date().toISOString() }),
+    });
+
+    const user = await storage.getUser(req.session.userId);
+    res.json({ success: true, user });
+  });
+
   // ============================================
   // DASHBOARD ROUTES
   // ============================================
