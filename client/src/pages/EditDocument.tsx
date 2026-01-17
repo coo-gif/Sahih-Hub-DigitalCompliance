@@ -1,7 +1,9 @@
 import { useState, useEffect } from "react";
 import { useLocation, useRoute } from "wouter";
 import { useDocuments, useUpdateDocument } from "@/hooks/use-documents";
+import { useUsers } from "@/hooks/use-users";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +12,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import TiptapEditor, { AISuggestion } from "@/components/TiptapEditor";
 import {
   Dialog,
@@ -19,10 +23,26 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { ArrowLeft, FileText, Save, Eye, Maximize2, Minimize2, Wand2, Loader2, Check, X, Lightbulb, ChevronRight } from "lucide-react";
+import { ArrowLeft, FileText, Save, Eye, Maximize2, Minimize2, Wand2, Loader2, Check, X, Lightbulb, ChevronRight, Plus, History, Trash2 } from "lucide-react";
 import DOMPurify from "dompurify";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { format } from "date-fns";
+
+interface RevisionHistoryEntry {
+  id: number;
+  documentId: number;
+  revisionNumber: number;
+  description: string;
+  amendmentDate: string | null;
+  reason: string | null;
+  preparedById: number | null;
+  reviewedById: number | null;
+  approvedById: number | null;
+  status: string;
+  requestedById: number | null;
+  createdAt: string;
+}
 
 export default function EditDocument() {
   const [, navigate] = useLocation();
@@ -31,6 +51,7 @@ export default function EditDocument() {
   
   const { toast } = useToast();
   const { data: documents, isLoading } = useDocuments();
+  const { data: users } = useUsers();
   const updateMutation = useUpdateDocument();
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [initialized, setInitialized] = useState(false);
@@ -38,8 +59,113 @@ export default function EditDocument() {
   const [showAISuggestions, setShowAISuggestions] = useState(false);
   const [aiSuggestions, setAISuggestions] = useState<AISuggestion[]>([]);
   const [isReviewingDocument, setIsReviewingDocument] = useState(false);
+  const [showAddRevisionDialog, setShowAddRevisionDialog] = useState(false);
+  const [newRevisionEntry, setNewRevisionEntry] = useState({
+    description: "",
+    reason: "",
+    preparedById: "",
+    reviewedById: "",
+    approvedById: "",
+    amendmentDate: format(new Date(), "yyyy-MM-dd"),
+  });
 
   const document = documents?.find(d => d.id === documentId);
+
+  // Fetch revision history for this document
+  const { data: revisionHistory = [] } = useQuery<RevisionHistoryEntry[]>({
+    queryKey: [`/api/documents/${documentId}/revision-history`],
+    enabled: !!documentId,
+  });
+
+  // Add revision history entry mutation
+  const addRevisionMutation = useMutation({
+    mutationFn: async (entry: typeof newRevisionEntry) => {
+      const response = await apiRequest('POST', `/api/documents/${documentId}/revision-history`, {
+        description: entry.description,
+        reason: entry.reason || null,
+        preparedById: entry.preparedById ? parseInt(entry.preparedById) : null,
+        reviewedById: entry.reviewedById ? parseInt(entry.reviewedById) : null,
+        approvedById: entry.approvedById ? parseInt(entry.approvedById) : null,
+        amendmentDate: entry.amendmentDate,
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/documents/${documentId}/revision-history`] });
+      queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
+      setShowAddRevisionDialog(false);
+      setNewRevisionEntry({
+        description: "",
+        reason: "",
+        preparedById: "",
+        reviewedById: "",
+        approvedById: "",
+        amendmentDate: format(new Date(), "yyyy-MM-dd"),
+      });
+      toast({ title: "Amendment request added to revision history" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to add revision entry", description: error.message, variant: "destructive" });
+    }
+  });
+
+  // Delete revision history entry mutation
+  const deleteRevisionMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const response = await apiRequest('DELETE', `/api/revision-history/${id}`, {});
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/documents/${documentId}/revision-history`] });
+      toast({ title: "Revision entry deleted" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to delete entry", description: error.message, variant: "destructive" });
+    }
+  });
+
+  // Approve revision history entry mutation
+  const approveRevisionMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const response = await apiRequest('PATCH', `/api/revision-history/${id}`, { status: 'approved' });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/documents/${documentId}/revision-history`] });
+      queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
+      toast({ title: "Amendment approved", description: "Document revision number has been updated" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to approve", description: error.message, variant: "destructive" });
+    }
+  });
+
+  // Reject revision history entry mutation
+  const rejectRevisionMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const response = await apiRequest('PATCH', `/api/revision-history/${id}`, { status: 'rejected' });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/documents/${documentId}/revision-history`] });
+      toast({ title: "Amendment rejected" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to reject", description: error.message, variant: "destructive" });
+    }
+  });
+
+  const getUserName = (userId: number | null) => {
+    if (!userId || !users) return "-";
+    const user = users.find(u => u.id === userId);
+    return user?.name || "-";
+  };
+
+  // Calculate current revision number from approved history entries only
+  const approvedHistory = revisionHistory.filter(h => h.status === 'approved');
+  const currentRevisionNumber = approvedHistory.length > 0 
+    ? Math.max(...approvedHistory.map(h => h.revisionNumber))
+    : (document?.revisionNumber || 0);
 
   const [formData, setFormData] = useState({
     title: "",
@@ -272,6 +398,138 @@ export default function EditDocument() {
                   data-testid="input-next-review-date"
                 />
               </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Edition Number</Label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Badge variant="outline" className="text-lg px-3 py-1">
+                      Ed. {document?.editionNumber || 1}
+                    </Badge>
+                  </div>
+                </div>
+                <div>
+                  <Label>Revision Number</Label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Badge variant="outline" className="text-lg px-3 py-1" data-testid="badge-revision-number">
+                      Rev. {currentRevisionNumber}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Auto-increments on each amendment
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Revision History Table */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-2">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <History className="w-5 h-5" />
+                  Revision History
+                </CardTitle>
+                <CardDescription>Track all document amendments and change requests</CardDescription>
+              </div>
+              <Button 
+                size="sm" 
+                onClick={() => setShowAddRevisionDialog(true)}
+                data-testid="button-add-revision"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Request Change
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {revisionHistory.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <History className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p>No revision history yet</p>
+                  <p className="text-sm">Click "Request Change" to add an amendment request</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[60px]">Rev.</TableHead>
+                        <TableHead>Description of Amendment</TableHead>
+                        <TableHead className="w-[110px]">Date</TableHead>
+                        <TableHead>Reason</TableHead>
+                        <TableHead className="w-[120px]">Prepared By</TableHead>
+                        <TableHead className="w-[120px]">Reviewed By</TableHead>
+                        <TableHead className="w-[120px]">Approved By</TableHead>
+                        <TableHead className="w-[100px]">Status</TableHead>
+                        <TableHead className="w-[120px]">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {revisionHistory.map((entry) => (
+                        <TableRow key={entry.id} data-testid={`row-revision-${entry.id}`}>
+                          <TableCell className="font-medium">
+                            {entry.status === 'pending' ? '-' : entry.revisionNumber}
+                          </TableCell>
+                          <TableCell>{entry.description}</TableCell>
+                          <TableCell className="text-sm">
+                            {entry.amendmentDate ? format(new Date(entry.amendmentDate), "dd/MM/yyyy") : "-"}
+                          </TableCell>
+                          <TableCell className="text-sm">{entry.reason || "-"}</TableCell>
+                          <TableCell className="text-sm">{getUserName(entry.preparedById)}</TableCell>
+                          <TableCell className="text-sm">{getUserName(entry.reviewedById)}</TableCell>
+                          <TableCell className="text-sm">{getUserName(entry.approvedById)}</TableCell>
+                          <TableCell>
+                            <Badge 
+                              variant={entry.status === 'approved' ? 'default' : entry.status === 'rejected' ? 'destructive' : 'secondary'}
+                              data-testid={`badge-status-${entry.id}`}
+                            >
+                              {entry.status === 'approved' ? 'Approved' : entry.status === 'rejected' ? 'Rejected' : 'Pending'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              {entry.status === 'pending' && (
+                                <>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 text-green-600 hover:text-green-700"
+                                    onClick={() => approveRevisionMutation.mutate(entry.id)}
+                                    data-testid={`button-approve-revision-${entry.id}`}
+                                    title="Approve"
+                                  >
+                                    <Check className="w-4 h-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 text-red-600 hover:text-red-700"
+                                    onClick={() => rejectRevisionMutation.mutate(entry.id)}
+                                    data-testid={`button-reject-revision-${entry.id}`}
+                                    title="Reject"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </Button>
+                                </>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-destructive hover:text-destructive"
+                                onClick={() => deleteRevisionMutation.mutate(entry.id)}
+                                data-testid={`button-delete-revision-${entry.id}`}
+                                title="Delete"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -558,6 +816,131 @@ export default function EditDocument() {
             <Button variant="outline" onClick={() => setIsFullscreen(false)}>
               <Minimize2 className="w-4 h-4 mr-2" />
               Close Editor
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Revision History Entry Dialog */}
+      <Dialog open={showAddRevisionDialog} onOpenChange={setShowAddRevisionDialog}>
+        <DialogContent className="max-w-xl" data-testid="dialog-add-revision">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="w-5 h-5" />
+              Request Document Amendment
+            </DialogTitle>
+            <DialogDescription>
+              Add a new amendment request to the revision history. This will be tracked for audit purposes.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <Label htmlFor="revision-description">Description of Amendment *</Label>
+              <Textarea
+                id="revision-description"
+                placeholder="Describe what changes were made..."
+                value={newRevisionEntry.description}
+                onChange={(e) => setNewRevisionEntry({ ...newRevisionEntry, description: e.target.value })}
+                data-testid="input-revision-description"
+              />
+            </div>
+            <div>
+              <Label htmlFor="revision-date">Date of Amendment</Label>
+              <Input
+                id="revision-date"
+                type="date"
+                value={newRevisionEntry.amendmentDate}
+                onChange={(e) => setNewRevisionEntry({ ...newRevisionEntry, amendmentDate: e.target.value })}
+                data-testid="input-revision-date"
+              />
+            </div>
+            <div>
+              <Label htmlFor="revision-reason">Reason for Amendment</Label>
+              <Textarea
+                id="revision-reason"
+                placeholder="Why was this change necessary?"
+                value={newRevisionEntry.reason}
+                onChange={(e) => setNewRevisionEntry({ ...newRevisionEntry, reason: e.target.value })}
+                data-testid="input-revision-reason"
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <Label htmlFor="prepared-by">Prepared By</Label>
+                <Select
+                  value={newRevisionEntry.preparedById}
+                  onValueChange={(value) => setNewRevisionEntry({ ...newRevisionEntry, preparedById: value })}
+                >
+                  <SelectTrigger id="prepared-by" data-testid="select-prepared-by">
+                    <SelectValue placeholder="Select..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {users?.map((user) => (
+                      <SelectItem key={user.id} value={String(user.id)}>
+                        {user.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="reviewed-by">Reviewed By</Label>
+                <Select
+                  value={newRevisionEntry.reviewedById}
+                  onValueChange={(value) => setNewRevisionEntry({ ...newRevisionEntry, reviewedById: value })}
+                >
+                  <SelectTrigger id="reviewed-by" data-testid="select-reviewed-by">
+                    <SelectValue placeholder="Select..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {users?.map((user) => (
+                      <SelectItem key={user.id} value={String(user.id)}>
+                        {user.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="approved-by">Approved By</Label>
+                <Select
+                  value={newRevisionEntry.approvedById}
+                  onValueChange={(value) => setNewRevisionEntry({ ...newRevisionEntry, approvedById: value })}
+                >
+                  <SelectTrigger id="approved-by" data-testid="select-approved-by">
+                    <SelectValue placeholder="Select..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {users?.map((user) => (
+                      <SelectItem key={user.id} value={String(user.id)}>
+                        {user.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddRevisionDialog(false)} data-testid="button-cancel-revision">
+              Cancel
+            </Button>
+            <Button 
+              onClick={() => addRevisionMutation.mutate(newRevisionEntry)}
+              disabled={!newRevisionEntry.description || addRevisionMutation.isPending}
+              data-testid="button-submit-revision"
+            >
+              {addRevisionMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Adding...
+                </>
+              ) : (
+                <>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Amendment
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

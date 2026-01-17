@@ -270,6 +270,7 @@ export interface IStorage {
 
   // Revision History
   getRevisionHistory(documentId: number): Promise<RevisionHistory[]>;
+  getRevisionHistoryById(id: number): Promise<RevisionHistory | undefined>;
   createRevisionHistory(entry: InsertRevisionHistory): Promise<RevisionHistory>;
   updateRevisionHistory(id: number, updates: Partial<InsertRevisionHistory>): Promise<RevisionHistory>;
   deleteRevisionHistory(id: number): Promise<void>;
@@ -2040,6 +2041,13 @@ export class DatabaseStorage implements IStorage {
       .from(revisionHistory)
       .where(eq(revisionHistory.documentId, documentId))
       .orderBy(desc(revisionHistory.revisionNumber));
+  }
+
+  async getRevisionHistoryById(id: number): Promise<RevisionHistory | undefined> {
+    const [entry] = await db.select()
+      .from(revisionHistory)
+      .where(eq(revisionHistory.id, id));
+    return entry;
   }
 
   async createRevisionHistory(entry: InsertRevisionHistory): Promise<RevisionHistory> {

@@ -5540,15 +5540,17 @@ Limit to the top 10 most important suggestions.`
   app.post('/api/documents/:documentId/revision-history', requireAuth, async (req, res) => {
     try {
       const documentId = parseInt(req.params.documentId);
-      const { description, reason, revisionNumber, preparedById, reviewedById, approvedById, amendmentDate } = req.body;
+      const { description, reason, preparedById, reviewedById, approvedById, amendmentDate } = req.body;
       
       if (!description) {
         return res.status(400).json({ message: 'Description is required' });
       }
 
+      // Pending entries are created with revisionNumber = 0
+      // The actual revision number is assigned only on approval
       const entry = await storage.createRevisionHistory({
         documentId,
-        revisionNumber: revisionNumber || 1,
+        revisionNumber: 0, // Placeholder - assigned on approval
         description,
         reason: reason || null,
         preparedById: preparedById || null,
@@ -5578,8 +5580,41 @@ Limit to the top 10 most important suggestions.`
       if (reviewedById !== undefined) updates.reviewedById = reviewedById;
       if (approvedById !== undefined) updates.approvedById = approvedById;
       if (amendmentDate !== undefined) updates.amendmentDate = new Date(amendmentDate);
+      
+      // Handle status change to 'approved' - assign revision number
+      if (status === 'approved') {
+        // First get the current entry to check its status and documentId
+        const currentEntry = await storage.getRevisionHistoryById(id);
+        if (!currentEntry) {
+          return res.status(404).json({ message: 'Revision history entry not found' });
+        }
+        
+        // Only assign revision number if status is changing from pending to approved
+        if (currentEntry.status === 'pending') {
+          // Compute next revision number from approved entries only
+          const history = await storage.getRevisionHistory(currentEntry.documentId);
+          const approvedEntries = history.filter(h => h.status === 'approved');
+          const maxRevision = approvedEntries.length > 0 
+            ? Math.max(...approvedEntries.map(h => h.revisionNumber))
+            : 0;
+          const nextRevisionNumber = maxRevision + 1;
+          
+          // Assign the revision number and update status
+          updates.revisionNumber = nextRevisionNumber;
+          updates.status = 'approved';
+          
+          const updated = await storage.updateRevisionHistory(id, updates);
+          
+          // Update the document's revisionNumber
+          await storage.updateDocument(currentEntry.documentId, { revisionNumber: nextRevisionNumber });
+          
+          return res.json(updated);
+        }
+      }
+      
+      // For other status changes (like rejected) or non-status updates
       if (status !== undefined) updates.status = status;
-
+      
       const updated = await storage.updateRevisionHistory(id, updates);
       res.json(updated);
     } catch (error: any) {
