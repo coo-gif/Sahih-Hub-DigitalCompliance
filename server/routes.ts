@@ -169,7 +169,7 @@ async function generateReportPdf(
         body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11pt; line-height: 1.6; color: #333; padding: 40px; }
         .header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 20px; border-bottom: 3px solid #0891b2; margin-bottom: 30px; }
         .logo-container { display: flex; align-items: center; gap: 15px; }
-        .logo-img { height: 60px; width: auto; }
+        .logo-img { height: 150px; width: auto; }
         .company-info { text-align: right; }
         .company-name { font-size: 18px; font-weight: bold; color: #0891b2; }
         .report-number { font-size: 12px; color: #666; margin-top: 5px; }
@@ -295,8 +295,15 @@ async function generateReportPdf(
   
   const pdfBuffer = await page.pdf({
     format: 'A4',
-    margin: { top: '15mm', right: '15mm', bottom: '15mm', left: '15mm' },
-    printBackground: true
+    margin: { top: '15mm', right: '15mm', bottom: '25mm', left: '15mm' },
+    printBackground: true,
+    displayHeaderFooter: true,
+    headerTemplate: '<div></div>',
+    footerTemplate: `
+      <div style="width: 100%; font-size: 9pt; font-family: 'Segoe UI', Arial, sans-serif; padding: 0 15mm; display: flex; justify-content: center; color: #333;">
+        <span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
+      </div>
+    `
   });
   
   await browser.close();
@@ -2234,7 +2241,7 @@ export async function registerRoutes(
               margin-bottom: 15px; 
             }
             .logo-container { display: flex; align-items: center; gap: 12px; }
-            .logo-img { height: 45px; width: auto; }
+            .logo-img { height: 112px; width: auto; }
             .company-name { font-weight: bold; font-size: 14pt; }
             .doc-info { text-align: right; font-size: 9pt; }
             
