@@ -33,9 +33,7 @@ export function UserAgreementModal({ isOpen, userName }: UserAgreementModalProps
 
   const acceptMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest('/api/auth/accept-agreement', {
-        method: 'POST',
-      });
+      return apiRequest('POST', '/api/auth/accept-agreement');
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/auth/me'] });

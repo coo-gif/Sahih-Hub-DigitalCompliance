@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Switch, Route } from "wouter";
+import { Switch, Route, Redirect } from "wouter";
 import { queryClient, apiRequest } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -26,17 +26,26 @@ import { Layout } from "@/components/Layout";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
 import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
 import { HubEebiChat } from "@/components/HubEebiChat";
+import { UserAgreementModal } from "@/components/UserAgreementModal";
 
 interface User {
   id: number;
   name: string;
   email: string;
   role: string;
+  agreementAcceptedAt?: string | null;
+}
+
+function ViewDocumentRedirect({ params }: { params: { id: string } }) {
+  return <Redirect to={`/documents/${params.id}/edit`} />;
 }
 
 function AuthenticatedRouter({ user, onLogout }: { user: User; onLogout: () => void }) {
+  const needsAgreement = !user.agreementAcceptedAt;
+
   return (
     <>
+      <UserAgreementModal isOpen={needsAgreement} userName={user.name} />
       <Layout user={user} onLogout={onLogout}>
         <div className="pb-16 lg:pb-0">
           <Switch>
@@ -44,6 +53,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: User; onLogout: () => v
             <Route path="/documents" component={Documents} />
             <Route path="/documents/new" component={NewDocument} />
             <Route path="/documents/:id/edit" component={EditDocument} />
+            <Route path="/documents/:id/view" component={ViewDocumentRedirect} />
             <Route path="/users" component={Users} />
             <Route path="/hr" component={HROrganogram} />
             <Route path="/employees" component={Employees} />
