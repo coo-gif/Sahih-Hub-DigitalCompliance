@@ -1157,6 +1157,60 @@ export default function Documents() {
                   __html: DOMPurify.sanitize(formData.content || '<p class="text-gray-400 italic">No content to preview</p>') 
                 }}
               />
+              <style>{`
+                .document-content {
+                  box-sizing: border-box;
+                  overflow-x: hidden;
+                }
+                .document-content table {
+                  width: 100% !important;
+                  max-width: 100% !important;
+                  border-collapse: collapse;
+                  margin: 1rem 0;
+                  font-size: 11px;
+                  table-layout: auto;
+                  box-sizing: border-box;
+                  overflow-wrap: break-word;
+                  word-break: break-word;
+                }
+                .document-content th,
+                .document-content td {
+                  border: 1px solid #333;
+                  padding: 6px 8px;
+                  text-align: left;
+                  vertical-align: top;
+                  word-wrap: break-word;
+                  overflow-wrap: break-word;
+                  max-width: 150px;
+                  hyphens: auto;
+                }
+                .document-content th {
+                  background-color: #f0f0f0;
+                  font-weight: 600;
+                  font-size: 10px;
+                  text-transform: uppercase;
+                }
+                .document-content tr:nth-child(even) {
+                  background-color: #fafafa;
+                }
+                .document-content h1, .document-content h2, .document-content h3, .document-content h4 {
+                  color: #000;
+                  margin-top: 1.5rem;
+                  margin-bottom: 0.5rem;
+                }
+                .document-content p {
+                  color: #000;
+                  margin: 0.5rem 0;
+                  text-align: justify;
+                }
+                .document-content ul, .document-content ol {
+                  margin: 0.5rem 0;
+                  padding-left: 1.5rem;
+                }
+                .document-content li {
+                  color: #000;
+                }
+              `}</style>
             </div>
           </ScrollArea>
           <DialogFooter className="flex-shrink-0">

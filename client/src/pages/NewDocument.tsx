@@ -349,33 +349,111 @@ export default function NewDocument() {
       </div>
 
       <Dialog open={showPreviewDialog} onOpenChange={setShowPreviewDialog}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Document Preview</DialogTitle>
+        <DialogContent className="max-w-[95vw] w-full max-h-[95vh] h-[95vh] flex flex-col" data-testid="dialog-preview">
+          <DialogHeader className="flex-shrink-0">
+            <DialogTitle>Document Preview - Full View</DialogTitle>
           </DialogHeader>
-          <div className="border-b pb-4 mb-4">
-            <div className="flex items-start gap-4">
-              <img 
-                src={sahihLogoPath} 
-                alt="Sahih Certifications" 
-                className="h-48 object-contain"
-              />
-              <div>
-                <h2 className="text-xl font-bold">{formData.title || "Untitled Document"}</h2>
-                <p className="text-sm text-muted-foreground font-mono">{formData.documentCode || "No code"}</p>
-                {formData.description && (
-                  <p className="text-muted-foreground mt-2">{formData.description}</p>
-                )}
+          <div className="flex-1 overflow-y-auto">
+            <div 
+              className="bg-white mx-auto shadow-lg"
+              style={{
+                width: '100%',
+                maxWidth: '210mm',
+                minHeight: '297mm',
+                border: '2px solid black',
+                padding: '15mm',
+                fontFamily: 'Roboto, sans-serif',
+              }}
+            >
+              <div className="flex items-start justify-between mb-6 pb-4 border-b-2 border-black">
+                <img 
+                  src={sahihLogoPath} 
+                  alt="Sahih Certifications" 
+                  className="h-16 object-contain"
+                />
+                <div className="text-right">
+                  <div className="font-bold text-lg">{formData.title || "Untitled Document"}</div>
+                  <div className="text-sm text-gray-600 font-mono">{formData.documentCode || "No Code"}</div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    Edition: 1 | Revision: 0
+                  </div>
+                </div>
               </div>
+              
+              {formData.description && (
+                <div className="mb-4 text-sm text-gray-600 italic border-l-4 border-gray-300 pl-3">
+                  {formData.description}
+                </div>
+              )}
+              
+              <div 
+                className="prose prose-base max-w-none document-content"
+                style={{ color: '#000' }}
+                dangerouslySetInnerHTML={{ 
+                  __html: DOMPurify.sanitize(formData.content || '<p class="text-gray-400 italic">No content yet</p>') 
+                }}
+              />
+              <style>{`
+                .document-content {
+                  box-sizing: border-box;
+                  overflow-x: hidden;
+                }
+                .document-content table {
+                  width: 100% !important;
+                  max-width: 100% !important;
+                  border-collapse: collapse;
+                  margin: 1rem 0;
+                  font-size: 11px;
+                  table-layout: auto;
+                  box-sizing: border-box;
+                  overflow-wrap: break-word;
+                  word-break: break-word;
+                }
+                .document-content th,
+                .document-content td {
+                  border: 1px solid #333;
+                  padding: 6px 8px;
+                  text-align: left;
+                  vertical-align: top;
+                  word-wrap: break-word;
+                  overflow-wrap: break-word;
+                  max-width: 150px;
+                  hyphens: auto;
+                }
+                .document-content th {
+                  background-color: #f0f0f0;
+                  font-weight: 600;
+                  font-size: 10px;
+                  text-transform: uppercase;
+                }
+                .document-content tr:nth-child(even) {
+                  background-color: #fafafa;
+                }
+                .document-content h1, .document-content h2, .document-content h3, .document-content h4 {
+                  color: #000;
+                  margin-top: 1.5rem;
+                  margin-bottom: 0.5rem;
+                }
+                .document-content p {
+                  color: #000;
+                  margin: 0.5rem 0;
+                  text-align: justify;
+                }
+                .document-content ul, .document-content ol {
+                  margin: 0.5rem 0;
+                  padding-left: 1.5rem;
+                }
+                .document-content li {
+                  color: #000;
+                }
+              `}</style>
             </div>
           </div>
-          <div 
-            className="prose prose-slate max-w-none"
-            style={{ fontFamily: 'Roboto, sans-serif' }}
-            dangerouslySetInnerHTML={{ 
-              __html: DOMPurify.sanitize(formData.content || '<p class="text-muted-foreground italic">No content yet</p>') 
-            }}
-          />
+          <DialogFooter className="flex-shrink-0 border-t pt-4">
+            <Button variant="outline" onClick={() => setShowPreviewDialog(false)}>
+              Close Preview
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
