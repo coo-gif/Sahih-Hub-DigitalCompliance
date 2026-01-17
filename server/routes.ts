@@ -5524,6 +5524,82 @@ Limit to the top 10 most important suggestions.`
   });
 
   // ============================================
+  // REVISION HISTORY ENDPOINTS
+  // ============================================
+  app.get('/api/documents/:documentId/revision-history', requireAuth, async (req, res) => {
+    try {
+      const documentId = parseInt(req.params.documentId);
+      const history = await storage.getRevisionHistory(documentId);
+      res.json(history);
+    } catch (error: any) {
+      console.error('Error fetching revision history:', error);
+      res.status(500).json({ message: error.message || 'Failed to fetch revision history' });
+    }
+  });
+
+  app.post('/api/documents/:documentId/revision-history', requireAuth, async (req, res) => {
+    try {
+      const documentId = parseInt(req.params.documentId);
+      const { description, reason, revisionNumber, preparedById, reviewedById, approvedById, amendmentDate } = req.body;
+      
+      if (!description) {
+        return res.status(400).json({ message: 'Description is required' });
+      }
+
+      const entry = await storage.createRevisionHistory({
+        documentId,
+        revisionNumber: revisionNumber || 1,
+        description,
+        reason: reason || null,
+        preparedById: preparedById || null,
+        reviewedById: reviewedById || null,
+        approvedById: approvedById || null,
+        amendmentDate: amendmentDate ? new Date(amendmentDate) : new Date(),
+        requestedById: req.user!.id,
+        status: 'pending',
+      });
+
+      res.status(201).json(entry);
+    } catch (error: any) {
+      console.error('Error creating revision history:', error);
+      res.status(500).json({ message: error.message || 'Failed to create revision history' });
+    }
+  });
+
+  app.patch('/api/revision-history/:id', requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { description, reason, preparedById, reviewedById, approvedById, amendmentDate, status } = req.body;
+      
+      const updates: any = {};
+      if (description !== undefined) updates.description = description;
+      if (reason !== undefined) updates.reason = reason;
+      if (preparedById !== undefined) updates.preparedById = preparedById;
+      if (reviewedById !== undefined) updates.reviewedById = reviewedById;
+      if (approvedById !== undefined) updates.approvedById = approvedById;
+      if (amendmentDate !== undefined) updates.amendmentDate = new Date(amendmentDate);
+      if (status !== undefined) updates.status = status;
+
+      const updated = await storage.updateRevisionHistory(id, updates);
+      res.json(updated);
+    } catch (error: any) {
+      console.error('Error updating revision history:', error);
+      res.status(500).json({ message: error.message || 'Failed to update revision history' });
+    }
+  });
+
+  app.delete('/api/revision-history/:id', requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteRevisionHistory(id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Error deleting revision history:', error);
+      res.status(500).json({ message: error.message || 'Failed to delete revision history' });
+    }
+  });
+
+  // ============================================
   // WALL POSTS (Dashboard Updates)
   // ============================================
   app.get('/api/wall-posts', requireAuth, async (req, res) => {

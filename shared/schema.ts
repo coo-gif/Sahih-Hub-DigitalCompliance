@@ -265,6 +265,37 @@ export const documents = pgTable("documents", {
 });
 
 // ============================================
+// REVISION HISTORY (Document Amendment Tracking)
+// ============================================
+export const RevisionHistoryStatus = {
+  PENDING: "pending",
+  APPROVED: "approved",
+  REJECTED: "rejected",
+} as const;
+
+export const revisionHistory = pgTable("revision_history", {
+  id: serial("id").primaryKey(),
+  documentId: integer("document_id").notNull(),
+  revisionNumber: integer("revision_number").notNull(),
+  description: text("description").notNull(), // Description of amendment
+  amendmentDate: timestamp("amendment_date").defaultNow(), // Date of amendment
+  reason: text("reason"), // Reason of amendment
+  preparedById: integer("prepared_by_id"), // User who prepared
+  reviewedById: integer("reviewed_by_id"), // User who reviewed
+  approvedById: integer("approved_by_id"), // User who approved
+  status: text("status").notNull().default(RevisionHistoryStatus.PENDING),
+  requestedById: integer("requested_by_id"), // User who requested the change
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertRevisionHistorySchema = createInsertSchema(revisionHistory).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertRevisionHistory = z.infer<typeof insertRevisionHistorySchema>;
+export type RevisionHistory = typeof revisionHistory.$inferSelect;
+
+// ============================================
 // DOCUMENT TASKS (Sequential Workflow Tracking)
 // ============================================
 export const documentTasks = pgTable("document_tasks", {

@@ -4,8 +4,9 @@ import {
   employees, employeeTasks, downloadRequests, documentFeedback, documentTasks, taskPokes,
   documentAccessRequests, documentAccess, userRecords, buddyStatus, pushSubscriptions, buddyDialogues,
   userActivityLogs, monthlyPerformanceReports, bugReports,
-  certificationApplications, certificationAudits, auditFindings, certificates, wallPosts,
+  certificationApplications, certificationAudits, auditFindings, certificates, wallPosts, revisionHistory,
   type User, type InsertUser,
+  type RevisionHistory, type InsertRevisionHistory,
   type Document, type InsertDocument,
   type DocumentVersion, type InsertDocumentVersion,
   type WorkflowLog, type InsertWorkflowLog,
@@ -266,6 +267,12 @@ export interface IStorage {
   updateWallPost(id: number, post: Partial<InsertWallPost>): Promise<WallPost>;
   deleteWallPost(id: number): Promise<void>;
   pinWallPost(id: number, isPinned: boolean): Promise<WallPost>;
+
+  // Revision History
+  getRevisionHistory(documentId: number): Promise<RevisionHistory[]>;
+  createRevisionHistory(entry: InsertRevisionHistory): Promise<RevisionHistory>;
+  updateRevisionHistory(id: number, updates: Partial<InsertRevisionHistory>): Promise<RevisionHistory>;
+  deleteRevisionHistory(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2023,6 +2030,33 @@ export class DatabaseStorage implements IStorage {
       .where(eq(wallPosts.id, id))
       .returning();
     return updated;
+  }
+
+  // ============================================
+  // REVISION HISTORY
+  // ============================================
+  async getRevisionHistory(documentId: number): Promise<RevisionHistory[]> {
+    return db.select()
+      .from(revisionHistory)
+      .where(eq(revisionHistory.documentId, documentId))
+      .orderBy(desc(revisionHistory.revisionNumber));
+  }
+
+  async createRevisionHistory(entry: InsertRevisionHistory): Promise<RevisionHistory> {
+    const [created] = await db.insert(revisionHistory).values(entry).returning();
+    return created;
+  }
+
+  async updateRevisionHistory(id: number, updates: Partial<InsertRevisionHistory>): Promise<RevisionHistory> {
+    const [updated] = await db.update(revisionHistory)
+      .set(updates)
+      .where(eq(revisionHistory.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteRevisionHistory(id: number): Promise<void> {
+    await db.delete(revisionHistory).where(eq(revisionHistory.id, id));
   }
 }
 
