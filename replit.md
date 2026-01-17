@@ -244,9 +244,28 @@ Post-approval workflow for secure document archiving with granular access contro
   - `client/src/pages/Dashboard.tsx` - Lock and transfer dialog UI
   - `server/routes.ts` - Lock-transfer API endpoint
 
+### DocuGenie - AI-Powered Form Conversion System
+Convert Google Docs/Forms and other documents into embeddable HTML forms:
+- **Content Paste:** Upload or paste content from Google Docs, Forms, or any document
+- **AI Conversion:** GPT-4o analyzes content and generates semantic HTML forms with Tailwind CSS styling
+- **Manual Editing:** Edit generated HTML directly in the code editor tab
+- **Preview Mode:** Real-time preview of the generated form before publishing
+- **Publishing:** Generate shareable links with unique tokens for form distribution
+- **Public Submissions:** Unauthenticated users can submit forms via public URLs (/form/:token)
+- **Submission Tracking:** View all form submissions with submitter details and form data
+- **Access Control:** Limited to Admin, Quality Manager, and COO roles
+- **Database Tables:** `docugenie_forms`, `docugenie_form_submissions`
+- **Form Statuses:** draft → published → closed
+- **Key Files:**
+  - `client/src/pages/DocuGenie.tsx` - DocuGenie management UI with tabs for content, preview, and HTML
+  - `client/src/pages/FormSubmit.tsx` - Public form submission page
+  - `shared/schema.ts` - DocuGenie database schema and types
+  - `server/routes.ts` - API endpoints for CRUD, AI conversion, publishing, and submissions
+
 ## Recent Changes
 
 ### January 17, 2026
+- **Added:** DocuGenie AI-powered form conversion system with public shareable links
 - **Added:** Lock and Transfer to Document Hub feature with granular user access control
 - **Added:** Find & Replace feature in document editor (Ctrl+F) for mass amendments
 - **Added:** User Agreement System with ISO 27001 compliant security and confidentiality clauses

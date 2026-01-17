@@ -16,35 +16,14 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDes
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Trash2, FileText, Wand2, Eye, Copy, Send, Link2, ExternalLink, Sparkles, FileEdit, Inbox, Settings2 } from "lucide-react";
 import { format } from "date-fns";
+import type { DocuGenieForm, DocuGenieFormSubmission } from "@shared/schema";
+import { insertDocuGenieFormSchema } from "@shared/schema";
 
-interface DocuGenieForm {
-  id: number;
-  title: string;
-  description: string | null;
-  originalContent: string | null;
-  htmlForm: string | null;
-  formFields: string | null;
-  status: string;
-  shareToken: string | null;
-  createdById: number;
-  assignedToId: number | null;
-  relatedDocumentId: number | null;
-  expiresAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface FormSubmission {
-  id: number;
-  formId: number;
-  submittedById: number | null;
-  submitterName: string | null;
-  submitterEmail: string | null;
-  formData: string;
-  submittedAt: string;
-}
-
-const createFormSchema = z.object({
+const createFormSchema = insertDocuGenieFormSchema.pick({
+  title: true,
+  description: true,
+  originalContent: true,
+}).extend({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
   originalContent: z.string().optional(),
@@ -75,7 +54,7 @@ export default function DocuGenie() {
     queryKey: ["/api/docugenie/forms"],
   });
 
-  const { data: submissions = [] } = useQuery<FormSubmission[]>({
+  const { data: submissions = [] } = useQuery<DocuGenieFormSubmission[]>({
     queryKey: ["/api/docugenie/forms", selectedForm?.id, "submissions"],
     enabled: !!selectedForm?.id && isSubmissionsOpen,
   });
