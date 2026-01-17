@@ -245,6 +245,51 @@ export async function markEmailAsReadWithUserAccount(userId: number, messageId: 
   });
 }
 
+export async function deleteEmailWithUserAccount(userId: number, messageId: string) {
+  const gmail = await getAuthenticatedGmailClient(userId);
+  
+  await gmail.users.messages.trash({
+    userId: 'me',
+    id: messageId
+  });
+}
+
+export async function archiveEmailWithUserAccount(userId: number, messageId: string) {
+  const gmail = await getAuthenticatedGmailClient(userId);
+  
+  await gmail.users.messages.modify({
+    userId: 'me',
+    id: messageId,
+    requestBody: {
+      removeLabelIds: ['INBOX']
+    }
+  });
+}
+
+export async function starEmailWithUserAccount(userId: number, messageId: string) {
+  const gmail = await getAuthenticatedGmailClient(userId);
+  
+  await gmail.users.messages.modify({
+    userId: 'me',
+    id: messageId,
+    requestBody: {
+      addLabelIds: ['STARRED']
+    }
+  });
+}
+
+export async function unstarEmailWithUserAccount(userId: number, messageId: string) {
+  const gmail = await getAuthenticatedGmailClient(userId);
+  
+  await gmail.users.messages.modify({
+    userId: 'me',
+    id: messageId,
+    requestBody: {
+      removeLabelIds: ['STARRED']
+    }
+  });
+}
+
 export async function getEmailWithUserAccount(userId: number, messageId: string) {
   const gmail = await getAuthenticatedGmailClient(userId);
   

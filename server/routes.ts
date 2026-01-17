@@ -72,6 +72,10 @@ import {
   getEmailsWithUserAccount,
   getUnreadCountWithUserAccount,
   markEmailAsReadWithUserAccount,
+  deleteEmailWithUserAccount,
+  archiveEmailWithUserAccount,
+  starEmailWithUserAccount,
+  unstarEmailWithUserAccount,
   getEmailWithUserAccount,
   getThreadWithUserAccount,
   sendEmailWithAttachments
@@ -5605,6 +5609,74 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
     } catch (error: any) {
       console.error('Gmail mark read error:', error);
       res.status(500).json({ message: error.message || 'Failed to mark as read' });
+    }
+  });
+
+  app.post('/api/gmail/delete/:id', requireAuth, async (req, res) => {
+    try {
+      const userId = getCurrentUserId(req);
+      
+      const tokens = await getUserGmailTokens(userId);
+      if (!tokens?.gmailAccessToken) {
+        return res.status(400).json({ message: 'Gmail not connected' });
+      }
+      
+      await deleteEmailWithUserAccount(userId, req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Gmail delete error:', error);
+      res.status(500).json({ message: error.message || 'Failed to delete email' });
+    }
+  });
+
+  app.post('/api/gmail/archive/:id', requireAuth, async (req, res) => {
+    try {
+      const userId = getCurrentUserId(req);
+      
+      const tokens = await getUserGmailTokens(userId);
+      if (!tokens?.gmailAccessToken) {
+        return res.status(400).json({ message: 'Gmail not connected' });
+      }
+      
+      await archiveEmailWithUserAccount(userId, req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Gmail archive error:', error);
+      res.status(500).json({ message: error.message || 'Failed to archive email' });
+    }
+  });
+
+  app.post('/api/gmail/star/:id', requireAuth, async (req, res) => {
+    try {
+      const userId = getCurrentUserId(req);
+      
+      const tokens = await getUserGmailTokens(userId);
+      if (!tokens?.gmailAccessToken) {
+        return res.status(400).json({ message: 'Gmail not connected' });
+      }
+      
+      await starEmailWithUserAccount(userId, req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Gmail star error:', error);
+      res.status(500).json({ message: error.message || 'Failed to star email' });
+    }
+  });
+
+  app.post('/api/gmail/unstar/:id', requireAuth, async (req, res) => {
+    try {
+      const userId = getCurrentUserId(req);
+      
+      const tokens = await getUserGmailTokens(userId);
+      if (!tokens?.gmailAccessToken) {
+        return res.status(400).json({ message: 'Gmail not connected' });
+      }
+      
+      await unstarEmailWithUserAccount(userId, req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Gmail unstar error:', error);
+      res.status(500).json({ message: error.message || 'Failed to unstar email' });
     }
   });
 

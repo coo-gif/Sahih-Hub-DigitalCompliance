@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useEmails, useEmail, useSendEmail, useUnreadCount, useMarkAsRead, useGmailStatus, useConnectGmail, useDisconnectGmail, useThread, useAIDraft, EmailMessage, SendEmailData } from "@/hooks/use-gmail";
+import { useEmails, useEmail, useSendEmail, useUnreadCount, useMarkAsRead, useDeleteEmail, useArchiveEmail, useStarEmail, useUnstarEmail, useGmailStatus, useConnectGmail, useDisconnectGmail, useThread, useAIDraft, EmailMessage, SendEmailData } from "@/hooks/use-gmail";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -139,8 +139,20 @@ export default function Email() {
   const { data: unreadData } = useUnreadCount();
   const sendEmail = useSendEmail();
   const markAsRead = useMarkAsRead();
+  const deleteEmail = useDeleteEmail();
+  const archiveEmail = useArchiveEmail();
+  const starEmail = useStarEmail();
+  const unstarEmail = useUnstarEmail();
   const aiDraft = useAIDraft();
   const { toast } = useToast();
+  const [isStarred, setIsStarred] = useState(false);
+
+  // Update starred status when email loads
+  useEffect(() => {
+    if (selectedEmail) {
+      setIsStarred((selectedEmail.labelIds || []).includes('STARRED'));
+    }
+  }, [selectedEmail]);
 
   useEffect(() => {
     if (selectedEmail && selectedEmail.isUnread && selectedEmailId) {
@@ -403,6 +415,54 @@ export default function Email() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!selectedEmailId) return;
+    
+    try {
+      await deleteEmail.mutateAsync(selectedEmailId);
+      toast({ title: "Email moved to trash" });
+      setSelectedEmailId(null);
+      setSelectedThreadId(null);
+      setThreadSummary(null);
+      setExpandedMessages(new Set());
+    } catch (error: any) {
+      toast({ title: "Failed to delete", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const handleArchive = async () => {
+    if (!selectedEmailId) return;
+    
+    try {
+      await archiveEmail.mutateAsync(selectedEmailId);
+      toast({ title: "Email archived" });
+      setSelectedEmailId(null);
+      setSelectedThreadId(null);
+      setThreadSummary(null);
+      setExpandedMessages(new Set());
+    } catch (error: any) {
+      toast({ title: "Failed to archive", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const handleToggleStar = async () => {
+    if (!selectedEmailId) return;
+    
+    try {
+      if (isStarred) {
+        await unstarEmail.mutateAsync(selectedEmailId);
+        setIsStarred(false);
+        toast({ title: "Star removed" });
+      } else {
+        await starEmail.mutateAsync(selectedEmailId);
+        setIsStarred(true);
+        toast({ title: "Email starred" });
+      }
+    } catch (error: any) {
+      toast({ title: "Failed to update star", description: error.message, variant: "destructive" });
+    }
+  };
+
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
@@ -616,7 +676,7 @@ export default function Email() {
 
         {/* Thread Preview */}
         {selectedEmailId && (
-          <Card className="flex-1 flex flex-col overflow-hidden">
+          <Card className="flex-1 min-w-0 flex flex-col overflow-hidden">
             <CardHeader className="py-3 px-4 border-b flex-shrink-0">
               <div className="flex items-center gap-2">
                 <Button 
@@ -628,41 +688,62 @@ export default function Email() {
                 >
                   <ArrowLeft className="w-4 h-4" />
                 </Button>
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 overflow-hidden">
                   {emailLoading ? (
                     <Skeleton className="h-5 w-3/4" />
                   ) : (
-                    <div>
-                      <h2 className="font-semibold truncate">{selectedEmail?.subject}</h2>
+                    <div className="overflow-hidden">
+                      <h2 className="font-semibold truncate" title={selectedEmail?.subject}>{selectedEmail?.subject}</h2>
                       {threadMessages && threadMessages.length > 1 && (
                         <p className="text-xs text-muted-foreground">{threadMessages.length} messages in thread</p>
                       )}
                     </div>
                   )}
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 flex-shrink-0">
                   <Button variant="ghost" size="icon" onClick={handleReply} data-testid="button-reply" title="Reply">
                     <Reply className="w-4 h-4" />
                   </Button>
                   <Button variant="ghost" size="icon" onClick={handleReplyAll} data-testid="button-reply-all" title="Reply All">
                     <ReplyAll className="w-4 h-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" data-testid="button-star" title="Star">
-                    <Star className="w-4 h-4" />
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={handleToggleStar} 
+                    data-testid="button-star" 
+                    title={isStarred ? "Unstar" : "Star"}
+                    disabled={starEmail.isPending || unstarEmail.isPending}
+                  >
+                    <Star className={`w-4 h-4 ${isStarred ? 'fill-yellow-400 text-yellow-400' : ''}`} />
                   </Button>
-                  <Button variant="ghost" size="icon" data-testid="button-archive" title="Archive">
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={handleArchive} 
+                    data-testid="button-archive" 
+                    title="Archive"
+                    disabled={archiveEmail.isPending}
+                  >
                     <Archive className="w-4 h-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" data-testid="button-delete" title="Delete">
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={handleDelete} 
+                    data-testid="button-delete" 
+                    title="Delete"
+                    disabled={deleteEmail.isPending}
+                  >
                     <Trash2 className="w-4 h-4" />
                   </Button>
                 </div>
               </div>
             </CardHeader>
             
-            <div className="flex-1 flex overflow-hidden">
+            <div className="flex-1 flex overflow-hidden min-w-0">
               {/* Thread Messages */}
-              <ScrollArea className="flex-1">
+              <ScrollArea className="flex-1 min-w-0">
                 {threadLoading || emailLoading ? (
                   <div className="p-4 space-y-4">
                     <div className="flex items-center gap-3">
@@ -725,7 +806,7 @@ export default function Email() {
                                 )}
                                 
                                 <div 
-                                  className="prose prose-sm dark:prose-invert max-w-none mt-3"
+                                  className="prose prose-sm dark:prose-invert max-w-none mt-3 overflow-x-auto break-words [&_*]:max-w-full [&_img]:max-w-full"
                                   dangerouslySetInnerHTML={{ 
                                     __html: DOMPurify.sanitize(message.body || '<p class="text-muted-foreground italic">No content</p>') 
                                   }}
@@ -778,7 +859,7 @@ export default function Email() {
                       </div>
                     </div>
                     <div 
-                      className="p-4 prose prose-sm dark:prose-invert max-w-none"
+                      className="p-4 prose prose-sm dark:prose-invert max-w-none overflow-x-auto break-words [&_*]:max-w-full [&_img]:max-w-full"
                       dangerouslySetInnerHTML={{ 
                         __html: DOMPurify.sanitize(selectedEmail.body || '<p class="text-muted-foreground italic">No content</p>') 
                       }}
@@ -803,7 +884,7 @@ export default function Email() {
 
               {/* Thread Summary Sidebar */}
               {threadMessages && threadMessages.length > 1 && (
-                <div className="w-[280px] border-l bg-muted/20 hidden xl:flex xl:flex-col">
+                <div className="w-[240px] flex-shrink-0 border-l bg-muted/20 hidden xl:flex xl:flex-col">
                   <div className="p-4 border-b">
                     <h3 className="font-semibold flex items-center gap-2">
                       <Sparkles className="w-4 h-4 text-purple-500" />

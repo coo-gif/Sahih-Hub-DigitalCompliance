@@ -158,6 +158,59 @@ export function useMarkAsRead() {
   });
 }
 
+export function useDeleteEmail() {
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiRequest('POST', `/api/gmail/delete/${id}`);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/gmail/emails'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/gmail/unread-count'] });
+    },
+  });
+}
+
+export function useArchiveEmail() {
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiRequest('POST', `/api/gmail/archive/${id}`);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/gmail/emails'] });
+    },
+  });
+}
+
+export function useStarEmail() {
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiRequest('POST', `/api/gmail/star/${id}`);
+      return { ...(await response.json()), id };
+    },
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/gmail/emails'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/gmail/emails', id] });
+      queryClient.invalidateQueries({ queryKey: ['/api/gmail/thread'] });
+    },
+  });
+}
+
+export function useUnstarEmail() {
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiRequest('POST', `/api/gmail/unstar/${id}`);
+      return { ...(await response.json()), id };
+    },
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/gmail/emails'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/gmail/emails', id] });
+      queryClient.invalidateQueries({ queryKey: ['/api/gmail/thread'] });
+    },
+  });
+}
+
 export function useLabels() {
   return useQuery<{ id: string; name: string; type: string }[]>({
     queryKey: ['/api/gmail/labels'],
