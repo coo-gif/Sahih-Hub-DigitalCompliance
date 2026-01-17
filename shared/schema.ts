@@ -235,7 +235,7 @@ export const documents = pgTable("documents", {
   content: text("content"), // Document content or file URL
   fileUrl: text("file_url"),
   versionNumber: text("version_number").notNull().default("1.0"),
-  editionNumber: integer("edition_number").notNull().default(1),
+  editionNumber: integer("edition_number").notNull().default(2),
   revisionNumber: integer("revision_number").notNull().default(0),
   status: text("status").notNull().default(DocumentStatus.DRAFT),
   importance: text("importance").notNull().default(DocumentImportance.MEDIUM),
@@ -326,7 +326,7 @@ export const documentVersions = pgTable("document_versions", {
   id: serial("id").primaryKey(),
   documentId: integer("document_id").notNull(),
   versionNumber: text("version_number").notNull(),
-  editionNumber: integer("edition_number").notNull().default(1),
+  editionNumber: integer("edition_number").notNull().default(2),
   revisionNumber: integer("revision_number").notNull().default(0),
   content: text("content"),
   fileUrl: text("file_url"),
