@@ -290,6 +290,43 @@ export async function unstarEmailWithUserAccount(userId: number, messageId: stri
   });
 }
 
+export async function markAsSpamWithUserAccount(userId: number, messageId: string) {
+  const gmail = await getAuthenticatedGmailClient(userId);
+  
+  await gmail.users.messages.modify({
+    userId: 'me',
+    id: messageId,
+    requestBody: {
+      addLabelIds: ['SPAM'],
+      removeLabelIds: ['INBOX']
+    }
+  });
+}
+
+export async function markAsReadWithUserAccount(userId: number, messageId: string) {
+  const gmail = await getAuthenticatedGmailClient(userId);
+  
+  await gmail.users.messages.modify({
+    userId: 'me',
+    id: messageId,
+    requestBody: {
+      removeLabelIds: ['UNREAD']
+    }
+  });
+}
+
+export async function markAsUnreadWithUserAccount(userId: number, messageId: string) {
+  const gmail = await getAuthenticatedGmailClient(userId);
+  
+  await gmail.users.messages.modify({
+    userId: 'me',
+    id: messageId,
+    requestBody: {
+      addLabelIds: ['UNREAD']
+    }
+  });
+}
+
 export async function getEmailWithUserAccount(userId: number, messageId: string) {
   const gmail = await getAuthenticatedGmailClient(userId);
   

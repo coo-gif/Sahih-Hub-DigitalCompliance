@@ -57,6 +57,7 @@ export interface EmailListItem {
   date: string;
   snippet: string;
   isUnread: boolean;
+  labelIds?: string[];
 }
 
 export interface EmailAttachment {
@@ -207,6 +208,32 @@ export function useUnstarEmail() {
       queryClient.invalidateQueries({ queryKey: ['/api/gmail/emails'] });
       queryClient.invalidateQueries({ queryKey: ['/api/gmail/emails', id] });
       queryClient.invalidateQueries({ queryKey: ['/api/gmail/thread'] });
+    },
+  });
+}
+
+export function useMarkAsSpam() {
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiRequest('POST', `/api/gmail/spam/${id}`);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/gmail/emails'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/gmail/unread-count'] });
+    },
+  });
+}
+
+export function useMarkAsUnread() {
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiRequest('POST', `/api/gmail/mark-unread/${id}`);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/gmail/emails'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/gmail/unread-count'] });
     },
   });
 }

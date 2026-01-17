@@ -76,6 +76,9 @@ import {
   archiveEmailWithUserAccount,
   starEmailWithUserAccount,
   unstarEmailWithUserAccount,
+  markAsSpamWithUserAccount,
+  markAsReadWithUserAccount,
+  markAsUnreadWithUserAccount,
   getEmailWithUserAccount,
   getThreadWithUserAccount,
   sendEmailWithAttachments
@@ -5677,6 +5680,57 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
     } catch (error: any) {
       console.error('Gmail unstar error:', error);
       res.status(500).json({ message: error.message || 'Failed to unstar email' });
+    }
+  });
+
+  app.post('/api/gmail/spam/:id', requireAuth, async (req, res) => {
+    try {
+      const userId = getCurrentUserId(req);
+      
+      const tokens = await getUserGmailTokens(userId);
+      if (!tokens?.gmailAccessToken) {
+        return res.status(400).json({ message: 'Gmail not connected' });
+      }
+      
+      await markAsSpamWithUserAccount(userId, req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Gmail mark as spam error:', error);
+      res.status(500).json({ message: error.message || 'Failed to mark as spam' });
+    }
+  });
+
+  app.post('/api/gmail/mark-read/:id', requireAuth, async (req, res) => {
+    try {
+      const userId = getCurrentUserId(req);
+      
+      const tokens = await getUserGmailTokens(userId);
+      if (!tokens?.gmailAccessToken) {
+        return res.status(400).json({ message: 'Gmail not connected' });
+      }
+      
+      await markAsReadWithUserAccount(userId, req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Gmail mark as read error:', error);
+      res.status(500).json({ message: error.message || 'Failed to mark as read' });
+    }
+  });
+
+  app.post('/api/gmail/mark-unread/:id', requireAuth, async (req, res) => {
+    try {
+      const userId = getCurrentUserId(req);
+      
+      const tokens = await getUserGmailTokens(userId);
+      if (!tokens?.gmailAccessToken) {
+        return res.status(400).json({ message: 'Gmail not connected' });
+      }
+      
+      await markAsUnreadWithUserAccount(userId, req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Gmail mark as unread error:', error);
+      res.status(500).json({ message: error.message || 'Failed to mark as unread' });
     }
   });
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useEmails, useEmail, useSendEmail, useUnreadCount, useMarkAsRead, useDeleteEmail, useArchiveEmail, useStarEmail, useUnstarEmail, useGmailStatus, useConnectGmail, useDisconnectGmail, useThread, useAIDraft, EmailMessage, SendEmailData } from "@/hooks/use-gmail";
+import { useEmails, useEmail, useSendEmail, useUnreadCount, useMarkAsRead, useDeleteEmail, useArchiveEmail, useStarEmail, useUnstarEmail, useMarkAsSpam, useMarkAsUnread, useGmailStatus, useConnectGmail, useDisconnectGmail, useThread, useAIDraft, EmailMessage, SendEmailData } from "@/hooks/use-gmail";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,13 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import {
   Dialog,
   DialogContent,
@@ -31,6 +38,7 @@ import {
   User,
   Paperclip,
   Star,
+  StarOff,
   Trash2,
   Archive,
   Reply,
@@ -50,7 +58,10 @@ import {
   MessageSquare,
   Users,
   Plus,
-  Download
+  Download,
+  AlertTriangle,
+  Eye,
+  EyeOff
 } from "lucide-react";
 import { format, parseISO, isValid } from "date-fns";
 import DOMPurify from "dompurify";
@@ -143,6 +154,8 @@ export default function Email() {
   const archiveEmail = useArchiveEmail();
   const starEmail = useStarEmail();
   const unstarEmail = useUnstarEmail();
+  const markAsSpam = useMarkAsSpam();
+  const markAsUnread = useMarkAsUnread();
   const aiDraft = useAIDraft();
   const { toast } = useToast();
   const [isStarred, setIsStarred] = useState(false);
@@ -630,43 +643,193 @@ export default function Email() {
                 emails?.map((email) => {
                   const sender = extractSenderName(email.from);
                   const isSelected = email.id === selectedEmailId;
+                  const emailIsStarred = email.labelIds?.includes('STARRED');
                   return (
-                    <div
-                      key={email.id}
-                      className={`p-3 cursor-pointer transition-colors hover:bg-muted/50 ${isSelected ? 'bg-primary/5 border-l-2 border-l-primary' : ''}`}
-                      onClick={() => { 
-                        setSelectedEmailId(email.id); 
-                        setThreadSummary(null);
-                      }}
-                      data-testid={`email-item-${email.id}`}
-                    >
-                      <div className="flex items-start gap-3">
-                        <div className="relative">
-                          <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
-                            <User className="w-4 h-4 text-primary" />
+                    <ContextMenu key={email.id}>
+                      <ContextMenuTrigger asChild>
+                        <div
+                          className={`p-3 cursor-pointer transition-colors hover:bg-muted/50 ${isSelected ? 'bg-primary/5 border-l-2 border-l-primary' : ''}`}
+                          onClick={() => { 
+                            setSelectedEmailId(email.id); 
+                            setThreadSummary(null);
+                          }}
+                          data-testid={`email-item-${email.id}`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="relative">
+                              <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
+                                <User className="w-4 h-4 text-primary" />
+                              </div>
+                              {email.isUnread && (
+                                <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-primary border-2 border-background" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-2 mb-0.5">
+                                <span className={`text-sm truncate ${email.isUnread ? 'font-semibold' : 'font-medium'}`}>
+                                  {sender.name}
+                                </span>
+                                <div className="flex items-center gap-1 flex-shrink-0">
+                                  {emailIsStarred && <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />}
+                                  <span className="text-xs text-muted-foreground">
+                                    {formatShortDate(email.date)}
+                                  </span>
+                                </div>
+                              </div>
+                              <p className={`text-sm truncate ${email.isUnread ? 'font-medium' : ''}`}>
+                                {email.subject}
+                              </p>
+                              <p className="text-xs text-muted-foreground truncate mt-0.5">
+                                {email.snippet}
+                              </p>
+                            </div>
                           </div>
-                          {email.isUnread && (
-                            <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-primary border-2 border-background" />
+                        </div>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-48">
+                        <ContextMenuItem 
+                          onClick={() => {
+                            setSelectedEmailId(email.id);
+                            setThreadSummary(null);
+                            setTimeout(() => handleReply(), 100);
+                          }}
+                          data-testid={`context-reply-${email.id}`}
+                        >
+                          <Reply className="w-4 h-4 mr-2" />
+                          Reply
+                        </ContextMenuItem>
+                        <ContextMenuItem 
+                          onClick={() => {
+                            setSelectedEmailId(email.id);
+                            setThreadSummary(null);
+                            setTimeout(() => handleReplyAll(), 100);
+                          }}
+                          data-testid={`context-reply-all-${email.id}`}
+                        >
+                          <ReplyAll className="w-4 h-4 mr-2" />
+                          Reply All
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem 
+                          onClick={async () => {
+                            try {
+                              if (emailIsStarred) {
+                                await unstarEmail.mutateAsync(email.id);
+                                toast({ title: "Email unstarred" });
+                              } else {
+                                await starEmail.mutateAsync(email.id);
+                                toast({ title: "Email starred" });
+                              }
+                            } catch (error: any) {
+                              toast({ title: "Failed to update star", description: error.message, variant: "destructive" });
+                            }
+                          }}
+                          data-testid={`context-star-${email.id}`}
+                        >
+                          {emailIsStarred ? (
+                            <>
+                              <StarOff className="w-4 h-4 mr-2" />
+                              Unstar
+                            </>
+                          ) : (
+                            <>
+                              <Star className="w-4 h-4 mr-2" />
+                              Star
+                            </>
                           )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-2 mb-0.5">
-                            <span className={`text-sm truncate ${email.isUnread ? 'font-semibold' : 'font-medium'}`}>
-                              {sender.name}
-                            </span>
-                            <span className="text-xs text-muted-foreground flex-shrink-0">
-                              {formatShortDate(email.date)}
-                            </span>
-                          </div>
-                          <p className={`text-sm truncate ${email.isUnread ? 'font-medium' : ''}`}>
-                            {email.subject}
-                          </p>
-                          <p className="text-xs text-muted-foreground truncate mt-0.5">
-                            {email.snippet}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
+                        </ContextMenuItem>
+                        <ContextMenuItem 
+                          onClick={async () => {
+                            try {
+                              if (email.isUnread) {
+                                await markAsRead.mutateAsync(email.id);
+                                toast({ title: "Marked as read" });
+                              } else {
+                                await markAsUnread.mutateAsync(email.id);
+                                toast({ title: "Marked as unread" });
+                              }
+                            } catch (error: any) {
+                              toast({ title: "Failed to update", description: error.message, variant: "destructive" });
+                            }
+                          }}
+                          data-testid={`context-read-${email.id}`}
+                        >
+                          {email.isUnread ? (
+                            <>
+                              <Eye className="w-4 h-4 mr-2" />
+                              Mark as Read
+                            </>
+                          ) : (
+                            <>
+                              <EyeOff className="w-4 h-4 mr-2" />
+                              Mark as Unread
+                            </>
+                          )}
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem 
+                          onClick={async () => {
+                            try {
+                              await archiveEmail.mutateAsync(email.id);
+                              toast({ title: "Email archived" });
+                              if (selectedEmailId === email.id) {
+                                setSelectedEmailId(null);
+                                setSelectedThreadId(null);
+                                setThreadSummary(null);
+                                setExpandedMessages(new Set());
+                              }
+                            } catch (error: any) {
+                              toast({ title: "Failed to archive", description: error.message, variant: "destructive" });
+                            }
+                          }}
+                          data-testid={`context-archive-${email.id}`}
+                        >
+                          <Archive className="w-4 h-4 mr-2" />
+                          Archive
+                        </ContextMenuItem>
+                        <ContextMenuItem 
+                          onClick={async () => {
+                            try {
+                              await markAsSpam.mutateAsync(email.id);
+                              toast({ title: "Marked as spam" });
+                              if (selectedEmailId === email.id) {
+                                setSelectedEmailId(null);
+                                setSelectedThreadId(null);
+                                setThreadSummary(null);
+                                setExpandedMessages(new Set());
+                              }
+                            } catch (error: any) {
+                              toast({ title: "Failed to mark as spam", description: error.message, variant: "destructive" });
+                            }
+                          }}
+                          data-testid={`context-spam-${email.id}`}
+                        >
+                          <AlertTriangle className="w-4 h-4 mr-2" />
+                          Mark as Spam
+                        </ContextMenuItem>
+                        <ContextMenuItem 
+                          onClick={async () => {
+                            try {
+                              await deleteEmail.mutateAsync(email.id);
+                              toast({ title: "Email moved to trash" });
+                              if (selectedEmailId === email.id) {
+                                setSelectedEmailId(null);
+                                setSelectedThreadId(null);
+                                setThreadSummary(null);
+                                setExpandedMessages(new Set());
+                              }
+                            } catch (error: any) {
+                              toast({ title: "Failed to delete", description: error.message, variant: "destructive" });
+                            }
+                          }}
+                          className="text-destructive focus:text-destructive"
+                          data-testid={`context-delete-${email.id}`}
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Delete
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
                   );
                 })
               )}
