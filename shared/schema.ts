@@ -1270,3 +1270,56 @@ export type InsertTrainingAssignment = z.infer<typeof insertTrainingAssignmentSc
 
 export type TrainingCompletion = typeof trainingCompletions.$inferSelect;
 export type InsertTrainingCompletion = z.infer<typeof insertTrainingCompletionSchema>;
+
+// ============================================
+// DOCUGENIE FORMS
+// ============================================
+export const DocuGenieFormStatus = {
+  DRAFT: "draft",
+  PUBLISHED: "published",
+  ARCHIVED: "archived",
+} as const;
+
+export const docugenieForms = pgTable("docugenie_forms", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description"),
+  originalContent: text("original_content"), // Raw content from Google Doc/Form
+  htmlForm: text("html_form"), // Generated HTML form
+  formFields: text("form_fields"), // JSON array of form field definitions
+  status: text("status").notNull().default(DocuGenieFormStatus.DRAFT),
+  shareToken: text("share_token"), // Unique token for sharing
+  createdById: integer("created_by_id").notNull().references(() => users.id),
+  assignedToId: integer("assigned_to_id").references(() => users.id), // Optional assignee
+  relatedDocumentId: integer("related_document_id").references(() => documents.id),
+  expiresAt: timestamp("expires_at"), // Optional expiry
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const docugenieFormSubmissions = pgTable("docugenie_form_submissions", {
+  id: serial("id").primaryKey(),
+  formId: integer("form_id").notNull().references(() => docugenieForms.id),
+  submittedById: integer("submitted_by_id").references(() => users.id),
+  submitterName: text("submitter_name"), // For anonymous submissions
+  submitterEmail: text("submitter_email"),
+  formData: text("form_data").notNull(), // JSON of submitted data
+  submittedAt: timestamp("submitted_at").defaultNow(),
+});
+
+export const insertDocuGenieFormSchema = createInsertSchema(docugenieForms).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertDocuGenieFormSubmissionSchema = createInsertSchema(docugenieFormSubmissions).omit({
+  id: true,
+  submittedAt: true,
+});
+
+export type DocuGenieForm = typeof docugenieForms.$inferSelect;
+export type InsertDocuGenieForm = z.infer<typeof insertDocuGenieFormSchema>;
+
+export type DocuGenieFormSubmission = typeof docugenieFormSubmissions.$inferSelect;
+export type InsertDocuGenieFormSubmission = z.infer<typeof insertDocuGenieFormSubmissionSchema>;
