@@ -285,7 +285,13 @@ export default function TiptapEditor({ content, onChange, onPreview, onAISuggest
 
   return (
     <div className="border rounded-md flex flex-col">
-      <div className="bg-gray-50 border-b p-2 flex flex-wrap items-center gap-1 flex-shrink-0">
+      {/* DocuGenie Header */}
+      <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-3 py-1.5 flex items-center gap-2 rounded-t-md">
+        <Wand2 className="w-4 h-4 text-white" />
+        <span className="text-white font-semibold text-sm">DocuGenie</span>
+        <span className="text-purple-200 text-xs">AI-Powered Editor</span>
+      </div>
+      <div className="bg-gray-50 dark:bg-gray-800 border-b p-2 flex flex-wrap items-center gap-1 flex-shrink-0">
         <Button
           type="button"
           size="icon"
