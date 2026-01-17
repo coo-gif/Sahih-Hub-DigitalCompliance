@@ -386,21 +386,97 @@ export default function Email() {
     }
   };
 
-  // Convert HTML to plain text for quoting
-  const htmlToPlainText = (html: string): string => {
-    // Remove HTML tags and convert common entities
-    return html
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/p>/gi, '\n\n')
-      .replace(/<\/div>/gi, '\n')
-      .replace(/<[^>]+>/g, '')
+  // Decode common HTML entities safely
+  const decodeHtmlEntities = (text: string): string => {
+    return text
       .replace(/&nbsp;/gi, ' ')
       .replace(/&amp;/gi, '&')
       .replace(/&lt;/gi, '<')
       .replace(/&gt;/gi, '>')
       .replace(/&quot;/gi, '"')
-      .replace(/\n{3,}/g, '\n\n')
+      .replace(/&apos;/gi, "'")
+      .replace(/&#39;/gi, "'")
+      .replace(/&#x27;/gi, "'")
+      .replace(/&#34;/gi, '"')
+      .replace(/&#x22;/gi, '"')
+      .replace(/&#160;/gi, ' ')
+      .replace(/&#xa0;/gi, ' ')
+      .replace(/&rsquo;/gi, "'")
+      .replace(/&lsquo;/gi, "'")
+      .replace(/&rdquo;/gi, '"')
+      .replace(/&ldquo;/gi, '"')
+      .replace(/&ndash;/gi, '-')
+      .replace(/&mdash;/gi, '--')
+      .replace(/&hellip;/gi, '...')
+      .replace(/&copy;/gi, '(c)')
+      .replace(/&reg;/gi, '(R)')
+      .replace(/&trade;/gi, '(TM)')
+      .replace(/&#(\d+);/gi, (_, code) => {
+        const num = parseInt(code, 10);
+        return num > 31 && num < 127 ? String.fromCharCode(num) : '';
+      })
+      .replace(/&#x([0-9a-f]+);/gi, (_, code) => {
+        const num = parseInt(code, 16);
+        return num > 31 && num < 127 ? String.fromCharCode(num) : '';
+      });
+  };
+
+  // Convert HTML to plain text for quoting
+  const htmlToPlainText = (html: string): string => {
+    // Remove Microsoft Office/VML conditional comments and behaviors first
+    let text = html
+      // Remove VML behavior declarations (v\:*, o\:*, w\:*, .shape)
+      .replace(/[vow]\\?:\*\s*\{[^}]*\}/gi, '')
+      .replace(/\.shape\s*\{[^}]*\}/gi, '')
+      // Remove conditional comments <!--[if...]>...<![endif]-->
+      .replace(/<!--\[if[^\]]*\][\s\S]*?<!\[endif\]-->/gi, '')
+      .replace(/<!--[\s\S]*?-->/g, '') // Remove all HTML comments
+      // Remove style tags and their content
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      // Remove script tags and their content
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      // Remove XML declarations
+      .replace(/<\?xml[^>]*\?>/gi, '')
+      // Remove DOCTYPE declarations
+      .replace(/<!DOCTYPE[^>]*>/gi, '')
+      // Remove Office namespace elements
+      .replace(/<o:[^>]*>[\s\S]*?<\/o:[^>]*>/gi, '')
+      .replace(/<w:[^>]*>[\s\S]*?<\/w:[^>]*>/gi, '')
+      .replace(/<v:[^>]*>[\s\S]*?<\/v:[^>]*>/gi, '')
+      .replace(/<o:[^>]*\/?>/gi, '')
+      .replace(/<w:[^>]*\/?>/gi, '')
+      .replace(/<v:[^>]*\/?>/gi, '')
+      // Remove meta and link tags
+      .replace(/<meta[^>]*>/gi, '')
+      .replace(/<link[^>]*>/gi, '');
+    
+    // Convert line breaks and structure
+    text = text
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n\n')
+      .replace(/<\/div>/gi, '\n')
+      .replace(/<\/tr>/gi, '\n')
+      .replace(/<\/td>/gi, ' ')
+      .replace(/<\/li>/gi, '\n')
+      // Remove remaining HTML tags
+      .replace(/<[^>]+>/g, '');
+    
+    // Decode HTML entities safely (preserve legitimate characters)
+    text = decodeHtmlEntities(text);
+    
+    // Clean up repeated < > characters (common Office artifact)
+    text = text
+      .replace(/[<>]{2,}/g, '') // Remove sequences of multiple < or >
+      .replace(/[<>]\s*[<>]/g, '') // Remove separated < > pairs
+      .replace(/^\s*[<>]\s*$/gm, '') // Remove lines with just < or >
+      // Clean up whitespace
+      .replace(/[ \t]+/g, ' ') // Multiple spaces/tabs to single space
+      .replace(/\n[ \t]+/g, '\n') // Remove leading whitespace on lines
+      .replace(/[ \t]+\n/g, '\n') // Remove trailing whitespace on lines
+      .replace(/\n{3,}/g, '\n\n') // Max 2 consecutive newlines
       .trim();
+    
+    return text;
   };
 
   const handleReply = () => {
@@ -669,7 +745,7 @@ export default function Email() {
                     size="sm"
                     onClick={async () => {
                       try {
-                        for (const id of selectedEmailIds) {
+                        for (const id of Array.from(selectedEmailIds)) {
                           await deleteEmail.mutateAsync(id);
                         }
                         toast({ title: `${selectedEmailIds.size} email(s) moved to trash` });
@@ -687,7 +763,7 @@ export default function Email() {
                     size="sm"
                     onClick={async () => {
                       try {
-                        for (const id of selectedEmailIds) {
+                        for (const id of Array.from(selectedEmailIds)) {
                           await archiveEmail.mutateAsync(id);
                         }
                         toast({ title: `${selectedEmailIds.size} email(s) archived` });
@@ -705,7 +781,7 @@ export default function Email() {
                     size="sm"
                     onClick={async () => {
                       try {
-                        for (const id of selectedEmailIds) {
+                        for (const id of Array.from(selectedEmailIds)) {
                           await markAsSpam.mutateAsync(id);
                         }
                         toast({ title: `${selectedEmailIds.size} email(s) marked as spam` });
@@ -732,7 +808,7 @@ export default function Email() {
                       <DropdownMenuItem
                         onClick={async () => {
                           try {
-                            for (const id of selectedEmailIds) {
+                            for (const id of Array.from(selectedEmailIds)) {
                               await moveToFolder.mutateAsync({ id, folder: 'INBOX' });
                             }
                             toast({ title: `${selectedEmailIds.size} email(s) moved to Inbox` });
@@ -749,7 +825,7 @@ export default function Email() {
                       <DropdownMenuItem
                         onClick={async () => {
                           try {
-                            for (const id of selectedEmailIds) {
+                            for (const id of Array.from(selectedEmailIds)) {
                               await moveToFolder.mutateAsync({ id, folder: 'STARRED' });
                             }
                             toast({ title: `${selectedEmailIds.size} email(s) starred` });
@@ -766,7 +842,7 @@ export default function Email() {
                       <DropdownMenuItem
                         onClick={async () => {
                           try {
-                            for (const id of selectedEmailIds) {
+                            for (const id of Array.from(selectedEmailIds)) {
                               await moveToFolder.mutateAsync({ id, folder: 'SPAM' });
                             }
                             toast({ title: `${selectedEmailIds.size} email(s) moved to Spam` });
@@ -783,7 +859,7 @@ export default function Email() {
                       <DropdownMenuItem
                         onClick={async () => {
                           try {
-                            for (const id of selectedEmailIds) {
+                            for (const id of Array.from(selectedEmailIds)) {
                               await moveToFolder.mutateAsync({ id, folder: 'TRASH' });
                             }
                             toast({ title: `${selectedEmailIds.size} email(s) moved to Trash` });
