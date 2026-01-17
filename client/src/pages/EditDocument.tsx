@@ -94,17 +94,15 @@ export default function EditDocument() {
     setAISuggestions([]);
 
     try {
-      const response = await apiRequest('/api/ai/review-document', {
-        method: 'POST',
-        body: JSON.stringify({
-          content: formData.content,
-          documentType: document?.category || 'General',
-        }),
+      const response = await apiRequest('POST', '/api/ai/review-document', {
+        content: formData.content,
+        documentType: document?.category || 'General',
       });
+      const data = await response.json();
 
-      setAISuggestions(response.suggestions || []);
+      setAISuggestions(data.suggestions || []);
       
-      if (response.suggestions?.length === 0) {
+      if (data.suggestions?.length === 0) {
         toast({
           title: "No suggestions",
           description: "Your document looks great! No improvements needed.",
@@ -112,7 +110,7 @@ export default function EditDocument() {
       } else {
         toast({
           title: "Review complete",
-          description: `Found ${response.suggestions?.length || 0} suggestions to improve your document.`,
+          description: `Found ${data.suggestions?.length || 0} suggestions to improve your document.`,
         });
       }
     } catch (error) {
