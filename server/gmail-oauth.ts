@@ -213,7 +213,7 @@ export async function getEmailsWithUserAccount(
         snippet: email.data.snippet,
         body: body,
         labelIds: email.data.labelIds || [],
-        isRead: !(email.data.labelIds || []).includes('UNREAD')
+        isUnread: (email.data.labelIds || []).includes('UNREAD')
       };
     })
   );
@@ -243,4 +243,201 @@ export async function markEmailAsReadWithUserAccount(userId: number, messageId: 
       removeLabelIds: ['UNREAD']
     }
   });
+}
+
+export async function getEmailWithUserAccount(userId: number, messageId: string) {
+  const gmail = await getAuthenticatedGmailClient(userId);
+  
+  const email = await gmail.users.messages.get({
+    userId: 'me',
+    id: messageId,
+    format: 'full'
+  });
+  
+  const headers = email.data.payload?.headers || [];
+  const getHeader = (name: string) => 
+    headers.find(h => h.name?.toLowerCase() === name.toLowerCase())?.value || '';
+  
+  let body = '';
+  if (email.data.payload?.body?.data) {
+    body = Buffer.from(email.data.payload.body.data, 'base64').toString('utf-8');
+  } else if (email.data.payload?.parts) {
+    const htmlPart = findPartByMimeType(email.data.payload.parts, 'text/html');
+    const textPart = findPartByMimeType(email.data.payload.parts, 'text/plain');
+    const part = htmlPart || textPart;
+    if (part?.body?.data) {
+      body = Buffer.from(part.body.data, 'base64').toString('utf-8');
+    }
+  }
+  
+  // Extract attachments info
+  const attachments = extractAttachments(email.data.payload);
+  
+  return {
+    id: email.data.id,
+    threadId: email.data.threadId,
+    subject: getHeader('Subject'),
+    from: getHeader('From'),
+    to: getHeader('To'),
+    cc: getHeader('Cc'),
+    bcc: getHeader('Bcc'),
+    date: getHeader('Date'),
+    snippet: email.data.snippet,
+    body: body,
+    labelIds: email.data.labelIds || [],
+    isUnread: (email.data.labelIds || []).includes('UNREAD'),
+    attachments
+  };
+}
+
+function findPartByMimeType(parts: any[], mimeType: string): any {
+  for (const part of parts) {
+    if (part.mimeType === mimeType) {
+      return part;
+    }
+    if (part.parts) {
+      const found = findPartByMimeType(part.parts, mimeType);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function extractAttachments(payload: any): { filename: string; mimeType: string; size: number; attachmentId: string }[] {
+  const attachments: { filename: string; mimeType: string; size: number; attachmentId: string }[] = [];
+  
+  function processpart(part: any) {
+    if (part.filename && part.body?.attachmentId) {
+      attachments.push({
+        filename: part.filename,
+        mimeType: part.mimeType || 'application/octet-stream',
+        size: part.body.size || 0,
+        attachmentId: part.body.attachmentId
+      });
+    }
+    if (part.parts) {
+      part.parts.forEach(processpart);
+    }
+  }
+  
+  if (payload?.parts) {
+    payload.parts.forEach(processpart);
+  }
+  
+  return attachments;
+}
+
+export async function getThreadWithUserAccount(userId: number, threadId: string) {
+  const gmail = await getAuthenticatedGmailClient(userId);
+  
+  const thread = await gmail.users.threads.get({
+    userId: 'me',
+    id: threadId,
+    format: 'full'
+  });
+  
+  const messages = thread.data.messages || [];
+  
+  return messages.map((msg: any) => {
+    const headers = msg.payload?.headers || [];
+    const getHeader = (name: string) => 
+      headers.find((h: any) => h.name?.toLowerCase() === name.toLowerCase())?.value || '';
+    
+    let body = '';
+    if (msg.payload?.body?.data) {
+      body = Buffer.from(msg.payload.body.data, 'base64').toString('utf-8');
+    } else if (msg.payload?.parts) {
+      const htmlPart = findPartByMimeType(msg.payload.parts, 'text/html');
+      const textPart = findPartByMimeType(msg.payload.parts, 'text/plain');
+      const part = htmlPart || textPart;
+      if (part?.body?.data) {
+        body = Buffer.from(part.body.data, 'base64').toString('utf-8');
+      }
+    }
+    
+    const attachments = extractAttachments(msg.payload);
+    
+    return {
+      id: msg.id,
+      threadId: msg.threadId,
+      subject: getHeader('Subject'),
+      from: getHeader('From'),
+      to: getHeader('To'),
+      cc: getHeader('Cc'),
+      bcc: getHeader('Bcc'),
+      date: getHeader('Date'),
+      snippet: msg.snippet,
+      body: body,
+      labelIds: msg.labelIds || [],
+      isUnread: (msg.labelIds || []).includes('UNREAD'),
+      attachments
+    };
+  });
+}
+
+export async function sendEmailWithAttachments(
+  userId: number,
+  to: string,
+  subject: string,
+  body: string,
+  cc?: string,
+  bcc?: string,
+  attachments?: { filename: string; mimeType: string; content: string }[],
+  inReplyTo?: string,
+  references?: string
+) {
+  const gmail = await getAuthenticatedGmailClient(userId);
+  
+  const boundary = '----=_Part_' + Math.random().toString(36).substring(2);
+  const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`;
+  
+  let messageParts = [
+    `To: ${to}`,
+    cc ? `Cc: ${cc}` : '',
+    bcc ? `Bcc: ${bcc}` : '',
+    `Subject: ${utf8Subject}`,
+    inReplyTo ? `In-Reply-To: ${inReplyTo}` : '',
+    references ? `References: ${references}` : '',
+    'MIME-Version: 1.0',
+  ].filter(Boolean);
+  
+  if (attachments && attachments.length > 0) {
+    messageParts.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
+    messageParts.push('');
+    messageParts.push(`--${boundary}`);
+    messageParts.push('Content-Type: text/html; charset=utf-8');
+    messageParts.push('');
+    messageParts.push(body);
+    
+    for (const attachment of attachments) {
+      messageParts.push(`--${boundary}`);
+      messageParts.push(`Content-Type: ${attachment.mimeType}; name="${attachment.filename}"`);
+      messageParts.push('Content-Transfer-Encoding: base64');
+      messageParts.push(`Content-Disposition: attachment; filename="${attachment.filename}"`);
+      messageParts.push('');
+      messageParts.push(attachment.content);
+    }
+    
+    messageParts.push(`--${boundary}--`);
+  } else {
+    messageParts.push('Content-Type: text/html; charset=utf-8');
+    messageParts.push('');
+    messageParts.push(body);
+  }
+  
+  const message = messageParts.join('\r\n');
+  const encodedMessage = Buffer.from(message)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+    
+  const response = await gmail.users.messages.send({
+    userId: 'me',
+    requestBody: {
+      raw: encodedMessage
+    }
+  });
+  
+  return response.data;
 }

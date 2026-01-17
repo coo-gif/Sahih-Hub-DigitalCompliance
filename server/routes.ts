@@ -71,7 +71,10 @@ import {
   sendEmailWithUserAccount,
   getEmailsWithUserAccount,
   getUnreadCountWithUserAccount,
-  markEmailAsReadWithUserAccount
+  markEmailAsReadWithUserAccount,
+  getEmailWithUserAccount,
+  getThreadWithUserAccount,
+  sendEmailWithAttachments
 } from "./gmail-oauth";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 
@@ -5431,6 +5434,17 @@ Limit to the top 10 most important suggestions.`
 
   app.get('/api/gmail/emails/:id', requireAuth, async (req, res) => {
     try {
+      const userId = getCurrentUserId(req);
+      
+      // Try user's OAuth connection first
+      const tokens = await getUserGmailTokens(userId);
+      if (tokens?.gmailAccessToken) {
+        const email = await getEmailWithUserAccount(userId, req.params.id);
+        res.json(email);
+        return;
+      }
+      
+      // Fall back to connector
       const email = await getEmail(req.params.id);
       res.json(email);
     } catch (error: any) {
@@ -5439,10 +5453,85 @@ Limit to the top 10 most important suggestions.`
     }
   });
 
+  // Get full email thread
+  app.get('/api/gmail/thread/:threadId', requireAuth, async (req, res) => {
+    try {
+      const userId = getCurrentUserId(req);
+      
+      const tokens = await getUserGmailTokens(userId);
+      if (!tokens?.gmailAccessToken) {
+        return res.status(400).json({ message: 'Gmail not connected' });
+      }
+      
+      const thread = await getThreadWithUserAccount(userId, req.params.threadId);
+      res.json(thread);
+    } catch (error: any) {
+      console.error('Gmail thread error:', error);
+      res.status(500).json({ message: error.message || 'Failed to fetch thread' });
+    }
+  });
+
+  // AI-powered email drafting
+  app.post('/api/gmail/ai-draft', requireAuth, async (req, res) => {
+    try {
+      const { prompt, context, action } = req.body;
+      
+      if (!prompt) {
+        return res.status(400).json({ message: 'Prompt is required' });
+      }
+      
+      const openai = new OpenAI();
+      
+      let systemPrompt = '';
+      if (action === 'compose') {
+        systemPrompt = `You are a professional email writing assistant. Write a clear, professional email based on the user's request. 
+Output ONLY the email body - no subject line, no greetings like "Here's your email", just the actual email content.
+Use appropriate professional greetings and sign-offs.`;
+      } else if (action === 'reply') {
+        systemPrompt = `You are a professional email writing assistant. Write a clear, professional reply based on the user's request and the email context provided.
+Output ONLY the email body - no subject line, no meta-text, just the actual reply content.
+Consider the tone and context of the original email.`;
+      } else if (action === 'grammar') {
+        systemPrompt = `You are a grammar and writing improvement assistant. Fix any grammar, spelling, and punctuation errors in the text.
+Improve sentence structure and clarity while maintaining the original meaning and tone.
+Output ONLY the corrected text - no explanations or meta-text.`;
+      } else if (action === 'summarize') {
+        systemPrompt = `You are an email thread summarizer. Create a concise summary of the email conversation.
+Include:
+- Key topics discussed
+- Important decisions or action items
+- Current status/outcome
+Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
+      } else {
+        systemPrompt = 'You are a helpful email writing assistant.';
+      }
+      
+      const userPrompt = context 
+        ? `Context from email thread:\n${context}\n\nUser request: ${prompt}`
+        : prompt;
+      
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 1000
+      });
+      
+      const result = response.choices[0]?.message?.content || '';
+      res.json({ result });
+    } catch (error: any) {
+      console.error('AI draft error:', error);
+      res.status(500).json({ message: error.message || 'Failed to generate AI draft' });
+    }
+  });
+
   app.post('/api/gmail/send', requireAuth, async (req, res) => {
     try {
       const userId = getCurrentUserId(req);
-      const { to, subject, body } = req.body;
+      const { to, subject, body, cc, bcc, attachments, inReplyTo, references } = req.body;
       if (!to || !subject || !body) {
         return res.status(400).json({ message: 'Missing required fields: to, subject, body' });
       }
@@ -5450,8 +5539,14 @@ Limit to the top 10 most important suggestions.`
       // Try user's OAuth connection first
       const tokens = await getUserGmailTokens(userId);
       if (tokens?.gmailAccessToken) {
-        const result = await sendEmailWithUserAccount(userId, to, subject, body);
-        res.json({ id: result.id, threadId: result.threadId });
+        // Use enhanced send with attachments if present
+        if (attachments?.length || cc || bcc || inReplyTo) {
+          const result = await sendEmailWithAttachments(userId, to, subject, body, cc, bcc, attachments, inReplyTo, references);
+          res.json({ id: result.id, threadId: result.threadId });
+        } else {
+          const result = await sendEmailWithUserAccount(userId, to, subject, body);
+          res.json({ id: result.id, threadId: result.threadId });
+        }
         return;
       }
       

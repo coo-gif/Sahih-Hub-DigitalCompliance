@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useEmails, useEmail, useSendEmail, useUnreadCount, useMarkAsRead, useGmailStatus, useConnectGmail, useDisconnectGmail } from "@/hooks/use-gmail";
+import { useState, useEffect, useRef } from "react";
+import { useEmails, useEmail, useSendEmail, useUnreadCount, useMarkAsRead, useGmailStatus, useConnectGmail, useDisconnectGmail, useThread, useAIDraft, EmailMessage, SendEmailData } from "@/hooks/use-gmail";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -32,13 +34,23 @@ import {
   Trash2,
   Archive,
   Reply,
+  ReplyAll,
   Forward,
   MoreVertical,
   PenSquare,
   CheckCircle2,
   X,
   Link2,
-  Unlink
+  Unlink,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
+  FileText,
+  Wand2,
+  MessageSquare,
+  Users,
+  Plus,
+  Download
 } from "lucide-react";
 import { format, parseISO, isValid } from "date-fns";
 import DOMPurify from "dompurify";
@@ -46,6 +58,23 @@ import { useLocation } from "wouter";
 import { queryClient } from "@/lib/queryClient";
 
 function formatEmailDate(dateStr: string): string {
+  try {
+    const date = new Date(dateStr);
+    if (!isValid(date)) return dateStr;
+    
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+    
+    if (isToday) {
+      return format(date, 'h:mm a');
+    }
+    return format(date, 'MMM d, yyyy h:mm a');
+  } catch {
+    return dateStr;
+  }
+}
+
+function formatShortDate(dateStr: string): string {
   try {
     const date = new Date(dateStr);
     if (!isValid(date)) return dateStr;
@@ -70,19 +99,47 @@ function extractSenderName(from: string): { name: string; email: string } {
   return { name: from, email: from };
 }
 
+function extractAllRecipients(email: EmailMessage): string[] {
+  const recipients: string[] = [];
+  if (email.to) {
+    recipients.push(...email.to.split(',').map(e => e.trim()));
+  }
+  if (email.cc) {
+    recipients.push(...email.cc.split(',').map(e => e.trim()));
+  }
+  return recipients;
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
 export default function Email() {
   const [activeTab, setActiveTab] = useState<'INBOX' | 'SENT' | 'UNREAD'>('INBOX');
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [showCompose, setShowCompose] = useState(false);
-  const [composeData, setComposeData] = useState({ to: '', subject: '', body: '' });
-  const [replyMode, setReplyMode] = useState(false);
+  const [composeData, setComposeData] = useState<SendEmailData>({ to: '', subject: '', body: '' });
+  const [showCc, setShowCc] = useState(false);
+  const [showBcc, setShowBcc] = useState(false);
+  const [replyMode, setReplyMode] = useState<'reply' | 'replyAll' | null>(null);
+  const [attachments, setAttachments] = useState<{ filename: string; mimeType: string; content: string }[]>([]);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [showAiPanel, setShowAiPanel] = useState(false);
+  const [threadSummary, setThreadSummary] = useState<string | null>(null);
+  const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const { data: gmailStatus, isLoading: statusLoading } = useGmailStatus();
   const { data: emails, isLoading: emailsLoading, refetch } = useEmails(30, activeTab);
   const { data: selectedEmail, isLoading: emailLoading } = useEmail(selectedEmailId);
+  const { data: threadMessages, isLoading: threadLoading } = useThread(selectedThreadId);
   const { data: unreadData } = useUnreadCount();
   const sendEmail = useSendEmail();
   const markAsRead = useMarkAsRead();
+  const aiDraft = useAIDraft();
   const { toast } = useToast();
 
   useEffect(() => {
@@ -90,6 +147,49 @@ export default function Email() {
       markAsRead.mutate(selectedEmailId);
     }
   }, [selectedEmail, selectedEmailId]);
+
+  useEffect(() => {
+    if (selectedEmail?.threadId) {
+      setSelectedThreadId(selectedEmail.threadId);
+      // Expand the last message by default
+      if (threadMessages && threadMessages.length > 0) {
+        setExpandedMessages(new Set([threadMessages[threadMessages.length - 1].id]));
+      }
+    }
+  }, [selectedEmail?.threadId]);
+
+  useEffect(() => {
+    // When thread messages load, expand the last one
+    if (threadMessages && threadMessages.length > 0) {
+      setExpandedMessages(new Set([threadMessages[threadMessages.length - 1].id]));
+    }
+  }, [threadMessages]);
+
+  // Generate summary when thread loads
+  useEffect(() => {
+    if (threadMessages && threadMessages.length > 1 && !threadSummary) {
+      generateThreadSummary();
+    }
+  }, [threadMessages]);
+
+  const generateThreadSummary = async () => {
+    if (!threadMessages || threadMessages.length === 0) return;
+    
+    const context = threadMessages.map(m => 
+      `From: ${extractSenderName(m.from).name}\nDate: ${formatEmailDate(m.date)}\n${m.snippet}`
+    ).join('\n\n---\n\n');
+    
+    try {
+      const result = await aiDraft.mutateAsync({
+        prompt: 'Summarize this email thread',
+        context,
+        action: 'summarize'
+      });
+      setThreadSummary(result.result);
+    } catch (error) {
+      console.error('Failed to generate summary:', error);
+    }
+  };
 
   const connectGmail = useConnectGmail();
   const disconnectGmail = useDisconnectGmail();
@@ -225,32 +325,140 @@ export default function Email() {
 
   const handleSendEmail = async () => {
     if (!composeData.to || !composeData.subject || !composeData.body) {
-      toast({ title: "Missing fields", description: "Please fill in all fields", variant: "destructive" });
+      toast({ title: "Missing fields", description: "Please fill in all required fields", variant: "destructive" });
       return;
     }
 
     try {
-      await sendEmail.mutateAsync(composeData);
+      const emailData: SendEmailData = {
+        ...composeData,
+        attachments: attachments.length > 0 ? attachments : undefined,
+      };
+      
+      await sendEmail.mutateAsync(emailData);
       toast({ title: "Email sent", description: "Your email has been sent successfully" });
       setShowCompose(false);
       setComposeData({ to: '', subject: '', body: '' });
-      setReplyMode(false);
+      setReplyMode(null);
+      setAttachments([]);
+      setShowCc(false);
+      setShowBcc(false);
     } catch (error: any) {
       toast({ title: "Failed to send", description: error.message, variant: "destructive" });
     }
   };
 
+  // Convert HTML to plain text for quoting
+  const htmlToPlainText = (html: string): string => {
+    // Remove HTML tags and convert common entities
+    return html
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n\n')
+      .replace(/<\/div>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  };
+
   const handleReply = () => {
     if (selectedEmail) {
       const sender = extractSenderName(selectedEmail.from);
+      const plainTextBody = htmlToPlainText(selectedEmail.body || '');
+      const quotedText = plainTextBody.split('\n').map(line => `> ${line}`).join('\n');
+      
       setComposeData({
         to: sender.email,
         subject: selectedEmail.subject.startsWith('Re:') ? selectedEmail.subject : `Re: ${selectedEmail.subject}`,
-        body: `\n\n---\nOn ${formatEmailDate(selectedEmail.date)}, ${sender.name} wrote:\n${selectedEmail.snippet}...`,
+        body: `\n\n---\nOn ${formatEmailDate(selectedEmail.date)}, ${sender.name} wrote:\n${quotedText}`,
+        inReplyTo: selectedEmail.id,
       });
-      setReplyMode(true);
+      setReplyMode('reply');
       setShowCompose(true);
     }
+  };
+
+  const handleReplyAll = () => {
+    if (selectedEmail) {
+      const sender = extractSenderName(selectedEmail.from);
+      const allRecipients = extractAllRecipients(selectedEmail);
+      const ccRecipients = allRecipients.filter(r => r !== sender.email);
+      const plainTextBody = htmlToPlainText(selectedEmail.body || '');
+      const quotedText = plainTextBody.split('\n').map(line => `> ${line}`).join('\n');
+      
+      setComposeData({
+        to: sender.email,
+        cc: ccRecipients.join(', '),
+        subject: selectedEmail.subject.startsWith('Re:') ? selectedEmail.subject : `Re: ${selectedEmail.subject}`,
+        body: `\n\n---\nOn ${formatEmailDate(selectedEmail.date)}, ${sender.name} wrote:\n${quotedText}`,
+        inReplyTo: selectedEmail.id,
+      });
+      setReplyMode('replyAll');
+      setShowCc(true);
+      setShowCompose(true);
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    for (const file of Array.from(files)) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = (reader.result as string).split(',')[1];
+        setAttachments(prev => [...prev, {
+          filename: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          content: base64
+        }]);
+      };
+      reader.readAsDataURL(file);
+    }
+    
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleAIDraft = async (action: 'compose' | 'reply' | 'grammar') => {
+    if (!aiPrompt && action !== 'grammar') {
+      toast({ title: "Enter a prompt", description: "Please describe what you want to write", variant: "destructive" });
+      return;
+    }
+
+    const prompt = action === 'grammar' ? composeData.body : aiPrompt;
+    const context = selectedEmail ? `Subject: ${selectedEmail.subject}\nFrom: ${selectedEmail.from}\nContent: ${selectedEmail.snippet}` : undefined;
+
+    try {
+      const result = await aiDraft.mutateAsync({ prompt, context, action });
+      setComposeData(prev => ({ ...prev, body: result.result }));
+      setAiPrompt('');
+      setShowAiPanel(false);
+      toast({ title: "Draft generated", description: "AI has generated your email draft" });
+    } catch (error: any) {
+      toast({ title: "AI Error", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const toggleMessageExpand = (messageId: string) => {
+    setExpandedMessages(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(messageId)) {
+        newSet.delete(messageId);
+      } else {
+        newSet.add(messageId);
+      }
+      return newSet;
+    });
   };
 
   return (
@@ -280,7 +488,10 @@ export default function Email() {
           <Button 
             onClick={() => {
               setComposeData({ to: '', subject: '', body: '' });
-              setReplyMode(false);
+              setReplyMode(null);
+              setAttachments([]);
+              setShowCc(false);
+              setShowBcc(false);
               setShowCompose(true);
             }}
             data-testid="button-compose-email"
@@ -303,7 +514,7 @@ export default function Email() {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as typeof activeTab); setSelectedEmailId(null); }} data-testid="tabs-email">
+      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as typeof activeTab); setSelectedEmailId(null); setSelectedThreadId(null); setThreadSummary(null); }} data-testid="tabs-email">
         <TabsList>
           <TabsTrigger value="INBOX" className="flex items-center gap-2" data-testid="tab-inbox">
             <Inbox className="w-4 h-4" />
@@ -326,7 +537,8 @@ export default function Email() {
       </Tabs>
 
       <div className="flex-1 flex gap-4 min-h-0 overflow-hidden">
-        <Card className={`flex-shrink-0 transition-all overflow-hidden ${selectedEmailId ? 'w-[320px] hidden lg:flex lg:flex-col' : 'w-full'}`}>
+        {/* Email List */}
+        <Card className={`flex-shrink-0 transition-all overflow-hidden ${selectedEmailId ? 'w-[280px] hidden lg:flex lg:flex-col' : 'w-full max-w-md'}`}>
           <CardHeader className="py-3 px-4 border-b">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               {activeTab === 'INBOX' && <Inbox className="w-4 h-4" />}
@@ -362,7 +574,10 @@ export default function Email() {
                     <div
                       key={email.id}
                       className={`p-3 cursor-pointer transition-colors hover:bg-muted/50 ${isSelected ? 'bg-primary/5 border-l-2 border-l-primary' : ''}`}
-                      onClick={() => setSelectedEmailId(email.id)}
+                      onClick={() => { 
+                        setSelectedEmailId(email.id); 
+                        setThreadSummary(null);
+                      }}
                       data-testid={`email-item-${email.id}`}
                     >
                       <div className="flex items-start gap-3">
@@ -380,7 +595,7 @@ export default function Email() {
                               {sender.name}
                             </span>
                             <span className="text-xs text-muted-foreground flex-shrink-0">
-                              {formatEmailDate(email.date)}
+                              {formatShortDate(email.date)}
                             </span>
                           </div>
                           <p className={`text-sm truncate ${email.isUnread ? 'font-medium' : ''}`}>
@@ -399,6 +614,7 @@ export default function Email() {
           </ScrollArea>
         </Card>
 
+        {/* Thread Preview */}
         {selectedEmailId && (
           <Card className="flex-1 flex flex-col overflow-hidden">
             <CardHeader className="py-3 px-4 border-b flex-shrink-0">
@@ -406,7 +622,7 @@ export default function Email() {
                 <Button 
                   variant="ghost" 
                   size="icon" 
-                  onClick={() => setSelectedEmailId(null)}
+                  onClick={() => { setSelectedEmailId(null); setSelectedThreadId(null); setThreadSummary(null); }}
                   className="lg:hidden"
                   data-testid="button-back-to-list"
                 >
@@ -416,94 +632,248 @@ export default function Email() {
                   {emailLoading ? (
                     <Skeleton className="h-5 w-3/4" />
                   ) : (
-                    <h2 className="font-semibold truncate">{selectedEmail?.subject}</h2>
+                    <div>
+                      <h2 className="font-semibold truncate">{selectedEmail?.subject}</h2>
+                      {threadMessages && threadMessages.length > 1 && (
+                        <p className="text-xs text-muted-foreground">{threadMessages.length} messages in thread</p>
+                      )}
+                    </div>
                   )}
                 </div>
                 <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="icon" onClick={handleReply} data-testid="button-reply">
+                  <Button variant="ghost" size="icon" onClick={handleReply} data-testid="button-reply" title="Reply">
                     <Reply className="w-4 h-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" data-testid="button-star">
+                  <Button variant="ghost" size="icon" onClick={handleReplyAll} data-testid="button-reply-all" title="Reply All">
+                    <ReplyAll className="w-4 h-4" />
+                  </Button>
+                  <Button variant="ghost" size="icon" data-testid="button-star" title="Star">
                     <Star className="w-4 h-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" data-testid="button-archive">
+                  <Button variant="ghost" size="icon" data-testid="button-archive" title="Archive">
                     <Archive className="w-4 h-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" data-testid="button-delete">
+                  <Button variant="ghost" size="icon" data-testid="button-delete" title="Delete">
                     <Trash2 className="w-4 h-4" />
                   </Button>
                 </div>
               </div>
             </CardHeader>
             
-            {emailLoading ? (
-              <div className="p-4 space-y-4">
-                <div className="flex items-center gap-3">
-                  <Skeleton className="w-10 h-10 rounded-full" />
-                  <div className="space-y-1">
-                    <Skeleton className="h-4 w-32" />
-                    <Skeleton className="h-3 w-48" />
-                  </div>
-                </div>
-                <Skeleton className="h-64 w-full" />
-              </div>
-            ) : selectedEmail ? (
-              <>
-                <div className="p-4 border-b bg-muted/30 flex-shrink-0">
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                      <User className="w-5 h-5 text-primary" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium">{extractSenderName(selectedEmail.from).name}</span>
-                        <span className="text-xs text-muted-foreground">&lt;{extractSenderName(selectedEmail.from).email}&gt;</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground mt-0.5">
-                        <span>to {selectedEmail.to}</span>
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          {formatEmailDate(selectedEmail.date)}
-                        </span>
+            <div className="flex-1 flex overflow-hidden">
+              {/* Thread Messages */}
+              <ScrollArea className="flex-1">
+                {threadLoading || emailLoading ? (
+                  <div className="p-4 space-y-4">
+                    <div className="flex items-center gap-3">
+                      <Skeleton className="w-10 h-10 rounded-full" />
+                      <div className="space-y-1">
+                        <Skeleton className="h-4 w-32" />
+                        <Skeleton className="h-3 w-48" />
                       </div>
                     </div>
+                    <Skeleton className="h-64 w-full" />
+                  </div>
+                ) : threadMessages && threadMessages.length > 0 ? (
+                  <div className="divide-y">
+                    {threadMessages.map((message, index) => {
+                      const sender = extractSenderName(message.from);
+                      const isExpanded = expandedMessages.has(message.id);
+                      const isLast = index === threadMessages.length - 1;
+                      
+                      return (
+                        <Collapsible 
+                          key={message.id} 
+                          open={isExpanded}
+                          onOpenChange={() => toggleMessageExpand(message.id)}
+                        >
+                          <CollapsibleTrigger asChild>
+                            <div className={`p-4 cursor-pointer hover:bg-muted/30 ${isExpanded ? 'bg-muted/20' : ''}`}>
+                              <div className="flex items-start gap-3">
+                                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                                  <User className="w-5 h-5 text-primary" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-medium">{sender.name}</span>
+                                    <span className="text-xs text-muted-foreground">&lt;{sender.email}&gt;</span>
+                                    <span className="text-xs text-muted-foreground ml-auto flex items-center gap-1">
+                                      <Clock className="w-3 h-3" />
+                                      {formatEmailDate(message.date)}
+                                    </span>
+                                    {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                  </div>
+                                  {!isExpanded && (
+                                    <p className="text-sm text-muted-foreground truncate mt-1">{message.snippet}</p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent>
+                            <div className="px-4 pb-4">
+                              <div className="ml-13 pl-10">
+                                {message.to && (
+                                  <div className="text-sm text-muted-foreground mb-2">
+                                    <span className="font-medium">To:</span> {message.to}
+                                  </div>
+                                )}
+                                {message.cc && (
+                                  <div className="text-sm text-muted-foreground mb-2">
+                                    <span className="font-medium">CC:</span> {message.cc}
+                                  </div>
+                                )}
+                                
+                                <div 
+                                  className="prose prose-sm dark:prose-invert max-w-none mt-3"
+                                  dangerouslySetInnerHTML={{ 
+                                    __html: DOMPurify.sanitize(message.body || '<p class="text-muted-foreground italic">No content</p>') 
+                                  }}
+                                />
+                                
+                                {message.attachments && message.attachments.length > 0 && (
+                                  <div className="mt-4 pt-4 border-t">
+                                    <p className="text-sm font-medium mb-2 flex items-center gap-2">
+                                      <Paperclip className="w-4 h-4" />
+                                      Attachments ({message.attachments.length})
+                                    </p>
+                                    <div className="flex flex-wrap gap-2">
+                                      {message.attachments.map((att, i) => (
+                                        <div key={i} className="flex items-center gap-2 p-2 bg-muted rounded-md text-sm">
+                                          <FileText className="w-4 h-4" />
+                                          <span>{att.filename}</span>
+                                          <span className="text-muted-foreground">({formatFileSize(att.size)})</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </CollapsibleContent>
+                        </Collapsible>
+                      );
+                    })}
+                  </div>
+                ) : selectedEmail ? (
+                  <>
+                    <div className="p-4 border-b bg-muted/30">
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                          <User className="w-5 h-5 text-primary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium">{extractSenderName(selectedEmail.from).name}</span>
+                            <span className="text-xs text-muted-foreground">&lt;{extractSenderName(selectedEmail.from).email}&gt;</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground mt-0.5">
+                            <span>to {selectedEmail.to}</span>
+                            <span className="flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              {formatEmailDate(selectedEmail.date)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div 
+                      className="p-4 prose prose-sm dark:prose-invert max-w-none"
+                      dangerouslySetInnerHTML={{ 
+                        __html: DOMPurify.sanitize(selectedEmail.body || '<p class="text-muted-foreground italic">No content</p>') 
+                      }}
+                    />
+                  </>
+                ) : null}
+                
+                {/* Quick Reply Footer */}
+                <div className="p-3 border-t bg-muted/30 sticky bottom-0">
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={handleReply} className="gap-2" data-testid="button-reply-footer">
+                      <Reply className="w-4 h-4" />
+                      Reply
+                    </Button>
+                    <Button variant="outline" onClick={handleReplyAll} className="gap-2" data-testid="button-reply-all-footer">
+                      <ReplyAll className="w-4 h-4" />
+                      Reply All
+                    </Button>
                   </div>
                 </div>
-                <ScrollArea className="flex-1">
-                  <div 
-                    className="p-4 prose prose-sm dark:prose-invert max-w-none"
-                    dangerouslySetInnerHTML={{ 
-                      __html: DOMPurify.sanitize(selectedEmail.body) 
-                    }}
-                  />
-                </ScrollArea>
-                <div className="p-3 border-t bg-muted/30 flex-shrink-0">
-                  <Button variant="outline" onClick={handleReply} className="gap-2" data-testid="button-reply-footer">
-                    <Reply className="w-4 h-4" />
-                    Reply
-                  </Button>
+              </ScrollArea>
+
+              {/* Thread Summary Sidebar */}
+              {threadMessages && threadMessages.length > 1 && (
+                <div className="w-[280px] border-l bg-muted/20 hidden xl:flex xl:flex-col">
+                  <div className="p-4 border-b">
+                    <h3 className="font-semibold flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-purple-500" />
+                      Thread Summary
+                    </h3>
+                  </div>
+                  <ScrollArea className="flex-1 p-4">
+                    {aiDraft.isPending ? (
+                      <div className="space-y-2">
+                        <Skeleton className="h-4 w-full" />
+                        <Skeleton className="h-4 w-3/4" />
+                        <Skeleton className="h-4 w-5/6" />
+                      </div>
+                    ) : threadSummary ? (
+                      <div className="prose prose-sm dark:prose-invert">
+                        <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(threadSummary.replace(/\n/g, '<br/>')) }} />
+                      </div>
+                    ) : (
+                      <div className="text-center text-muted-foreground">
+                        <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">Generating summary...</p>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="mt-2"
+                          onClick={generateThreadSummary}
+                        >
+                          <Sparkles className="w-3 h-3 mr-1" />
+                          Generate Summary
+                        </Button>
+                      </div>
+                    )}
+                  </ScrollArea>
+                  
+                  <div className="p-4 border-t">
+                    <p className="text-xs text-muted-foreground mb-2">Thread Participants</p>
+                    <div className="space-y-1">
+                      {Array.from(new Set(threadMessages.map(m => extractSenderName(m.from).email))).map((email, i) => (
+                        <div key={i} className="flex items-center gap-2 text-sm">
+                          <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center">
+                            <User className="w-3 h-3 text-primary" />
+                          </div>
+                          <span className="truncate">{email}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-              </>
-            ) : null}
+              )}
+            </div>
           </Card>
         )}
       </div>
 
-      <Dialog open={showCompose} onOpenChange={setShowCompose}>
-        <DialogContent className="max-w-2xl">
+      {/* Compose Dialog */}
+      <Dialog open={showCompose} onOpenChange={(open) => { setShowCompose(open); if (!open) { setReplyMode(null); setAttachments([]); } }}>
+        <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <PenSquare className="w-5 h-5" />
-              {replyMode ? 'Reply' : 'Compose Email'}
+              {replyMode === 'reply' ? 'Reply' : replyMode === 'replyAll' ? 'Reply All' : 'Compose Email'}
             </DialogTitle>
             <DialogDescription>
               {replyMode ? 'Send a reply to this email' : 'Compose and send a new email'}
             </DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-4 py-4">
+          <div className="flex-1 overflow-y-auto space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="to">To</Label>
+              <Label htmlFor="to">To *</Label>
               <Input
                 id="to"
                 type="email"
@@ -513,8 +883,60 @@ export default function Email() {
                 data-testid="input-email-to"
               />
             </div>
+            
+            <div className="flex gap-2">
+              {!showCc && (
+                <Button variant="ghost" size="sm" onClick={() => setShowCc(true)} data-testid="button-add-cc">
+                  <Plus className="w-3 h-3 mr-1" /> CC
+                </Button>
+              )}
+              {!showBcc && (
+                <Button variant="ghost" size="sm" onClick={() => setShowBcc(true)} data-testid="button-add-bcc">
+                  <Plus className="w-3 h-3 mr-1" /> BCC
+                </Button>
+              )}
+            </div>
+            
+            {showCc && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="cc">CC</Label>
+                  <Button variant="ghost" size="sm" onClick={() => { setShowCc(false); setComposeData(prev => ({ ...prev, cc: '' })); }}>
+                    <X className="w-3 h-3" />
+                  </Button>
+                </div>
+                <Input
+                  id="cc"
+                  type="email"
+                  placeholder="cc@example.com"
+                  value={composeData.cc || ''}
+                  onChange={(e) => setComposeData({ ...composeData, cc: e.target.value })}
+                  data-testid="input-email-cc"
+                />
+              </div>
+            )}
+            
+            {showBcc && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="bcc">BCC</Label>
+                  <Button variant="ghost" size="sm" onClick={() => { setShowBcc(false); setComposeData(prev => ({ ...prev, bcc: '' })); }}>
+                    <X className="w-3 h-3" />
+                  </Button>
+                </div>
+                <Input
+                  id="bcc"
+                  type="email"
+                  placeholder="bcc@example.com"
+                  value={composeData.bcc || ''}
+                  onChange={(e) => setComposeData({ ...composeData, bcc: e.target.value })}
+                  data-testid="input-email-bcc"
+                />
+              </div>
+            )}
+            
             <div className="space-y-2">
-              <Label htmlFor="subject">Subject</Label>
+              <Label htmlFor="subject">Subject *</Label>
               <Input
                 id="subject"
                 placeholder="Email subject"
@@ -523,22 +945,117 @@ export default function Email() {
                 data-testid="input-email-subject"
               />
             </div>
+            
+            {/* AI Assistant Panel */}
+            <Collapsible open={showAiPanel} onOpenChange={setShowAiPanel}>
+              <CollapsibleTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-2 bg-gradient-to-r from-purple-500/10 to-indigo-500/10 border-purple-200 dark:border-purple-800">
+                  <Wand2 className="w-4 h-4 text-purple-500" />
+                  AI Writing Assistant
+                  {showAiPanel ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="mt-3 p-4 rounded-lg bg-gradient-to-r from-purple-500/5 to-indigo-500/5 border border-purple-200 dark:border-purple-800 space-y-3">
+                  <div className="space-y-2">
+                    <Label>What would you like to write?</Label>
+                    <Textarea
+                      placeholder="e.g., Write a professional email requesting a meeting next week to discuss the project timeline..."
+                      value={aiPrompt}
+                      onChange={(e) => setAiPrompt(e.target.value)}
+                      rows={3}
+                      className="resize-none"
+                      data-testid="textarea-ai-prompt"
+                    />
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <Button 
+                      size="sm" 
+                      onClick={() => handleAIDraft(replyMode ? 'reply' : 'compose')}
+                      disabled={aiDraft.isPending || !aiPrompt}
+                      className="gap-1 bg-purple-600 hover:bg-purple-700"
+                      data-testid="button-ai-generate"
+                    >
+                      {aiDraft.isPending ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                      Generate Draft
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      onClick={() => handleAIDraft('grammar')}
+                      disabled={aiDraft.isPending || !composeData.body}
+                      className="gap-1"
+                      data-testid="button-ai-grammar"
+                    >
+                      <CheckCircle2 className="w-3 h-3" />
+                      Fix Grammar
+                    </Button>
+                  </div>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+            
             <div className="space-y-2">
-              <Label htmlFor="body">Message</Label>
+              <Label htmlFor="body">Message *</Label>
               <Textarea
                 id="body"
                 placeholder="Write your message..."
-                rows={10}
+                rows={12}
                 value={composeData.body}
                 onChange={(e) => setComposeData({ ...composeData, body: e.target.value })}
-                className="resize-none"
+                className="resize-none font-sans"
                 data-testid="textarea-email-body"
               />
+            </div>
+            
+            {/* Attachments */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  onChange={handleFileSelect}
+                  className="hidden"
+                  data-testid="input-file-attachment"
+                />
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => fileInputRef.current?.click()}
+                  data-testid="button-add-attachment"
+                >
+                  <Paperclip className="w-4 h-4 mr-2" />
+                  Attach Files
+                </Button>
+                {attachments.length > 0 && (
+                  <span className="text-sm text-muted-foreground">{attachments.length} file(s) attached</span>
+                )}
+              </div>
+              
+              {attachments.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {attachments.map((att, i) => (
+                    <div key={i} className="flex items-center gap-2 p-2 bg-muted rounded-md text-sm">
+                      <FileText className="w-4 h-4" />
+                      <span>{att.filename}</span>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-5 w-5" 
+                        onClick={() => removeAttachment(i)}
+                      >
+                        <X className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
           
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setShowCompose(false); setReplyMode(false); }}>
+            <Button variant="outline" onClick={() => { setShowCompose(false); setReplyMode(null); setAttachments([]); }}>
               Cancel
             </Button>
             <Button 

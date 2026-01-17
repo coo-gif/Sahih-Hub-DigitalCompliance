@@ -59,23 +59,39 @@ export interface EmailListItem {
   isUnread: boolean;
 }
 
+export interface EmailAttachment {
+  filename: string;
+  mimeType: string;
+  size: number;
+  attachmentId: string;
+}
+
 export interface EmailMessage {
   id: string;
   threadId: string;
   subject: string;
   from: string;
   to: string;
+  cc?: string;
+  bcc?: string;
   date: string;
   snippet: string;
   body: string;
   isUnread: boolean;
-  labels: string[];
+  labels?: string[];
+  labelIds?: string[];
+  attachments?: EmailAttachment[];
 }
 
 export interface SendEmailData {
   to: string;
   subject: string;
   body: string;
+  cc?: string;
+  bcc?: string;
+  attachments?: { filename: string; mimeType: string; content: string }[];
+  inReplyTo?: string;
+  references?: string;
 }
 
 export function useEmails(maxResults: number = 20, label: string = 'INBOX') {
@@ -145,5 +161,36 @@ export function useMarkAsRead() {
 export function useLabels() {
   return useQuery<{ id: string; name: string; type: string }[]>({
     queryKey: ['/api/gmail/labels'],
+  });
+}
+
+export function useThread(threadId: string | null) {
+  return useQuery<EmailMessage[]>({
+    queryKey: ['/api/gmail/thread', threadId],
+    queryFn: async () => {
+      const response = await fetch(`/api/gmail/thread/${threadId}`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch thread');
+      }
+      return response.json();
+    },
+    enabled: !!threadId,
+  });
+}
+
+export interface AIDraftRequest {
+  prompt: string;
+  context?: string;
+  action: 'compose' | 'reply' | 'grammar' | 'summarize';
+}
+
+export function useAIDraft() {
+  return useMutation({
+    mutationFn: async (data: AIDraftRequest) => {
+      const response = await apiRequest('POST', '/api/gmail/ai-draft', data);
+      return response.json() as Promise<{ result: string }>;
+    },
   });
 }
