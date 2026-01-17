@@ -15,6 +15,9 @@ import {
   DocumentAccessRequestStatus,
   EmployeeRecordStatus,
   ReportType,
+  DocuGenieFormStatus,
+  insertDocuGenieFormSchema,
+  insertDocuGenieFormSubmissionSchema,
 } from "@shared/schema";
 import { z } from "zod";
 import puppeteer from "puppeteer";
@@ -6821,6 +6824,306 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
     } catch (error: any) {
       console.error('Error pinning wall post:', error);
       res.status(500).json({ message: error.message || 'Failed to pin wall post' });
+    }
+  });
+
+  // ============================================
+  // DOCUGENIE FORMS API
+  // ============================================
+
+  // Get all DocuGenie forms (for authenticated users)
+  app.get("/api/docugenie/forms", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const filters: { status?: string; createdById?: number } = {};
+      if (req.query.status) filters.status = req.query.status as string;
+      if (req.query.createdById) filters.createdById = parseInt(req.query.createdById as string);
+      
+      const forms = await storage.getDocuGenieForms(filters);
+      res.json(forms);
+    } catch (error) {
+      console.error('Error getting DocuGenie forms:', error);
+      res.status(500).json({ message: 'Error retrieving forms' });
+    }
+  });
+
+  // Get a single DocuGenie form by ID
+  app.get("/api/docugenie/forms/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const form = await storage.getDocuGenieForm(id);
+      if (!form) {
+        return res.status(404).json({ message: 'Form not found' });
+      }
+      res.json(form);
+    } catch (error) {
+      console.error('Error getting DocuGenie form:', error);
+      res.status(500).json({ message: 'Error retrieving form' });
+    }
+  });
+
+  // Get a form by share token (public access for form completion)
+  app.get("/api/docugenie/share/:token", async (req: Request, res: Response) => {
+    try {
+      const form = await storage.getDocuGenieFormByToken(req.params.token);
+      if (!form) {
+        return res.status(404).json({ message: 'Form not found or link expired' });
+      }
+      if (form.status !== DocuGenieFormStatus.PUBLISHED) {
+        return res.status(403).json({ message: 'This form is not available for submissions' });
+      }
+      if (form.expiresAt && new Date(form.expiresAt) < new Date()) {
+        return res.status(410).json({ message: 'This form link has expired' });
+      }
+      res.json(form);
+    } catch (error) {
+      console.error('Error getting shared form:', error);
+      res.status(500).json({ message: 'Error retrieving form' });
+    }
+  });
+
+  // Create a new DocuGenie form
+  app.post("/api/docugenie/forms", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).session?.userId;
+      if (!userId) {
+        return res.status(401).json({ message: 'Not authenticated' });
+      }
+
+      const validated = insertDocuGenieFormSchema.parse({
+        ...req.body,
+        createdById: userId,
+      });
+
+      const form = await storage.createDocuGenieForm(validated);
+      
+      await storage.createAuditLog({
+        action: AuditAction.CREATE,
+        entityType: 'docugenie_form',
+        entityId: form.id,
+        userId,
+        details: `Created DocuGenie form: ${form.title}`,
+      });
+
+      res.status(201).json(form);
+    } catch (error) {
+      console.error('Error creating DocuGenie form:', error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: 'Invalid form data', errors: error.errors });
+      }
+      res.status(500).json({ message: 'Error creating form' });
+    }
+  });
+
+  // Update a DocuGenie form
+  app.patch("/api/docugenie/forms/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const userId = (req as any).session?.userId;
+      
+      const existingForm = await storage.getDocuGenieForm(id);
+      if (!existingForm) {
+        return res.status(404).json({ message: 'Form not found' });
+      }
+
+      const updated = await storage.updateDocuGenieForm(id, req.body);
+      
+      await storage.createAuditLog({
+        action: AuditAction.UPDATE,
+        entityType: 'docugenie_form',
+        entityId: id,
+        userId,
+        details: `Updated DocuGenie form: ${updated.title}`,
+      });
+
+      res.json(updated);
+    } catch (error) {
+      console.error('Error updating DocuGenie form:', error);
+      res.status(500).json({ message: 'Error updating form' });
+    }
+  });
+
+  // Publish a form (generate share token and set status to published)
+  app.post("/api/docugenie/forms/:id/publish", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const userId = (req as any).session?.userId;
+      
+      const form = await storage.getDocuGenieForm(id);
+      if (!form) {
+        return res.status(404).json({ message: 'Form not found' });
+      }
+
+      // Generate a unique share token
+      const crypto = await import('crypto');
+      const shareToken = crypto.randomBytes(16).toString('hex');
+
+      const updated = await storage.updateDocuGenieForm(id, {
+        status: DocuGenieFormStatus.PUBLISHED,
+        shareToken,
+        expiresAt: req.body.expiresAt || null,
+      });
+
+      await storage.createAuditLog({
+        action: AuditAction.UPDATE,
+        entityType: 'docugenie_form',
+        entityId: id,
+        userId,
+        details: `Published DocuGenie form: ${form.title}`,
+      });
+
+      res.json(updated);
+    } catch (error) {
+      console.error('Error publishing form:', error);
+      res.status(500).json({ message: 'Error publishing form' });
+    }
+  });
+
+  // Delete a DocuGenie form
+  app.delete("/api/docugenie/forms/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const userId = (req as any).session?.userId;
+      
+      const form = await storage.getDocuGenieForm(id);
+      if (!form) {
+        return res.status(404).json({ message: 'Form not found' });
+      }
+
+      await storage.deleteDocuGenieForm(id);
+      
+      await storage.createAuditLog({
+        action: AuditAction.DELETE,
+        entityType: 'docugenie_form',
+        entityId: id,
+        userId,
+        details: `Deleted DocuGenie form: ${form.title}`,
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting DocuGenie form:', error);
+      res.status(500).json({ message: 'Error deleting form' });
+    }
+  });
+
+  // AI conversion endpoint - convert pasted content to HTML form
+  app.post("/api/docugenie/convert", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { content, title } = req.body;
+      if (!content) {
+        return res.status(400).json({ message: 'Content is required' });
+      }
+
+      const OpenAI = (await import('openai')).default;
+      const openai = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+      });
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `You are an expert at converting document/form content into clean, semantic HTML forms. 
+            
+Your task is to analyze the provided text content (which may be from a Google Doc, Google Form, or pasted text) and convert it into a well-structured HTML form.
+
+Guidelines:
+1. Identify form fields from the content (text inputs, textareas, checkboxes, radio buttons, select dropdowns, date inputs, file uploads)
+2. Use semantic HTML5 form elements with proper labels
+3. Add appropriate input types (text, email, tel, number, date, etc.)
+4. Use Tailwind CSS classes for styling (the form will be rendered in a Tailwind-enabled environment)
+5. Make required fields have the 'required' attribute based on context
+6. Group related fields using fieldset and legend when appropriate
+7. Add placeholder text where helpful
+8. Preserve any instructions or help text as paragraph elements
+9. Include a submit button at the end
+
+Return ONLY the HTML form code (starting with <form> and ending with </form>), no explanation or markdown.
+The form should have class="space-y-4 p-6" for proper spacing.
+Input fields should have classes like "w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
+Labels should have class "block text-sm font-medium mb-1"
+Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-md hover:bg-primary/90 transition-colors"`
+          },
+          {
+            role: "user",
+            content: `Convert the following content into an HTML form:\n\n${title ? `Form Title: ${title}\n\n` : ''}${content}`
+          }
+        ],
+        temperature: 0.3,
+        max_tokens: 4000,
+      });
+
+      const htmlForm = response.choices[0]?.message?.content?.trim() || '';
+      
+      // Extract form fields metadata for validation
+      const fieldMatches = htmlForm.matchAll(/<(input|select|textarea)[^>]*name="([^"]+)"[^>]*>/gi);
+      const formFields = Array.from(fieldMatches).map(match => ({
+        type: match[1],
+        name: match[2],
+      }));
+
+      res.json({ 
+        htmlForm,
+        formFields: JSON.stringify(formFields),
+      });
+    } catch (error) {
+      console.error('Error converting content to form:', error);
+      res.status(500).json({ message: 'Error converting content. Please try again.' });
+    }
+  });
+
+  // Get form submissions
+  app.get("/api/docugenie/forms/:id/submissions", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const formId = parseInt(req.params.id);
+      const submissions = await storage.getDocuGenieFormSubmissions(formId);
+      res.json(submissions);
+    } catch (error) {
+      console.error('Error getting submissions:', error);
+      res.status(500).json({ message: 'Error retrieving submissions' });
+    }
+  });
+
+  // Submit a form (public access via share token)
+  app.post("/api/docugenie/submit/:token", async (req: Request, res: Response) => {
+    try {
+      const form = await storage.getDocuGenieFormByToken(req.params.token);
+      if (!form) {
+        return res.status(404).json({ message: 'Form not found' });
+      }
+      if (form.status !== DocuGenieFormStatus.PUBLISHED) {
+        return res.status(403).json({ message: 'This form is not accepting submissions' });
+      }
+      if (form.expiresAt && new Date(form.expiresAt) < new Date()) {
+        return res.status(410).json({ message: 'This form link has expired' });
+      }
+
+      const { formData, submitterName, submitterEmail } = req.body;
+      
+      const submission = await storage.createDocuGenieFormSubmission({
+        formId: form.id,
+        formData: typeof formData === 'string' ? formData : JSON.stringify(formData),
+        submitterName: submitterName || null,
+        submitterEmail: submitterEmail || null,
+        submittedById: (req as any).session?.userId || null,
+      });
+
+      // Notify form creator
+      if (form.createdById) {
+        await storage.createNotification({
+          userId: form.createdById,
+          title: 'New Form Submission',
+          message: `Someone submitted the form: ${form.title}`,
+          type: 'document_update',
+          urgency: UrgencyLevel.NORMAL,
+        });
+      }
+
+      res.status(201).json({ success: true, submissionId: submission.id });
+    } catch (error) {
+      console.error('Error submitting form:', error);
+      res.status(500).json({ message: 'Error submitting form' });
     }
   });
 
