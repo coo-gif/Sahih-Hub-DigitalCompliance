@@ -139,7 +139,7 @@ export default function DocumentHub() {
   
   const grantAccessMutation = useMutation({
     mutationFn: async ({ documentId, userId }: { documentId: number; userId: number }) => {
-      return apiRequest(`/api/documents/${documentId}/access/grant`, {
+      return apiRequest(`/api/documents/${documentId}/grant-access`, {
         method: "POST",
         body: JSON.stringify({ userId }),
         headers: { "Content-Type": "application/json" },
@@ -158,7 +158,7 @@ export default function DocumentHub() {
   
   const revokeAccessMutation = useMutation({
     mutationFn: async ({ documentId, userId }: { documentId: number; userId: number }) => {
-      return apiRequest(`/api/documents/${documentId}/access/revoke`, {
+      return apiRequest(`/api/documents/${documentId}/revoke-access`, {
         method: "POST",
         body: JSON.stringify({ userId }),
         headers: { "Content-Type": "application/json" },
