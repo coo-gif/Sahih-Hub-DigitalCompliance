@@ -770,6 +770,8 @@ export async function registerRoutes(
       if (input.nextReviewDate) {
         updateData.nextReviewDate = new Date(input.nextReviewDate);
       }
+      if (input.editionNumber !== undefined) updateData.editionNumber = input.editionNumber;
+      if (input.revisionNumber !== undefined) updateData.revisionNumber = input.revisionNumber;
       if (input.requiresPreparedBy !== undefined) updateData.requiresPreparedBy = input.requiresPreparedBy;
       if (input.requiresReviewedBy !== undefined) updateData.requiresReviewedBy = input.requiresReviewedBy;
       if (input.requiresApprovedBy !== undefined) updateData.requiresApprovedBy = input.requiresApprovedBy;

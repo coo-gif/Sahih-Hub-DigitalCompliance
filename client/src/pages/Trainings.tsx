@@ -39,14 +39,8 @@ const createTrainingFormSchema = insertTrainingSchema.pick({
 });
 
 const assignTrainingFormSchema = z.object({
-  employeeId: z.preprocess(
-    (val) => (val === "" || val === undefined || val === null ? undefined : Number(val)),
-    z.number().min(1, "Employee is required")
-  ),
-  dueDate: z.preprocess(
-    (val) => (val === "" || val === undefined || val === null ? undefined : new Date(val as string)),
-    z.date().optional()
-  ),
+  employeeId: z.number().min(1, "Employee is required"),
+  dueDate: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -85,7 +79,7 @@ export default function Trainings() {
   const assignForm = useForm<AssignTrainingForm>({
     resolver: zodResolver(assignTrainingFormSchema),
     defaultValues: {
-      employeeId: 0,
+      employeeId: undefined as unknown as number,
       dueDate: "",
       notes: "",
     },

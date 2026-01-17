@@ -183,3 +183,22 @@ When resolving bug reports, Admin and COO can attach evidence screenshots to dem
   - `client/src/pages/BugReports.tsx` - Bug reports UI with evidence upload
   - `server/replit_integrations/object_storage/` - Object storage service
   - `client/src/hooks/use-upload.ts` - File upload hook
+
+### Training and Assessment Module
+Complete training management system for employee competency development:
+- **Database Tables:** `trainings`, `training_assignments`, `training_completions`
+- **Training Types:** Internal, External, Online, On-the-Job, Workshop, Certification
+- **Assignment Workflow:** Create training → Assign to employees → Track completion
+- **Completion Certificates:** Auto-generated certificate numbers (TC-YYYY-#####)
+- **Validity Periods:** Optional expiry tracking based on validity period
+- **Notifications:** Automatic alerts to assigned employees
+- **Access Control:** Admin, Quality Manager, and HR (hr@sahihcertify.com)
+- **Key Files:**
+  - `client/src/pages/Trainings.tsx` - Training management UI
+  - `shared/schema.ts` - Training database schema
+  - `server/routes.ts` - Training API endpoints
+
+## Recent Changes
+
+### January 17, 2026
+- **Fixed:** Edition number save issue - Document update endpoint now properly saves `editionNumber` and `revisionNumber` changes (was missing from update handler)
