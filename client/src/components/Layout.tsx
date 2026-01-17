@@ -28,7 +28,8 @@ import {
   Bug,
   Award,
   Mail,
-  Lock
+  Lock,
+  GraduationCap
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -88,6 +89,12 @@ const navItems: NavItem[] = [
     label: "Certification", 
     icon: Award,
     canAccess: (user) => user.role === 'auditor' || user.role === 'admin' || user.role === 'quality_manager'
+  },
+  { 
+    href: "/trainings", 
+    label: "Training", 
+    icon: GraduationCap,
+    canAccess: (user) => user.role === 'admin' || user.role === 'quality_manager' || user.email === 'hr@sahihcertify.com'
   },
   { href: "/audit-log", label: "Audit Log", icon: History, adminOnly: true },
 ];
