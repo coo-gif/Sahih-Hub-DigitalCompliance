@@ -5545,6 +5545,10 @@ Limit to the top 10 most important suggestions.`
       if (!description) {
         return res.status(400).json({ message: 'Description is required' });
       }
+      
+      if (!req.user) {
+        return res.status(401).json({ message: 'User not authenticated' });
+      }
 
       // Pending entries are created with revisionNumber = 0
       // The actual revision number is assigned only on approval
@@ -5557,7 +5561,7 @@ Limit to the top 10 most important suggestions.`
         reviewedById: reviewedById || null,
         approvedById: approvedById || null,
         amendmentDate: amendmentDate ? new Date(amendmentDate) : new Date(),
-        requestedById: req.user!.id,
+        requestedById: req.user.id,
         status: 'pending',
       });
 
