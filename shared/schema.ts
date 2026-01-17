@@ -1171,3 +1171,100 @@ export interface ComplianceAlert {
   daysUntilExpiry: number;
   alertLevel: 'yellow' | 'red';
 }
+
+// ============================================
+// TRAININGS AND ASSESSMENTS
+// ============================================
+export const TrainingType = {
+  TRAINING: "training",
+  ASSESSMENT: "assessment",
+  CERTIFICATION: "certification",
+} as const;
+
+export const TrainingStatus = {
+  ACTIVE: "active",
+  INACTIVE: "inactive",
+  ARCHIVED: "archived",
+} as const;
+
+export const TrainingAssignmentStatus = {
+  ASSIGNED: "assigned",
+  IN_PROGRESS: "in_progress",
+  COMPLETED: "completed",
+  OVERDUE: "overdue",
+  CANCELLED: "cancelled",
+} as const;
+
+export const trainings = pgTable("trainings", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description"),
+  type: text("type").notNull().default(TrainingType.TRAINING),
+  category: text("category"), // e.g., "Safety", "Compliance", "Technical"
+  duration: integer("duration"), // Duration in hours
+  passingScore: integer("passing_score").default(70), // For assessments
+  content: text("content"), // Training material or assessment questions (JSON)
+  documentId: integer("document_id"), // Link to related document
+  createdById: integer("created_by_id").notNull(),
+  status: text("status").notNull().default(TrainingStatus.ACTIVE),
+  validityPeriod: integer("validity_period"), // Validity in months (for recertification)
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const trainingAssignments = pgTable("training_assignments", {
+  id: serial("id").primaryKey(),
+  trainingId: integer("training_id").notNull().references(() => trainings.id),
+  employeeId: integer("employee_id").notNull().references(() => employees.id),
+  assignedById: integer("assigned_by_id").notNull().references(() => users.id),
+  status: text("status").notNull().default(TrainingAssignmentStatus.ASSIGNED),
+  dueDate: timestamp("due_date"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  score: integer("score"), // For assessments
+  attempts: integer("attempts").default(0),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const trainingCompletions = pgTable("training_completions", {
+  id: serial("id").primaryKey(),
+  assignmentId: integer("assignment_id").notNull().references(() => trainingAssignments.id),
+  trainingId: integer("training_id").notNull().references(() => trainings.id),
+  employeeId: integer("employee_id").notNull().references(() => employees.id),
+  completionDate: timestamp("completion_date").notNull().defaultNow(),
+  score: integer("score"),
+  passed: boolean("passed").default(true),
+  certificateNumber: text("certificate_number"),
+  expiryDate: timestamp("expiry_date"),
+  issuedById: integer("issued_by_id").references(() => users.id),
+  remarks: text("remarks"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertTrainingSchema = createInsertSchema(trainings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertTrainingAssignmentSchema = createInsertSchema(trainingAssignments).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertTrainingCompletionSchema = createInsertSchema(trainingCompletions).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type Training = typeof trainings.$inferSelect;
+export type InsertTraining = z.infer<typeof insertTrainingSchema>;
+
+export type TrainingAssignment = typeof trainingAssignments.$inferSelect;
+export type InsertTrainingAssignment = z.infer<typeof insertTrainingAssignmentSchema>;
+
+export type TrainingCompletion = typeof trainingCompletions.$inferSelect;
+export type InsertTrainingCompletion = z.infer<typeof insertTrainingCompletionSchema>;
