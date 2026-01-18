@@ -5,9 +5,12 @@ import {
   documentAccessRequests, documentAccess, userRecords, buddyStatus, pushSubscriptions, buddyDialogues,
   userActivityLogs, monthlyPerformanceReports, bugReports,
   certificationApplications, certificationAudits, auditFindings, certificates, wallPosts, revisionHistory,
-  trainings, trainingAssignments, trainingCompletions, docugenieForms, docugenieFormSubmissions, leads, customers, opportunities, historicalData,
+  trainings, trainingAssignments, trainingCompletions, docugenieForms, docugenieFormSubmissions, 
+  leads, leadStatusHistory, leadUpdateRequests, customers, opportunities, historicalData,
   type User, type InsertUser,
   type Lead, type InsertLead,
+  type LeadStatusHistory, type InsertLeadStatusHistory,
+  type LeadUpdateRequest, type InsertLeadUpdateRequest,
   type Customer, type InsertCustomer,
   type Opportunity, type InsertOpportunity,
   type HistoricalData, type InsertHistoricalData,
@@ -304,6 +307,16 @@ export interface IStorage {
   createLead(lead: InsertLead): Promise<Lead>;
   updateLead(id: number, lead: Partial<InsertLead>): Promise<Lead | undefined>;
   deleteLead(id: number): Promise<void>;
+
+  // CRM - Lead Status History
+  getLeadStatusHistory(leadId: number): Promise<Array<LeadStatusHistory & { changedByName: string }>>;
+  createLeadStatusHistory(entry: InsertLeadStatusHistory): Promise<LeadStatusHistory>;
+
+  // CRM - Lead Update Requests
+  getLeadUpdateRequests(leadId: number): Promise<Array<LeadUpdateRequest & { requestedByName: string; requestedFromName: string }>>;
+  getPendingLeadUpdateRequests(userId: number): Promise<Array<LeadUpdateRequest & { leadName: string; requestedByName: string }>>;
+  createLeadUpdateRequest(request: InsertLeadUpdateRequest): Promise<LeadUpdateRequest>;
+  resolveLeadUpdateRequest(id: number): Promise<LeadUpdateRequest | undefined>;
 
   // CRM - Customers
   getCustomers(filters?: { accountOwnerId?: number }): Promise<Customer[]>;
@@ -2330,6 +2343,113 @@ export class DatabaseStorage implements IStorage {
 
   async deleteLead(id: number): Promise<void> {
     await db.delete(leads).where(eq(leads.id, id));
+  }
+
+  // ============================================
+  // CRM - LEAD STATUS HISTORY
+  // ============================================
+  async getLeadStatusHistory(leadId: number): Promise<Array<LeadStatusHistory & { changedByName: string }>> {
+    const result = await db
+      .select({
+        id: leadStatusHistory.id,
+        leadId: leadStatusHistory.leadId,
+        previousStatus: leadStatusHistory.previousStatus,
+        newStatus: leadStatusHistory.newStatus,
+        reason: leadStatusHistory.reason,
+        evidenceUrl: leadStatusHistory.evidenceUrl,
+        evidenceFileName: leadStatusHistory.evidenceFileName,
+        changedById: leadStatusHistory.changedById,
+        changedAt: leadStatusHistory.changedAt,
+        changedByName: users.name,
+      })
+      .from(leadStatusHistory)
+      .leftJoin(users, eq(leadStatusHistory.changedById, users.id))
+      .where(eq(leadStatusHistory.leadId, leadId))
+      .orderBy(desc(leadStatusHistory.changedAt));
+    
+    return result.map(r => ({
+      ...r,
+      changedByName: r.changedByName || 'Unknown',
+    }));
+  }
+
+  async createLeadStatusHistory(entry: InsertLeadStatusHistory): Promise<LeadStatusHistory> {
+    const [result] = await db.insert(leadStatusHistory).values(entry).returning();
+    return result;
+  }
+
+  // ============================================
+  // CRM - LEAD UPDATE REQUESTS
+  // ============================================
+  async getLeadUpdateRequests(leadId: number): Promise<Array<LeadUpdateRequest & { requestedByName: string; requestedFromName: string }>> {
+    const requestedByUser = db.select({ id: users.id, name: users.name }).from(users).as('requestedByUser');
+    const requestedFromUser = db.select({ id: users.id, name: users.name }).from(users).as('requestedFromUser');
+    
+    const result = await db
+      .select({
+        id: leadUpdateRequests.id,
+        leadId: leadUpdateRequests.leadId,
+        requestedById: leadUpdateRequests.requestedById,
+        requestedFromId: leadUpdateRequests.requestedFromId,
+        message: leadUpdateRequests.message,
+        isResolved: leadUpdateRequests.isResolved,
+        resolvedAt: leadUpdateRequests.resolvedAt,
+        createdAt: leadUpdateRequests.createdAt,
+        requestedByName: sql<string>`(SELECT name FROM users WHERE id = ${leadUpdateRequests.requestedById})`,
+        requestedFromName: sql<string>`(SELECT name FROM users WHERE id = ${leadUpdateRequests.requestedFromId})`,
+      })
+      .from(leadUpdateRequests)
+      .where(eq(leadUpdateRequests.leadId, leadId))
+      .orderBy(desc(leadUpdateRequests.createdAt));
+    
+    return result.map(r => ({
+      ...r,
+      requestedByName: r.requestedByName || 'Unknown',
+      requestedFromName: r.requestedFromName || 'Unknown',
+    }));
+  }
+
+  async getPendingLeadUpdateRequests(userId: number): Promise<Array<LeadUpdateRequest & { leadName: string; requestedByName: string }>> {
+    const result = await db
+      .select({
+        id: leadUpdateRequests.id,
+        leadId: leadUpdateRequests.leadId,
+        requestedById: leadUpdateRequests.requestedById,
+        requestedFromId: leadUpdateRequests.requestedFromId,
+        message: leadUpdateRequests.message,
+        isResolved: leadUpdateRequests.isResolved,
+        resolvedAt: leadUpdateRequests.resolvedAt,
+        createdAt: leadUpdateRequests.createdAt,
+        leadName: leads.leadName,
+        requestedByName: sql<string>`(SELECT name FROM users WHERE id = ${leadUpdateRequests.requestedById})`,
+      })
+      .from(leadUpdateRequests)
+      .leftJoin(leads, eq(leadUpdateRequests.leadId, leads.id))
+      .where(and(
+        eq(leadUpdateRequests.requestedFromId, userId),
+        eq(leadUpdateRequests.isResolved, false)
+      ))
+      .orderBy(desc(leadUpdateRequests.createdAt));
+    
+    return result.map(r => ({
+      ...r,
+      leadName: r.leadName || 'Unknown Lead',
+      requestedByName: r.requestedByName || 'Unknown',
+    }));
+  }
+
+  async createLeadUpdateRequest(request: InsertLeadUpdateRequest): Promise<LeadUpdateRequest> {
+    const [result] = await db.insert(leadUpdateRequests).values(request).returning();
+    return result;
+  }
+
+  async resolveLeadUpdateRequest(id: number): Promise<LeadUpdateRequest | undefined> {
+    const [result] = await db
+      .update(leadUpdateRequests)
+      .set({ isResolved: true, resolvedAt: new Date() })
+      .where(eq(leadUpdateRequests.id, id))
+      .returning();
+    return result;
   }
 
   // ============================================
