@@ -7633,6 +7633,139 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
     }
   });
 
+  // ============================================
+  // HISTORICAL PERFORMANCE DATA ROUTES
+  // ============================================
+
+  // Get all historical data
+  app.get("/api/historical-data", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const year = req.query.year ? parseInt(req.query.year as string) : undefined;
+      const data = await storage.getHistoricalData(year ? { year } : undefined);
+      res.json(data);
+    } catch (error) {
+      console.error("Error fetching historical data:", error);
+      res.status(500).json({ message: "Error fetching historical data" });
+    }
+  });
+
+  // Get single historical data entry
+  app.get("/api/historical-data/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const entry = await storage.getHistoricalDataEntry(parseInt(req.params.id));
+      if (!entry) {
+        return res.status(404).json({ message: "Historical data entry not found" });
+      }
+      res.json(entry);
+    } catch (error) {
+      console.error("Error fetching historical data entry:", error);
+      res.status(500).json({ message: "Error fetching historical data entry" });
+    }
+  });
+
+  // Create historical data entry
+  app.post("/api/historical-data", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const data = await storage.createHistoricalData({
+        ...req.body,
+        createdById: user.id,
+      });
+
+      // Log audit trail
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.CREATE,
+        entityType: 'historical_data',
+        entityId: data.id,
+        description: `Created historical data entry for ${req.body.month} ${req.body.year}`,
+      });
+
+      res.status(201).json(data);
+    } catch (error) {
+      console.error("Error creating historical data:", error);
+      res.status(500).json({ message: "Error creating historical data" });
+    }
+  });
+
+  // Update historical data entry
+  app.put("/api/historical-data/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const entryId = parseInt(req.params.id);
+      
+      const existingEntry = await storage.getHistoricalDataEntry(entryId);
+      if (!existingEntry) {
+        return res.status(404).json({ message: "Historical data entry not found" });
+      }
+
+      const updatedEntry = await storage.updateHistoricalData(entryId, req.body);
+
+      // Log audit trail
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.UPDATE,
+        entityType: 'historical_data',
+        entityId: entryId,
+        description: `Updated historical data entry for ${existingEntry.month} ${existingEntry.year}`,
+      });
+
+      res.json(updatedEntry);
+    } catch (error) {
+      console.error("Error updating historical data:", error);
+      res.status(500).json({ message: "Error updating historical data" });
+    }
+  });
+
+  // Delete historical data entry
+  app.delete("/api/historical-data/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const entryId = parseInt(req.params.id);
+      
+      const existingEntry = await storage.getHistoricalDataEntry(entryId);
+      if (!existingEntry) {
+        return res.status(404).json({ message: "Historical data entry not found" });
+      }
+
+      await storage.deleteHistoricalData(entryId);
+
+      // Log audit trail
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.DELETE,
+        entityType: 'historical_data',
+        entityId: entryId,
+        description: `Deleted historical data entry for ${existingEntry.month} ${existingEntry.year}`,
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting historical data:", error);
+      res.status(500).json({ message: "Error deleting historical data" });
+    }
+  });
+
   await seedDatabase();
 
   return httpServer;

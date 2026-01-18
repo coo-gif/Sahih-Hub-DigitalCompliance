@@ -24,6 +24,7 @@ import DocuGenie from "@/pages/DocuGenie";
 import CrmLeads from "@/pages/CrmLeads";
 import CrmCustomers from "@/pages/CrmCustomers";
 import CrmOpportunities from "@/pages/CrmOpportunities";
+import CrmHistoricalData from "@/pages/CrmHistoricalData";
 import FormSubmit from "@/pages/FormSubmit";
 import Login from "@/pages/Login";
 import NotFound from "@/pages/not-found";
@@ -74,6 +75,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: User; onLogout: () => v
             <Route path="/crm/leads" component={CrmLeads} />
             <Route path="/crm/customers" component={CrmCustomers} />
             <Route path="/crm/opportunities" component={CrmOpportunities} />
+            <Route path="/crm/historical-data" component={CrmHistoricalData} />
             <Route path="/audit-log" component={AuditLog} />
             <Route component={NotFound} />
           </Switch>

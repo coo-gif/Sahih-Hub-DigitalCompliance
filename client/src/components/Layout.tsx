@@ -123,6 +123,12 @@ const navItems: NavItem[] = [
     icon: TrendingUp,
     canAccess: (user) => user.role === 'admin' || user.role === 'quality_manager' || user.email === 'coo@sahihcertify.com'
   },
+  { 
+    href: "/crm/historical-data", 
+    label: "CRM - Historical Data", 
+    icon: BarChart3,
+    canAccess: (user) => user.role === 'admin' || user.role === 'quality_manager' || user.email === 'coo@sahihcertify.com'
+  },
   { href: "/audit-log", label: "Audit Log", icon: History, adminOnly: true },
 ];
 
