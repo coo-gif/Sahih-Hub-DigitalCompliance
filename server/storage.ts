@@ -5,9 +5,10 @@ import {
   documentAccessRequests, documentAccess, userRecords, buddyStatus, pushSubscriptions, buddyDialogues,
   userActivityLogs, monthlyPerformanceReports, bugReports,
   certificationApplications, certificationAudits, auditFindings, certificates, wallPosts, revisionHistory,
-  trainings, trainingAssignments, trainingCompletions, docugenieForms, docugenieFormSubmissions, leads,
+  trainings, trainingAssignments, trainingCompletions, docugenieForms, docugenieFormSubmissions, leads, customers,
   type User, type InsertUser,
   type Lead, type InsertLead,
+  type Customer, type InsertCustomer,
   type DocuGenieForm, type InsertDocuGenieForm,
   type DocuGenieFormSubmission, type InsertDocuGenieFormSubmission,
   type RevisionHistory, type InsertRevisionHistory,
@@ -301,6 +302,13 @@ export interface IStorage {
   createLead(lead: InsertLead): Promise<Lead>;
   updateLead(id: number, lead: Partial<InsertLead>): Promise<Lead | undefined>;
   deleteLead(id: number): Promise<void>;
+
+  // CRM - Customers
+  getCustomers(filters?: { accountOwnerId?: number }): Promise<Customer[]>;
+  getCustomer(id: number): Promise<Customer | undefined>;
+  createCustomer(customer: InsertCustomer): Promise<Customer>;
+  updateCustomer(id: number, customer: Partial<InsertCustomer>): Promise<Customer | undefined>;
+  deleteCustomer(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2306,6 +2314,41 @@ export class DatabaseStorage implements IStorage {
 
   async deleteLead(id: number): Promise<void> {
     await db.delete(leads).where(eq(leads.id, id));
+  }
+
+  // ============================================
+  // CRM - CUSTOMERS
+  // ============================================
+  async getCustomers(filters?: { accountOwnerId?: number }): Promise<Customer[]> {
+    let query = db.select().from(customers);
+    
+    if (filters?.accountOwnerId) {
+      query = query.where(eq(customers.accountOwnerId, filters.accountOwnerId)) as any;
+    }
+    
+    return query.orderBy(desc(customers.createdAt));
+  }
+
+  async getCustomer(id: number): Promise<Customer | undefined> {
+    const [customer] = await db.select().from(customers).where(eq(customers.id, id));
+    return customer;
+  }
+
+  async createCustomer(customer: InsertCustomer): Promise<Customer> {
+    const [created] = await db.insert(customers).values(customer).returning();
+    return created;
+  }
+
+  async updateCustomer(id: number, customer: Partial<InsertCustomer>): Promise<Customer | undefined> {
+    const [updated] = await db.update(customers)
+      .set({ ...customer, updatedAt: new Date() })
+      .where(eq(customers.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteCustomer(id: number): Promise<void> {
+    await db.delete(customers).where(eq(customers.id, id));
   }
 }
 

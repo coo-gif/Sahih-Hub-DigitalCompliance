@@ -1365,3 +1365,32 @@ export const insertLeadSchema = createInsertSchema(leads).omit({
 
 export type Lead = typeof leads.$inferSelect;
 export type InsertLead = z.infer<typeof insertLeadSchema>;
+
+// ============================================
+// CRM - CUSTOMERS
+// ============================================
+export const customers = pgTable("customers", {
+  id: serial("id").primaryKey(),
+  customerName: text("customer_name").notNull(),
+  companyName: text("company_name"),
+  contactPersons: text("contact_persons"),
+  phoneEmail: text("phone_email"),
+  address: text("address"),
+  industry: text("industry"),
+  accountOwnerId: integer("account_owner_id").references(() => users.id),
+  communicationHistory: text("communication_history"),
+  contractFileUrl: text("contract_file_url"),
+  contractFileName: text("contract_file_name"),
+  createdById: integer("created_by_id").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertCustomerSchema = createInsertSchema(customers).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type Customer = typeof customers.$inferSelect;
+export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
