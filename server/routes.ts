@@ -18,6 +18,9 @@ import {
   DocuGenieFormStatus,
   insertDocuGenieFormSchema,
   insertDocuGenieFormSubmissionSchema,
+  LeadSource,
+  LeadStatus,
+  insertLeadSchema,
 } from "@shared/schema";
 import { z } from "zod";
 import puppeteer from "puppeteer";
@@ -7135,6 +7138,130 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
     } catch (error) {
       console.error('Error submitting form:', error);
       res.status(500).json({ message: 'Error submitting form' });
+    }
+  });
+
+  // ============================================
+  // CRM - LEADS ROUTES
+  // ============================================
+
+  // Get all leads
+  app.get("/api/leads", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const leads = await storage.getLeads();
+      res.json(leads);
+    } catch (error) {
+      console.error("Error fetching leads:", error);
+      res.status(500).json({ message: "Error fetching leads" });
+    }
+  });
+
+  // Get single lead
+  app.get("/api/leads/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const lead = await storage.getLead(parseInt(req.params.id));
+      if (!lead) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+      res.json(lead);
+    } catch (error) {
+      console.error("Error fetching lead:", error);
+      res.status(500).json({ message: "Error fetching lead" });
+    }
+  });
+
+  // Create new lead
+  app.post("/api/leads", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      const validatedData = insertLeadSchema.parse({
+        ...req.body,
+        createdById: user.id,
+        nextFollowUpDate: req.body.nextFollowUpDate ? new Date(req.body.nextFollowUpDate) : undefined,
+      });
+
+      const lead = await storage.createLead(validatedData);
+
+      // Log audit trail
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.CREATE,
+        entityType: 'lead',
+        entityId: lead.id,
+        description: `Created new lead: ${lead.leadName}`,
+      });
+
+      res.status(201).json(lead);
+    } catch (error) {
+      console.error("Error creating lead:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: error.errors[0].message, field: error.errors[0].path[0] });
+      }
+      res.status(500).json({ message: "Error creating lead" });
+    }
+  });
+
+  // Update lead
+  app.put("/api/leads/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      const leadId = parseInt(req.params.id);
+      
+      const existingLead = await storage.getLead(leadId);
+      if (!existingLead) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+
+      const updateData = {
+        ...req.body,
+        nextFollowUpDate: req.body.nextFollowUpDate ? new Date(req.body.nextFollowUpDate) : undefined,
+        updatedAt: new Date(),
+      };
+
+      const updatedLead = await storage.updateLead(leadId, updateData);
+
+      // Log audit trail
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.UPDATE,
+        entityType: 'lead',
+        entityId: leadId,
+        description: `Updated lead: ${updatedLead?.leadName}`,
+      });
+
+      res.json(updatedLead);
+    } catch (error) {
+      console.error("Error updating lead:", error);
+      res.status(500).json({ message: "Error updating lead" });
+    }
+  });
+
+  // Delete lead
+  app.delete("/api/leads/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      const leadId = parseInt(req.params.id);
+      
+      const existingLead = await storage.getLead(leadId);
+      if (!existingLead) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+
+      await storage.deleteLead(leadId);
+
+      // Log audit trail
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.DELETE,
+        entityType: 'lead',
+        entityId: leadId,
+        description: `Deleted lead: ${existingLead.leadName}`,
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting lead:", error);
+      res.status(500).json({ message: "Error deleting lead" });
     }
   });
 

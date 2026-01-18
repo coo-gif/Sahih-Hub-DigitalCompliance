@@ -11,6 +11,7 @@ import {
   employeeTasks,
   documentAccessRequests,
   documentAccess,
+  leads,
   UserRole,
   DocumentCategory,
   DocumentStatus,
@@ -21,6 +22,8 @@ import {
   EmployeeRecordStatus,
   TaskStatus,
   TaskPriority,
+  LeadSource,
+  LeadStatus,
 } from './schema';
 
 // ============================================
@@ -611,6 +614,75 @@ export const api = {
       },
     },
   },
+
+  // CRM - Leads
+  leads: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/leads',
+      input: z.object({
+        status: z.string().optional(),
+        assignedToId: z.number().optional(),
+      }).optional(),
+      responses: {
+        200: z.array(z.custom<typeof leads.$inferSelect>()),
+      },
+    },
+    get: {
+      method: 'GET' as const,
+      path: '/api/leads/:id',
+      responses: {
+        200: z.custom<typeof leads.$inferSelect>(),
+        404: errorSchemas.notFound,
+      },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/leads',
+      input: z.object({
+        leadName: z.string().min(1),
+        companyName: z.string().optional(),
+        phoneEmail: z.string().optional(),
+        leadSource: z.enum(['website', 'referral', 'ads', 'whatsapp']),
+        interestedCourse: z.string().optional(),
+        leadStatus: z.enum(['new', 'contacted', 'qualified', 'not_interested']).optional(),
+        assignedToId: z.number().optional(),
+        nextFollowUpDate: z.string().optional(),
+        notes: z.string().optional(),
+      }),
+      responses: {
+        201: z.custom<typeof leads.$inferSelect>(),
+        400: errorSchemas.validation,
+      },
+    },
+    update: {
+      method: 'PUT' as const,
+      path: '/api/leads/:id',
+      input: z.object({
+        leadName: z.string().min(1).optional(),
+        companyName: z.string().optional(),
+        phoneEmail: z.string().optional(),
+        leadSource: z.enum(['website', 'referral', 'ads', 'whatsapp']).optional(),
+        interestedCourse: z.string().optional(),
+        leadStatus: z.enum(['new', 'contacted', 'qualified', 'not_interested']).optional(),
+        assignedToId: z.number().optional(),
+        nextFollowUpDate: z.string().optional(),
+        notes: z.string().optional(),
+      }),
+      responses: {
+        200: z.custom<typeof leads.$inferSelect>(),
+        404: errorSchemas.notFound,
+      },
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/leads/:id',
+      responses: {
+        200: z.object({ success: z.boolean() }),
+        404: errorSchemas.notFound,
+      },
+    },
+  },
 };
 
 // ============================================
@@ -641,3 +713,5 @@ export type EmployeeInput = z.infer<typeof api.employees.create.input>;
 export type EmployeeUpdateInput = z.infer<typeof api.employees.update.input>;
 export type EmployeeTaskInput = z.infer<typeof api.employeeTasks.create.input>;
 export type EmployeeTaskUpdateInput = z.infer<typeof api.employeeTasks.update.input>;
+export type LeadInput = z.infer<typeof api.leads.create.input>;
+export type LeadUpdateInput = z.infer<typeof api.leads.update.input>;

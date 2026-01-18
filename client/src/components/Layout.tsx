@@ -30,7 +30,8 @@ import {
   Mail,
   Lock,
   GraduationCap,
-  Sparkles
+  Sparkles,
+  UserPlus
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -101,6 +102,12 @@ const navItems: NavItem[] = [
     href: "/docugenie", 
     label: "DocuGenie", 
     icon: Sparkles,
+    canAccess: (user) => user.role === 'admin' || user.role === 'quality_manager' || user.email === 'coo@sahihcertify.com'
+  },
+  { 
+    href: "/crm/leads", 
+    label: "CRM", 
+    icon: UserPlus,
     canAccess: (user) => user.role === 'admin' || user.role === 'quality_manager' || user.email === 'coo@sahihcertify.com'
   },
   { href: "/audit-log", label: "Audit Log", icon: History, adminOnly: true },

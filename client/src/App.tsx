@@ -21,6 +21,7 @@ import Email from "@/pages/Email";
 import DocumentHub from "@/pages/DocumentHub";
 import Trainings from "@/pages/Trainings";
 import DocuGenie from "@/pages/DocuGenie";
+import CrmLeads from "@/pages/CrmLeads";
 import FormSubmit from "@/pages/FormSubmit";
 import Login from "@/pages/Login";
 import NotFound from "@/pages/not-found";
@@ -68,6 +69,7 @@ function AuthenticatedRouter({ user, onLogout }: { user: User; onLogout: () => v
             <Route path="/document-hub" component={DocumentHub} />
             <Route path="/trainings" component={Trainings} />
             <Route path="/docugenie" component={DocuGenie} />
+            <Route path="/crm/leads" component={CrmLeads} />
             <Route path="/audit-log" component={AuditLog} />
             <Route component={NotFound} />
           </Switch>

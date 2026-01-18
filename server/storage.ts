@@ -5,8 +5,9 @@ import {
   documentAccessRequests, documentAccess, userRecords, buddyStatus, pushSubscriptions, buddyDialogues,
   userActivityLogs, monthlyPerformanceReports, bugReports,
   certificationApplications, certificationAudits, auditFindings, certificates, wallPosts, revisionHistory,
-  trainings, trainingAssignments, trainingCompletions, docugenieForms, docugenieFormSubmissions,
+  trainings, trainingAssignments, trainingCompletions, docugenieForms, docugenieFormSubmissions, leads,
   type User, type InsertUser,
+  type Lead, type InsertLead,
   type DocuGenieForm, type InsertDocuGenieForm,
   type DocuGenieFormSubmission, type InsertDocuGenieFormSubmission,
   type RevisionHistory, type InsertRevisionHistory,
@@ -293,6 +294,13 @@ export interface IStorage {
   getDocuGenieFormSubmissions(formId: number): Promise<DocuGenieFormSubmission[]>;
   getDocuGenieFormSubmission(id: number): Promise<DocuGenieFormSubmission | undefined>;
   createDocuGenieFormSubmission(submission: InsertDocuGenieFormSubmission): Promise<DocuGenieFormSubmission>;
+
+  // CRM - Leads
+  getLeads(filters?: { status?: string; assignedToId?: number }): Promise<Lead[]>;
+  getLead(id: number): Promise<Lead | undefined>;
+  createLead(lead: InsertLead): Promise<Lead>;
+  updateLead(id: number, lead: Partial<InsertLead>): Promise<Lead | undefined>;
+  deleteLead(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2260,6 +2268,44 @@ export class DatabaseStorage implements IStorage {
   async createDocuGenieFormSubmission(submission: InsertDocuGenieFormSubmission): Promise<DocuGenieFormSubmission> {
     const [created] = await db.insert(docugenieFormSubmissions).values(submission).returning();
     return created;
+  }
+
+  // ============================================
+  // CRM - LEADS
+  // ============================================
+  async getLeads(filters?: { status?: string; assignedToId?: number }): Promise<Lead[]> {
+    let query = db.select().from(leads);
+    
+    if (filters?.status) {
+      query = query.where(eq(leads.leadStatus, filters.status)) as any;
+    }
+    if (filters?.assignedToId) {
+      query = query.where(eq(leads.assignedToId, filters.assignedToId)) as any;
+    }
+    
+    return query.orderBy(desc(leads.createdAt));
+  }
+
+  async getLead(id: number): Promise<Lead | undefined> {
+    const [lead] = await db.select().from(leads).where(eq(leads.id, id));
+    return lead;
+  }
+
+  async createLead(lead: InsertLead): Promise<Lead> {
+    const [created] = await db.insert(leads).values(lead).returning();
+    return created;
+  }
+
+  async updateLead(id: number, lead: Partial<InsertLead>): Promise<Lead | undefined> {
+    const [updated] = await db.update(leads)
+      .set({ ...lead, updatedAt: new Date() })
+      .where(eq(leads.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteLead(id: number): Promise<void> {
+    await db.delete(leads).where(eq(leads.id, id));
   }
 }
 

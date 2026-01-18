@@ -2,11 +2,7 @@
 
 ## Overview
 
-A web-based Quality Management System (QMS) application for a Certification Body designed to digitize the certification lifecycle, document control, and compliance monitoring. Built for ISO 17021 compliance, ensuring audit-readiness for UKAS surveillance at all times.
-
-**Core Purpose:** Document Control System with workflow management, user role-based access control, and comprehensive audit trail logging.
-
-**Current Phase:** Phase 1 - Dashboard, User Management (RBAC), Document Control System, and HR Module.
+Sahih Certifications QMS is a web-based Quality Management System (QMS) designed to digitize the entire certification lifecycle for a Certification Body. Its primary purpose is to provide a robust Document Control System with workflow management, role-based access, and comprehensive audit trails, ensuring ISO 17021 compliance and audit-readiness for UKAS surveillance. The project aims to streamline document management, enhance compliance monitoring, and improve operational efficiency.
 
 ## User Preferences
 
@@ -36,238 +32,65 @@ Maintain a running tally of completed tasks and points.
 
 ### Frontend Architecture
 - **Framework:** React with TypeScript
-- **Routing:** Wouter (lightweight client-side routing)
-- **State Management:** TanStack React Query for server state
-- **UI Components:** shadcn/ui component library built on Radix UI primitives
-- **Styling:** Tailwind CSS with custom CSS variables for theming
-- **Build Tool:** Vite with React plugin
+- **Routing:** Wouter
+- **State Management:** TanStack React Query
+- **UI Components:** shadcn/ui (built on Radix UI primitives)
+- **Styling:** Tailwind CSS with custom CSS variables
+- **Build Tool:** Vite
 
 ### Backend Architecture
 - **Framework:** Express.js with TypeScript
-- **API Design:** RESTful endpoints defined in `shared/routes.ts` with Zod schema validation
+- **API Design:** RESTful endpoints with Zod schema validation
 - **Database ORM:** Drizzle ORM with PostgreSQL dialect
-- **Session Management:** Express sessions with `connect-pg-simple` for PostgreSQL session storage
+- **Session Management:** Express sessions with `connect-pg-simple`
 
 ### Data Storage
-- **Database:** PostgreSQL (configured via `DATABASE_URL` environment variable)
-- **Schema Location:** `shared/schema.ts` using Drizzle table definitions
-- **Migrations:** Drizzle Kit with output to `./migrations` directory
+- **Database:** PostgreSQL
+- **Schema:** Defined in `shared/schema.ts` using Drizzle
+- **Migrations:** Drizzle Kit
 
 ### Key Data Models
-- **Users:** Role-based (Admin, Quality Manager, Department Head, Staff, Auditor) with induction status tracking
-- **Documents:** Versioned with workflow states (Draft, In-Review, Pending Approval, Approved, Obsolete)
-- **Workflow Logs:** Track document state transitions with comments
-- **Audit Logs:** ISO 17021 compliant action logging (create, update, delete, approve, reject, assign_task, complete_task)
-- **Notifications:** User alerts with urgency levels for compliance monitoring
-- **Employees:** HR management with supervisor hierarchy, employment types (full_time, part_time, contract, probation), and status tracking (active, inactive, on_leave, terminated)
-- **Employee Tasks:** Training and compliance task assignments linked to documents, with priority levels and due date tracking
+- **Users:** Role-based (Admin, Quality Manager, Department Head, Staff, Auditor)
+- **Documents:** Versioned with states (Draft, In-Review, Pending Approval, Approved, Obsolete), Edition/Revision numbering (Ed.X Rev.Y)
+- **Workflow Logs:** Document state transitions
+- **Audit Logs:** ISO 17021 compliant action logging
+- **Notifications:** User alerts for compliance
+- **Employees:** HR management with supervisor hierarchy and employment status
+- **Employee Tasks:** Training and compliance tasks
+- **Trainings:** Manages training types, assignments, completions, and certificates.
+- **DocuGenie Forms:** AI-generated HTML forms and submissions.
+- **CRM Leads:** Tracks sales leads with various attributes and statuses.
 
-### Document Workflow Engine
-State machine for document lifecycle:
-1. **Draft** → Staff creates document
-2. **In-Review** → Submitted for departmental review
-3. **Pending Approval** → Reviewer accepts, awaiting Quality Manager approval
-4. **Approved** → Published with edition/revision increment, old versions archived
-5. **Obsolete** → Archived documents
-
-Rejection at any stage reverts document to Draft with comments.
-
-### Edition/Revision Numbering
-- Documents use Edition (Ed.) and Revision (Rev.) numbering instead of simple version numbers
-- Revision number auto-increments by 1 on each approval
-- Edition number remains constant unless manually incremented for major changes
-- Version string format: "Ed.X Rev.Y" (e.g., Ed.1 Rev.3)
-
-### PDF Generation (Puppeteer)
-- PDF generation using Puppeteer for server-side HTML-to-PDF conversion
-- PDFs include document header, content, and signature blocks
-- Generated PDFs stored as base64 data URLs in the database
-- "View Final Draft" button to view generated PDFs
-- Download functionality for approved documents
-
-### Download Permission System
-- Documents can require admin approval before download
-- Download request workflow with pending/approved/rejected states
-- Admin/Quality Manager can approve or reject download requests
-- Notifications sent when requests are submitted or decided
-- Full audit trail for download request actions
-
-### Signatory System
-- Three signatory roles: Prepared By, Reviewed By, Approved By
-- User selection dropdowns for each signatory role
-- Signature blocks displayed in document preview
-- Timestamps recorded when each signatory signs
-
-### Compliance Monitoring
-- Automated alerts when document review dates approach (yellow: <30 days, red: overdue)
-- Dashboard displays compliance health metrics
-- All actions logged with timestamp and user ID for audit trail
+### Core Features
+- **Document Workflow Engine:** State machine for document lifecycle (Draft -> In-Review -> Pending Approval -> Approved / Obsolete).
+- **PDF Generation:** Server-side HTML-to-PDF conversion using Puppeteer for official documents.
+- **Download Permission System:** Admin-approved download requests with audit trails.
+- **Signatory System:** Three roles (Prepared By, Reviewed By, Approved By) with timestamps.
+- **Compliance Monitoring:** Automated alerts for document review dates and dashboard metrics.
+- **Gmail OAuth Integration:** Per-user OAuth for sending/receiving emails, with SMTP and Replit Connector fallbacks.
+- **Dashboard Time Display:** Shows user's local time and Qatar Standard Time.
+- **Bug Report Evidence Attachments:** Admins/COOs can attach screenshots to bug resolutions via Replit Object Storage.
+- **User Agreement System:** Mandatory acceptance of terms, confidentiality, and security policies on first login (ISO 27001 compliant).
+- **Document Editor Find & Replace:** In-editor search and mass amendment functionality.
+- **Lock and Transfer to Document Hub:** Post-approval archiving with granular access control.
+- **DocuGenie - AI-Powered Form Conversion System:** Converts documents into embeddable HTML forms, supports public submissions and tracking.
+- **CRM - Leads Management:** Comprehensive lead tracking, qualification, and assignment for sales.
 
 ### Project Structure
-```
-├── client/           # React frontend
-│   ├── src/
-│   │   ├── components/   # UI components and layout
-│   │   ├── hooks/        # React Query hooks for API calls
-│   │   ├── pages/        # Page components (Dashboard, Documents, Users, etc.)
-│   │   └── lib/          # Utilities and query client
-├── server/           # Express backend
-│   ├── routes.ts     # API endpoint definitions
-│   ├── storage.ts    # Database operations layer
-│   └── db.ts         # Database connection
-├── shared/           # Shared code between client/server
-│   ├── schema.ts     # Drizzle database schema and enums
-│   └── routes.ts     # API route definitions with Zod schemas
-└── migrations/       # Drizzle database migrations
-```
+- `client/`: React frontend
+- `server/`: Express backend
+- `shared/`: Shared code (schema, routes)
+- `migrations/`: Drizzle database migrations
 
 ## External Dependencies
 
-### Database
-- **PostgreSQL:** Primary data store, connection via `DATABASE_URL` environment variable
-- **Drizzle ORM:** Database toolkit for TypeScript with type-safe queries
-
-### UI Framework
-- **Radix UI:** Accessible component primitives (dialogs, dropdowns, forms, etc.)
-- **shadcn/ui:** Pre-styled component collection using Radix + Tailwind
-
-### Data Visualization
-- **Recharts:** Dashboard analytics and compliance charts
-
-### Date Handling
-- **date-fns:** Date formatting and manipulation for review dates and audit timestamps
-
-### Form Handling
-- **react-hook-form:** Form state management
-- **@hookform/resolvers:** Zod integration for form validation
-- **Zod:** Schema validation for API requests and responses
-
-### Build & Development
-- **Vite:** Frontend build tool with HMR
-- **esbuild:** Server bundling for production
-- **tsx:** TypeScript execution for development
-
-### Gmail OAuth Integration
-Per-user Gmail OAuth integration allows each team member to connect their Google Workspace email directly through the web app.
-
-**Email System Priority:**
-1. **OAuth (per-user)** - Individual Gmail connections with full send/receive
-2. **SMTP (company-wide)** - Fallback using GMAIL_USER and GMAIL_APP_PASSWORD secrets
-3. **Replit Connector** - Built-in email integration
-
-**OAuth Configuration:**
-- Admin must configure `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in Replit Secrets
-- OAuth callback URL: `/api/gmail/callback`
-- Tokens stored per-user with automatic refresh using refresh_token
-
-**User Token Storage (users table):**
-- `gmail_access_token` - OAuth access token
-- `gmail_refresh_token` - OAuth refresh token for auto-renewal
-- `gmail_token_expiry` - Token expiration timestamp
-- `gmail_connected_at` - When OAuth was connected
-
-**Key Files:**
-- `server/gmail-oauth.ts` - OAuth service with token management
-- `client/src/hooks/use-gmail.ts` - React hooks for Gmail operations
-- `client/src/pages/Email.tsx` - Email UI with Connect/Disconnect functionality
-
-### Dashboard Time Display
-Dashboard shows both user's local time and Qatar Standard Time (AST, UTC+3) for international team coordination.
-
-### Bug Report Evidence Attachments
-When resolving bug reports, Admin and COO can attach evidence screenshots to demonstrate the fix:
-- **Resolution Form:** Includes optional image upload for evidence
-- **Storage:** Uses Replit Object Storage for secure file hosting
-- **Display:** Evidence images shown in resolution notes section
-- **Key Files:**
-  - `client/src/pages/BugReports.tsx` - Bug reports UI with evidence upload
-  - `server/replit_integrations/object_storage/` - Object storage service
-  - `client/src/hooks/use-upload.ts` - File upload hook
-
-### Training and Assessment Module
-Complete training management system for employee competency development:
-- **Database Tables:** `trainings`, `training_assignments`, `training_completions`
-- **Training Types:** Internal, External, Online, On-the-Job, Workshop, Certification
-- **Assignment Workflow:** Create training → Assign to employees → Track completion
-- **Completion Certificates:** Auto-generated certificate numbers (TC-YYYY-#####)
-- **Validity Periods:** Optional expiry tracking based on validity period
-- **Notifications:** Automatic alerts to assigned employees
-- **Access Control:** Admin, Quality Manager, and HR (hr@sahihcertify.com)
-- **Key Files:**
-  - `client/src/pages/Trainings.tsx` - Training management UI
-  - `shared/schema.ts` - Training database schema
-  - `server/routes.ts` - Training API endpoints
-
-### User Agreement System (ISO 27001 Compliance)
-First-time login enforcement for security and confidentiality acknowledgment:
-- **Database Field:** `agreementAcceptedAt` timestamp on users table
-- **Modal:** Non-dismissible dialog shown before any access is granted
-- **Content:** 4 sections - Terms of Use, Confidentiality Agreement, Security Policy (ISO 27001), Compliance Obligations
-- **Checkboxes:** 5 required acceptance checkboxes before enabling "Accept & Continue"
-- **Audit Trail:** All acceptances logged for compliance verification
-- **Key Files:**
-  - `client/src/components/UserAgreementModal.tsx` - Modal UI
-  - `client/src/App.tsx` - Integration in AuthenticatedRouter
-  - `server/routes.ts` - `/api/auth/accept-agreement` endpoint
-
-### Document Editor Find & Replace
-Search, find, and replace functionality for mass amendments in the document editor:
-- **Keyboard Shortcut:** Ctrl+F (or Cmd+F on Mac) opens the Find & Replace panel
-- **Find Features:**
-  - Real-time search highlighting as you type
-  - Match counter showing current position (e.g., "3/15")
-  - Navigate between matches with Up/Down arrow buttons
-  - Case-sensitive search option
-- **Replace Features:**
-  - Replace current match individually
-  - Replace All for mass amendments across the document
-- **Keyboard Navigation:**
-  - Enter: Find next match
-  - Shift+Enter: Find previous match
-  - Escape: Close the panel and clear highlights
-- **Key Files:**
-  - `client/src/components/TiptapEditor.tsx` - Editor with Find & Replace implementation
-
-### Lock and Transfer to Document Hub
-Post-approval workflow for secure document archiving with granular access control:
-- **Trigger:** Dialog appears automatically after a document approval task is completed
-- **User Selection:** Approver can select specific users who will have access to the locked document
-- **Automatic COO Access:** COO (coo@sahihcertify.com) always has access to Document Hub documents
-- **Document Locking:** Once transferred, document becomes read-only and locked for general access
-- **Access Control:** Only selected users and COO can view documents in Document Hub
-- **Notifications:** Selected users receive notifications about their granted access
-- **Audit Trail:** All lock-transfer actions are logged for compliance verification
-- **Skip Option:** Users can skip the transfer if they want to lock the document later
-- **Authorization:** Approver, COO, Admin, or Quality Manager can perform lock-transfer
-- **API Endpoint:** `POST /api/documents/:id/lock-transfer` with `{ userIds: number[] }`
-- **Key Files:**
-  - `client/src/pages/Dashboard.tsx` - Lock and transfer dialog UI
-  - `server/routes.ts` - Lock-transfer API endpoint
-
-### DocuGenie - AI-Powered Form Conversion System
-Convert Google Docs/Forms and other documents into embeddable HTML forms:
-- **Content Paste:** Upload or paste content from Google Docs, Forms, or any document
-- **AI Conversion:** GPT-4o analyzes content and generates semantic HTML forms with Tailwind CSS styling
-- **Manual Editing:** Edit generated HTML directly in the code editor tab
-- **Preview Mode:** Real-time preview of the generated form before publishing
-- **Publishing:** Generate shareable links with unique tokens for form distribution
-- **Public Submissions:** Unauthenticated users can submit forms via public URLs (/form/:token)
-- **Submission Tracking:** View all form submissions with submitter details and form data
-- **Access Control:** Limited to Admin, Quality Manager, and COO roles
-- **Database Tables:** `docugenie_forms`, `docugenie_form_submissions`
-- **Form Statuses:** draft → published → closed
-- **Key Files:**
-  - `client/src/pages/DocuGenie.tsx` - DocuGenie management UI with tabs for content, preview, and HTML
-  - `client/src/pages/FormSubmit.tsx` - Public form submission page
-  - `shared/schema.ts` - DocuGenie database schema and types
-  - `server/routes.ts` - API endpoints for CRUD, AI conversion, publishing, and submissions
-
-## Recent Changes
-
-### January 17, 2026
-- **Added:** DocuGenie AI-powered form conversion system with public shareable links
-- **Added:** Lock and Transfer to Document Hub feature with granular user access control
-- **Added:** Find & Replace feature in document editor (Ctrl+F) for mass amendments
-- **Added:** User Agreement System with ISO 27001 compliant security and confidentiality clauses
-- **Added:** Document view route redirect (`/documents/:id/view` → `/documents/:id/edit`)
-- **Fixed:** Edition number save issue - Document update endpoint now properly saves `editionNumber` and `revisionNumber` changes (was missing from update handler)
+- **Database:** PostgreSQL
+- **ORM:** Drizzle ORM
+- **UI Framework:** Radix UI, shadcn/ui
+- **Data Visualization:** Recharts
+- **Date Handling:** date-fns
+- **Form Handling:** react-hook-form, @hookform/resolvers, Zod
+- **Build & Development:** Vite, esbuild, tsx
+- **PDF Generation:** Puppeteer
+- **Email:** Gmail OAuth API, SMTP, Replit Connector
+- **Cloud Storage:** Replit Object Storage (for bug report attachments)

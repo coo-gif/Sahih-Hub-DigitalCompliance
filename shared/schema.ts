@@ -1323,3 +1323,45 @@ export type InsertDocuGenieForm = z.infer<typeof insertDocuGenieFormSchema>;
 
 export type DocuGenieFormSubmission = typeof docugenieFormSubmissions.$inferSelect;
 export type InsertDocuGenieFormSubmission = z.infer<typeof insertDocuGenieFormSubmissionSchema>;
+
+// ============================================
+// CRM - LEADS
+// ============================================
+export const LeadSource = {
+  WEBSITE: "website",
+  REFERRAL: "referral",
+  ADS: "ads",
+  WHATSAPP: "whatsapp",
+} as const;
+
+export const LeadStatus = {
+  NEW: "new",
+  CONTACTED: "contacted",
+  QUALIFIED: "qualified",
+  NOT_INTERESTED: "not_interested",
+} as const;
+
+export const leads = pgTable("leads", {
+  id: serial("id").primaryKey(),
+  leadName: text("lead_name").notNull(),
+  companyName: text("company_name"),
+  phoneEmail: text("phone_email"),
+  leadSource: text("lead_source").notNull().default(LeadSource.WEBSITE),
+  interestedCourse: text("interested_course"), // Course or ISO Certification interest
+  leadStatus: text("lead_status").notNull().default(LeadStatus.NEW),
+  assignedToId: integer("assigned_to_id").references(() => users.id),
+  nextFollowUpDate: timestamp("next_follow_up_date"),
+  notes: text("notes"),
+  createdById: integer("created_by_id").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertLeadSchema = createInsertSchema(leads).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type Lead = typeof leads.$inferSelect;
+export type InsertLead = z.infer<typeof insertLeadSchema>;
