@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useForm } from "react-hook-form";
@@ -13,10 +13,13 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Pencil, Phone, Building2, User, Calendar, MessageSquare, Search, Filter, Users } from "lucide-react";
+import { Plus, Trash2, Pencil, Phone, Building2, User, Calendar, MessageSquare, Search, Filter, Users, History, Eye, FileText, Upload, Bell, ArrowRight } from "lucide-react";
 import { format } from "date-fns";
-import type { Lead, User as UserType } from "@shared/schema";
+import type { Lead, User as UserType, LeadStatusHistory, LeadUpdateRequest } from "@shared/schema";
 
 const createLeadSchema = z.object({
   leadName: z.string().min(1, "Lead name is required"),
@@ -24,13 +27,22 @@ const createLeadSchema = z.object({
   phoneEmail: z.string().optional(),
   leadSource: z.enum(["website", "referral", "ads", "whatsapp"]),
   interestedCourse: z.string().optional(),
-  leadStatus: z.enum(["new", "contacted", "qualified", "not_interested"]).optional(),
+  leadStatus: z.enum(["new", "contacted", "qualified", "not_interested", "pending", "proposal_submitted", "approved", "lost", "not_relevant"]).optional(),
   assignedToId: z.number().optional().nullable(),
   nextFollowUpDate: z.string().optional(),
   notes: z.string().optional(),
 });
 
 type CreateLeadData = z.infer<typeof createLeadSchema>;
+
+interface StatusHistoryEntry extends LeadStatusHistory {
+  changedByName: string;
+}
+
+interface UpdateRequestEntry extends LeadUpdateRequest {
+  requestedByName: string;
+  requestedFromName: string;
+}
 
 const leadSourceLabels: Record<string, string> = {
   website: "Website",
@@ -44,6 +56,11 @@ const leadStatusLabels: Record<string, string> = {
   contacted: "Contacted",
   qualified: "Qualified",
   not_interested: "Not Interested",
+  pending: "Pending",
+  proposal_submitted: "Proposal Submitted",
+  approved: "Approved",
+  lost: "Lost",
+  not_relevant: "Not Relevant",
 };
 
 const leadStatusColors: Record<string, string> = {
@@ -51,6 +68,11 @@ const leadStatusColors: Record<string, string> = {
   contacted: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
   qualified: "bg-green-500/10 text-green-500 border-green-500/20",
   not_interested: "bg-gray-500/10 text-gray-500 border-gray-500/20",
+  pending: "bg-orange-500/10 text-orange-500 border-orange-500/20",
+  proposal_submitted: "bg-purple-500/10 text-purple-500 border-purple-500/20",
+  approved: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
+  lost: "bg-red-500/10 text-red-500 border-red-500/20",
+  not_relevant: "bg-slate-500/10 text-slate-500 border-slate-500/20",
 };
 
 export default function CrmLeads() {
@@ -58,9 +80,18 @@ export default function CrmLeads() {
   const queryClient = useQueryClient();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isLeadDetailsOpen, setIsLeadDetailsOpen] = useState(false);
+  const [isStatusChangeOpen, setIsStatusChangeOpen] = useState(false);
+  const [isAskUpdateOpen, setIsAskUpdateOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [newStatus, setNewStatus] = useState<string>("");
+  const [statusReason, setStatusReason] = useState("");
+  const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
+  const [updateMessage, setUpdateMessage] = useState("");
+  const [updateTargetUserId, setUpdateTargetUserId] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<CreateLeadData>({
     resolver: zodResolver(createLeadSchema),
@@ -99,6 +130,22 @@ export default function CrmLeads() {
   const { data: users = [] } = useQuery<UserType[]>({
     queryKey: ["/api/users"],
   });
+
+  const { data: currentUser } = useQuery<UserType>({
+    queryKey: ["/api/user"],
+  });
+
+  const { data: statusHistory = [] } = useQuery<StatusHistoryEntry[]>({
+    queryKey: ["/api/leads", selectedLead?.id, "status-history"],
+    enabled: !!selectedLead && isLeadDetailsOpen,
+  });
+
+  const { data: updateRequests = [] } = useQuery<UpdateRequestEntry[]>({
+    queryKey: ["/api/leads", selectedLead?.id, "update-requests"],
+    enabled: !!selectedLead && isLeadDetailsOpen,
+  });
+
+  const isCooOrAdmin = currentUser?.email === 'coo@sahihcertify.com' || currentUser?.role === 'admin';
 
   const createLead = useMutation({
     mutationFn: async (data: CreateLeadData) => {
@@ -148,6 +195,110 @@ export default function CrmLeads() {
       toast({ title: "Error deleting lead", description: error.message, variant: "destructive" });
     },
   });
+
+  const changeStatus = useMutation({
+    mutationFn: async ({ leadId, newStatus, reason, evidenceUrl, evidenceFileName }: {
+      leadId: number;
+      newStatus: string;
+      reason: string;
+      evidenceUrl?: string;
+      evidenceFileName?: string;
+    }) => {
+      return apiRequest("POST", `/api/leads/${leadId}/status`, {
+        newStatus,
+        reason,
+        evidenceUrl,
+        evidenceFileName,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", selectedLead?.id, "status-history"] });
+      setIsStatusChangeOpen(false);
+      setNewStatus("");
+      setStatusReason("");
+      setEvidenceFile(null);
+      toast({ title: "Status updated successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error updating status", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const requestUpdate = useMutation({
+    mutationFn: async ({ leadId, requestedFromId, message }: {
+      leadId: number;
+      requestedFromId: number;
+      message: string;
+    }) => {
+      return apiRequest("POST", `/api/leads/${leadId}/update-requests`, {
+        requestedFromId,
+        message,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", selectedLead?.id, "update-requests"] });
+      setIsAskUpdateOpen(false);
+      setUpdateMessage("");
+      setUpdateTargetUserId(null);
+      toast({ title: "Update request sent successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error sending update request", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleViewDetails = (lead: Lead) => {
+    setSelectedLead(lead);
+    setIsLeadDetailsOpen(true);
+  };
+
+  const handleOpenStatusChange = (lead: Lead) => {
+    setSelectedLead(lead);
+    setNewStatus(lead.leadStatus || "new");
+    setIsStatusChangeOpen(true);
+  };
+
+  const handleOpenAskUpdate = (lead: Lead) => {
+    setSelectedLead(lead);
+    setUpdateTargetUserId(lead.assignedToId || null);
+    setIsAskUpdateOpen(true);
+  };
+
+  const handleStatusChangeSubmit = async () => {
+    if (!selectedLead || !newStatus) return;
+    
+    let evidenceUrl = undefined;
+    let evidenceFileName = undefined;
+    
+    if (evidenceFile) {
+      const formData = new FormData();
+      formData.append('file', evidenceFile);
+      
+      try {
+        const response = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+          credentials: 'include',
+        });
+        const result = await response.json();
+        if (result.url) {
+          evidenceUrl = result.url;
+          evidenceFileName = evidenceFile.name;
+        }
+      } catch (error) {
+        console.error("Error uploading evidence:", error);
+      }
+    }
+    
+    changeStatus.mutate({
+      leadId: selectedLead.id,
+      newStatus,
+      reason: statusReason,
+      evidenceUrl,
+      evidenceFileName,
+    });
+  };
 
   const handleEdit = (lead: Lead) => {
     setSelectedLead(lead);
@@ -290,6 +441,11 @@ export default function CrmLeads() {
                             <SelectItem value="contacted">Contacted</SelectItem>
                             <SelectItem value="qualified">Qualified</SelectItem>
                             <SelectItem value="not_interested">Not Interested</SelectItem>
+                            <SelectItem value="pending">Pending</SelectItem>
+                            <SelectItem value="proposal_submitted">Proposal Submitted</SelectItem>
+                            <SelectItem value="approved">Approved</SelectItem>
+                            <SelectItem value="lost">Lost</SelectItem>
+                            <SelectItem value="not_relevant">Not Relevant</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -532,12 +688,42 @@ export default function CrmLeads() {
                         )}
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleViewDetails(lead)}
+                            data-testid={`button-view-lead-${lead.id}`}
+                            title="View Details & History"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleOpenStatusChange(lead)}
+                            data-testid={`button-change-status-${lead.id}`}
+                            title="Change Status"
+                          >
+                            <History className="h-4 w-4" />
+                          </Button>
+                          {isCooOrAdmin && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleOpenAskUpdate(lead)}
+                              data-testid={`button-ask-update-${lead.id}`}
+                              title="Ask for Update"
+                            >
+                              <Bell className="h-4 w-4" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"
                             onClick={() => handleEdit(lead)}
                             data-testid={`button-edit-lead-${lead.id}`}
+                            title="Edit Lead"
                           >
                             <Pencil className="h-4 w-4" />
                           </Button>
@@ -661,6 +847,11 @@ export default function CrmLeads() {
                           <SelectItem value="contacted">Contacted</SelectItem>
                           <SelectItem value="qualified">Qualified</SelectItem>
                           <SelectItem value="not_interested">Not Interested</SelectItem>
+                          <SelectItem value="pending">Pending</SelectItem>
+                          <SelectItem value="proposal_submitted">Proposal Submitted</SelectItem>
+                          <SelectItem value="approved">Approved</SelectItem>
+                          <SelectItem value="lost">Lost</SelectItem>
+                          <SelectItem value="not_relevant">Not Relevant</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -747,6 +938,338 @@ export default function CrmLeads() {
               </DialogFooter>
             </form>
           </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Lead Details Dialog with Status History */}
+      <Dialog open={isLeadDetailsOpen} onOpenChange={setIsLeadDetailsOpen}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <User className="h-5 w-5" />
+              {selectedLead?.leadName}
+            </DialogTitle>
+            <DialogDescription>
+              Lead details and complete interaction history
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedLead && (
+            <Tabs defaultValue="details" className="w-full">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="details" data-testid="tab-lead-details">Details</TabsTrigger>
+                <TabsTrigger value="history" data-testid="tab-status-history">Status History</TabsTrigger>
+                <TabsTrigger value="requests" data-testid="tab-update-requests">Update Requests</TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="details" className="space-y-4 mt-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Company</p>
+                    <p className="flex items-center gap-1">
+                      <Building2 className="h-4 w-4" />
+                      {selectedLead.companyName || "N/A"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Contact</p>
+                    <p className="flex items-center gap-1">
+                      <Phone className="h-4 w-4" />
+                      {selectedLead.phoneEmail || "N/A"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Source</p>
+                    <p>{leadSourceLabels[selectedLead.leadSource] || selectedLead.leadSource}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Current Status</p>
+                    <Badge className={leadStatusColors[selectedLead.leadStatus || "new"]}>
+                      {leadStatusLabels[selectedLead.leadStatus || "new"]}
+                    </Badge>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Interested Course</p>
+                    <p>{selectedLead.interestedCourse || "N/A"}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Assigned To</p>
+                    <p>{getAssignedUserName(selectedLead.assignedToId)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Next Follow-up</p>
+                    <p className="flex items-center gap-1">
+                      <Calendar className="h-4 w-4" />
+                      {selectedLead.nextFollowUpDate 
+                        ? format(new Date(selectedLead.nextFollowUpDate), "MMM d, yyyy")
+                        : "Not scheduled"
+                      }
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Created</p>
+                    <p>{selectedLead.createdAt 
+                      ? format(new Date(selectedLead.createdAt), "MMM d, yyyy HH:mm")
+                      : "N/A"
+                    }</p>
+                  </div>
+                </div>
+                {selectedLead.notes && (
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Notes</p>
+                    <p className="mt-1 p-3 bg-muted rounded-md text-sm">{selectedLead.notes}</p>
+                  </div>
+                )}
+              </TabsContent>
+              
+              <TabsContent value="history" className="mt-4">
+                <ScrollArea className="h-[350px]">
+                  {statusHistory.length === 0 ? (
+                    <p className="text-muted-foreground text-center py-8">No status changes recorded yet</p>
+                  ) : (
+                    <div className="space-y-4">
+                      {statusHistory.map((entry) => (
+                        <div key={entry.id} className="border rounded-lg p-4 space-y-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge className={leadStatusColors[entry.previousStatus || "new"]}>
+                              {leadStatusLabels[entry.previousStatus || "new"]}
+                            </Badge>
+                            <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                            <Badge className={leadStatusColors[entry.newStatus || "new"]}>
+                              {leadStatusLabels[entry.newStatus || "new"]}
+                            </Badge>
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            Changed by <span className="font-medium">{entry.changedByName}</span> on{" "}
+                            {entry.changedAt ? format(new Date(entry.changedAt), "MMM d, yyyy 'at' HH:mm") : "N/A"}
+                          </div>
+                          {entry.reason && (
+                            <div className="text-sm">
+                              <span className="font-medium">Reason:</span> {entry.reason}
+                            </div>
+                          )}
+                          {entry.evidenceUrl && (
+                            <div className="flex items-center gap-2 text-sm">
+                              <FileText className="h-4 w-4" />
+                              <a 
+                                href={entry.evidenceUrl} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-primary hover:underline"
+                              >
+                                {entry.evidenceFileName || "View Evidence"}
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </ScrollArea>
+              </TabsContent>
+              
+              <TabsContent value="requests" className="mt-4">
+                <ScrollArea className="h-[350px]">
+                  {updateRequests.length === 0 ? (
+                    <p className="text-muted-foreground text-center py-8">No update requests for this lead</p>
+                  ) : (
+                    <div className="space-y-4">
+                      {updateRequests.map((request) => (
+                        <div key={request.id} className="border rounded-lg p-4 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Bell className="h-4 w-4 text-orange-500" />
+                              <span className="font-medium">{request.requestedByName}</span>
+                              <span className="text-muted-foreground">requested update from</span>
+                              <span className="font-medium">{request.requestedFromName}</span>
+                            </div>
+                            <Badge variant={request.isResolved ? "secondary" : "default"}>
+                              {request.isResolved ? "Resolved" : "Pending"}
+                            </Badge>
+                          </div>
+                          <p className="text-sm bg-muted p-2 rounded">{request.message}</p>
+                          <div className="text-xs text-muted-foreground">
+                            {request.createdAt ? format(new Date(request.createdAt), "MMM d, yyyy 'at' HH:mm") : "N/A"}
+                            {request.resolvedAt && ` • Resolved: ${format(new Date(request.resolvedAt), "MMM d, yyyy 'at' HH:mm")}`}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </ScrollArea>
+              </TabsContent>
+            </Tabs>
+          )}
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsLeadDetailsOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Status Change Dialog */}
+      <Dialog open={isStatusChangeOpen} onOpenChange={setIsStatusChangeOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Change Lead Status</DialogTitle>
+            <DialogDescription>
+              Update the status of {selectedLead?.leadName}. Please provide a reason and optional evidence.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Current Status</label>
+              <Badge className={leadStatusColors[selectedLead?.leadStatus || "new"]}>
+                {leadStatusLabels[selectedLead?.leadStatus || "new"]}
+              </Badge>
+            </div>
+            
+            <div className="space-y-2">
+              <label className="text-sm font-medium">New Status *</label>
+              <Select value={newStatus} onValueChange={setNewStatus}>
+                <SelectTrigger data-testid="select-new-status">
+                  <SelectValue placeholder="Select new status" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(leadStatusLabels).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Reason for Change *</label>
+              <Textarea
+                placeholder="Explain why you are changing the status..."
+                value={statusReason}
+                onChange={(e) => setStatusReason(e.target.value)}
+                className="min-h-[80px]"
+                data-testid="textarea-status-reason"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Evidence (Optional)</label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={(e) => setEvidenceFile(e.target.files?.[0] || null)}
+                  className="hidden"
+                  data-testid="input-evidence-file"
+                />
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="gap-2"
+                >
+                  <Upload className="h-4 w-4" />
+                  Upload Evidence
+                </Button>
+                {evidenceFile && (
+                  <span className="text-sm text-muted-foreground">{evidenceFile.name}</span>
+                )}
+              </div>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setIsStatusChangeOpen(false);
+                setNewStatus("");
+                setStatusReason("");
+                setEvidenceFile(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleStatusChangeSubmit}
+              disabled={!newStatus || !statusReason || changeStatus.isPending}
+              data-testid="button-submit-status-change"
+            >
+              {changeStatus.isPending ? "Updating..." : "Update Status"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Ask for Update Dialog (COO/Admin only) */}
+      <Dialog open={isAskUpdateOpen} onOpenChange={setIsAskUpdateOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Request Lead Update</DialogTitle>
+            <DialogDescription>
+              Request an update on {selectedLead?.leadName} from the assigned user.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Request From *</label>
+              <Select 
+                value={updateTargetUserId?.toString() || ""} 
+                onValueChange={(value) => setUpdateTargetUserId(parseInt(value))}
+              >
+                <SelectTrigger data-testid="select-update-target">
+                  <SelectValue placeholder="Select user" />
+                </SelectTrigger>
+                <SelectContent>
+                  {users.map((user) => (
+                    <SelectItem key={user.id} value={user.id.toString()}>
+                      {user.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Message *</label>
+              <Textarea
+                placeholder="What update do you need on this lead?"
+                value={updateMessage}
+                onChange={(e) => setUpdateMessage(e.target.value)}
+                className="min-h-[100px]"
+                data-testid="textarea-update-message"
+              />
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setIsAskUpdateOpen(false);
+                setUpdateMessage("");
+                setUpdateTargetUserId(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={() => {
+                if (selectedLead && updateTargetUserId && updateMessage) {
+                  requestUpdate.mutate({
+                    leadId: selectedLead.id,
+                    requestedFromId: updateTargetUserId,
+                    message: updateMessage,
+                  });
+                }
+              }}
+              disabled={!updateTargetUserId || !updateMessage || requestUpdate.isPending}
+              data-testid="button-submit-update-request"
+            >
+              {requestUpdate.isPending ? "Sending..." : "Send Request"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
