@@ -79,6 +79,7 @@ Maintain a running tally of completed tasks and points.
 - **CRM - Leads Management:** Comprehensive lead tracking, qualification, and assignment for sales.
 - **CRM - Customers Management:** Customer account management with contract uploads, account owner assignment, communication history logging, and industry tracking.
 - **CRM - Opportunities Management:** Sales pipeline with dashboard stats (total pipeline value, qualified leads, proposals sent, won/lost deals), customer linking, ISO certification/training course selection, deal value and discount tracking, expected close dates, stage progression, notes, and proposal document upload/download.
+- **CRM - Historical Performance Data:** Monthly business performance tracking with year/month selection, leads received, deals closed, revenue, trainings delivered, certifications issued, and notes. Includes dashboard stats with year filtering and complete CRUD operations.
 
 ### Project Structure
 - `client/`: React frontend

@@ -24,6 +24,7 @@ import {
   insertCustomerSchema,
   insertOpportunitySchema,
   OpportunityStage,
+  insertHistoricalDataSchema,
 } from "@shared/schema";
 import { z } from "zod";
 import puppeteer from "puppeteer";
@@ -7679,10 +7680,12 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         return res.status(403).json({ message: "Access denied" });
       }
 
-      const data = await storage.createHistoricalData({
+      const validatedData = insertHistoricalDataSchema.parse({
         ...req.body,
         createdById: user.id,
       });
+
+      const data = await storage.createHistoricalData(validatedData);
 
       // Log audit trail
       await storage.createAuditLog({
@@ -7690,7 +7693,7 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         action: AuditAction.CREATE,
         entityType: 'historical_data',
         entityId: data.id,
-        description: `Created historical data entry for ${req.body.month} ${req.body.year}`,
+        description: `Created historical data entry for ${validatedData.month} ${validatedData.year}`,
       });
 
       res.status(201).json(data);
@@ -7715,7 +7718,8 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         return res.status(404).json({ message: "Historical data entry not found" });
       }
 
-      const updatedEntry = await storage.updateHistoricalData(entryId, req.body);
+      const validatedData = insertHistoricalDataSchema.partial().parse(req.body);
+      const updatedEntry = await storage.updateHistoricalData(entryId, validatedData);
 
       // Log audit trail
       await storage.createAuditLog({
