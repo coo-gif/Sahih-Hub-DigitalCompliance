@@ -31,7 +31,8 @@ import {
   Lock,
   GraduationCap,
   Sparkles,
-  UserPlus
+  UserPlus,
+  TrendingUp
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -114,6 +115,12 @@ const navItems: NavItem[] = [
     href: "/crm/customers", 
     label: "CRM - Customers", 
     icon: Users,
+    canAccess: (user) => user.role === 'admin' || user.role === 'quality_manager' || user.email === 'coo@sahihcertify.com'
+  },
+  { 
+    href: "/crm/opportunities", 
+    label: "CRM - Opportunities", 
+    icon: TrendingUp,
     canAccess: (user) => user.role === 'admin' || user.role === 'quality_manager' || user.email === 'coo@sahihcertify.com'
   },
   { href: "/audit-log", label: "Audit Log", icon: History, adminOnly: true },

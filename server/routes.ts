@@ -22,6 +22,8 @@ import {
   LeadStatus,
   insertLeadSchema,
   insertCustomerSchema,
+  insertOpportunitySchema,
+  OpportunityStage,
 } from "@shared/schema";
 import { z } from "zod";
 import puppeteer from "puppeteer";
@@ -7444,6 +7446,186 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
     } catch (error) {
       console.error("Error uploading contract:", error);
       res.status(500).json({ message: "Error uploading contract" });
+    }
+  });
+
+  // ============================================
+  // CRM - OPPORTUNITIES ROUTES
+  // ============================================
+
+  // Get all opportunities
+  app.get("/api/opportunities", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const opportunities = await storage.getOpportunities();
+      res.json(opportunities);
+    } catch (error) {
+      console.error("Error fetching opportunities:", error);
+      res.status(500).json({ message: "Error fetching opportunities" });
+    }
+  });
+
+  // Get single opportunity
+  app.get("/api/opportunities/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const opportunity = await storage.getOpportunity(parseInt(req.params.id));
+      if (!opportunity) {
+        return res.status(404).json({ message: "Opportunity not found" });
+      }
+      res.json(opportunity);
+    } catch (error) {
+      console.error("Error fetching opportunity:", error);
+      res.status(500).json({ message: "Error fetching opportunity" });
+    }
+  });
+
+  // Create new opportunity
+  app.post("/api/opportunities", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const validatedData = insertOpportunitySchema.parse({
+        ...req.body,
+        createdById: user.id,
+      });
+
+      const opportunity = await storage.createOpportunity(validatedData);
+
+      // Log audit trail
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.CREATE,
+        entityType: 'opportunity',
+        entityId: opportunity.id,
+        description: `Created new opportunity: ${opportunity.opportunityName}`,
+      });
+
+      res.status(201).json(opportunity);
+    } catch (error) {
+      console.error("Error creating opportunity:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: error.errors[0].message, field: error.errors[0].path[0] });
+      }
+      res.status(500).json({ message: "Error creating opportunity" });
+    }
+  });
+
+  // Update opportunity
+  app.put("/api/opportunities/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const opportunityId = parseInt(req.params.id);
+      
+      const existingOpportunity = await storage.getOpportunity(opportunityId);
+      if (!existingOpportunity) {
+        return res.status(404).json({ message: "Opportunity not found" });
+      }
+
+      const updateData = {
+        ...req.body,
+        updatedAt: new Date(),
+      };
+
+      const updatedOpportunity = await storage.updateOpportunity(opportunityId, updateData);
+
+      // Log audit trail
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.UPDATE,
+        entityType: 'opportunity',
+        entityId: opportunityId,
+        description: `Updated opportunity: ${updatedOpportunity?.opportunityName}`,
+      });
+
+      res.json(updatedOpportunity);
+    } catch (error) {
+      console.error("Error updating opportunity:", error);
+      res.status(500).json({ message: "Error updating opportunity" });
+    }
+  });
+
+  // Delete opportunity
+  app.delete("/api/opportunities/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const opportunityId = parseInt(req.params.id);
+      
+      const existingOpportunity = await storage.getOpportunity(opportunityId);
+      if (!existingOpportunity) {
+        return res.status(404).json({ message: "Opportunity not found" });
+      }
+
+      await storage.deleteOpportunity(opportunityId);
+
+      // Log audit trail
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.DELETE,
+        entityType: 'opportunity',
+        entityId: opportunityId,
+        description: `Deleted opportunity: ${existingOpportunity.opportunityName}`,
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting opportunity:", error);
+      res.status(500).json({ message: "Error deleting opportunity" });
+    }
+  });
+
+  // Upload proposal file for opportunity
+  app.post("/api/opportunities/:id/proposal", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const opportunityId = parseInt(req.params.id);
+      const { fileUrl, fileName } = req.body;
+      
+      const existingOpportunity = await storage.getOpportunity(opportunityId);
+      if (!existingOpportunity) {
+        return res.status(404).json({ message: "Opportunity not found" });
+      }
+
+      const updatedOpportunity = await storage.updateOpportunity(opportunityId, {
+        proposalFileUrl: fileUrl,
+        proposalFileName: fileName,
+        updatedAt: new Date(),
+      });
+
+      // Log audit trail
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.UPDATE,
+        entityType: 'opportunity',
+        entityId: opportunityId,
+        description: `Uploaded proposal file for opportunity: ${existingOpportunity.opportunityName}`,
+      });
+
+      res.json(updatedOpportunity);
+    } catch (error) {
+      console.error("Error uploading proposal:", error);
+      res.status(500).json({ message: "Error uploading proposal" });
     }
   });
 
