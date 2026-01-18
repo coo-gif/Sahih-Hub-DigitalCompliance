@@ -7270,6 +7270,194 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
   });
 
   // ============================================
+  // CRM - LEAD STATUS HISTORY ROUTES
+  // ============================================
+
+  // Get lead status history
+  app.get("/api/leads/:id/status-history", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const leadId = parseInt(req.params.id);
+      const history = await storage.getLeadStatusHistory(leadId);
+      res.json(history);
+    } catch (error) {
+      console.error("Error fetching lead status history:", error);
+      res.status(500).json({ message: "Error fetching status history" });
+    }
+  });
+
+  // Update lead status with history tracking
+  app.post("/api/leads/:id/status", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const leadId = parseInt(req.params.id);
+      const { newStatus, reason, evidenceUrl, evidenceFileName } = req.body;
+      
+      if (!newStatus) {
+        return res.status(400).json({ message: "New status is required" });
+      }
+      
+      const existingLead = await storage.getLead(leadId);
+      if (!existingLead) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+      
+      const previousStatus = existingLead.status;
+      
+      // Create status history entry
+      await storage.createLeadStatusHistory({
+        leadId,
+        previousStatus,
+        newStatus,
+        reason: reason || null,
+        evidenceUrl: evidenceUrl || null,
+        evidenceFileName: evidenceFileName || null,
+        changedById: user.id,
+      });
+      
+      // Update the lead status
+      const updatedLead = await storage.updateLead(leadId, {
+        status: newStatus,
+        updatedAt: new Date(),
+      });
+      
+      // Log audit trail
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.UPDATE,
+        entityType: 'lead',
+        entityId: leadId,
+        description: `Changed lead status from "${previousStatus}" to "${newStatus}" for: ${existingLead.leadName}`,
+      });
+      
+      res.json(updatedLead);
+    } catch (error) {
+      console.error("Error updating lead status:", error);
+      res.status(500).json({ message: "Error updating lead status" });
+    }
+  });
+
+  // ============================================
+  // CRM - LEAD UPDATE REQUESTS ROUTES
+  // ============================================
+
+  // Get update requests for a lead
+  app.get("/api/leads/:id/update-requests", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const leadId = parseInt(req.params.id);
+      const requests = await storage.getLeadUpdateRequests(leadId);
+      res.json(requests);
+    } catch (error) {
+      console.error("Error fetching lead update requests:", error);
+      res.status(500).json({ message: "Error fetching update requests" });
+    }
+  });
+
+  // Get pending update requests for current user
+  app.get("/api/lead-update-requests/pending", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      const requests = await storage.getPendingLeadUpdateRequests(user.id);
+      res.json(requests);
+    } catch (error) {
+      console.error("Error fetching pending update requests:", error);
+      res.status(500).json({ message: "Error fetching pending update requests" });
+    }
+  });
+
+  // Create update request (COO/CEO asking for update)
+  app.post("/api/leads/:id/update-requests", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      // Only COO and Admin can request updates
+      if (user.email !== 'coo@sahihcertify.com' && user.role !== 'admin') {
+        return res.status(403).json({ message: "Only COO and Admin can request updates" });
+      }
+      
+      const leadId = parseInt(req.params.id);
+      const { requestedFromId, message } = req.body;
+      
+      if (!requestedFromId || !message) {
+        return res.status(400).json({ message: "requestedFromId and message are required" });
+      }
+      
+      const existingLead = await storage.getLead(leadId);
+      if (!existingLead) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+      
+      const updateRequest = await storage.createLeadUpdateRequest({
+        leadId,
+        requestedById: user.id,
+        requestedFromId,
+        message,
+      });
+      
+      // Create notification for the assigned user
+      await storage.createNotification({
+        userId: requestedFromId,
+        title: 'Lead Update Requested',
+        message: `Update requested on lead: ${existingLead.leadName}. Message: ${message}`,
+        type: 'warning',
+      });
+      
+      // Log audit trail
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.CREATE,
+        entityType: 'lead_update_request',
+        entityId: updateRequest.id,
+        description: `Requested update on lead: ${existingLead.leadName}`,
+      });
+      
+      res.json(updateRequest);
+    } catch (error) {
+      console.error("Error creating update request:", error);
+      res.status(500).json({ message: "Error creating update request" });
+    }
+  });
+
+  // Resolve an update request
+  app.post("/api/lead-update-requests/:id/resolve", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      const requestId = parseInt(req.params.id);
+      
+      const resolved = await storage.resolveLeadUpdateRequest(requestId);
+      if (!resolved) {
+        return res.status(404).json({ message: "Update request not found" });
+      }
+      
+      // Log audit trail
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.UPDATE,
+        entityType: 'lead_update_request',
+        entityId: requestId,
+        description: `Resolved lead update request`,
+      });
+      
+      res.json(resolved);
+    } catch (error) {
+      console.error("Error resolving update request:", error);
+      res.status(500).json({ message: "Error resolving update request" });
+    }
+  });
+
+  // ============================================
   // CRM - CUSTOMERS ROUTES
   // ============================================
 
