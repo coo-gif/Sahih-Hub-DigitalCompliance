@@ -106,8 +106,14 @@ const navItems: NavItem[] = [
   },
   { 
     href: "/crm/leads", 
-    label: "CRM", 
+    label: "CRM - Leads", 
     icon: UserPlus,
+    canAccess: (user) => user.role === 'admin' || user.role === 'quality_manager' || user.email === 'coo@sahihcertify.com'
+  },
+  { 
+    href: "/crm/customers", 
+    label: "CRM - Customers", 
+    icon: Users,
     canAccess: (user) => user.role === 'admin' || user.role === 'quality_manager' || user.email === 'coo@sahihcertify.com'
   },
   { href: "/audit-log", label: "Audit Log", icon: History, adminOnly: true },
