@@ -318,8 +318,8 @@ export default function CrmLeads() {
                       <FormItem>
                         <FormLabel>Assigned To</FormLabel>
                         <Select
-                          onValueChange={(value) => field.onChange(value ? parseInt(value) : null)}
-                          value={field.value?.toString() || ""}
+                          onValueChange={(value) => field.onChange(value === "unassigned" ? null : parseInt(value))}
+                          value={field.value?.toString() || "unassigned"}
                         >
                           <FormControl>
                             <SelectTrigger data-testid="select-assigned-to">
@@ -327,7 +327,7 @@ export default function CrmLeads() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="">Unassigned</SelectItem>
+                            <SelectItem value="unassigned">Unassigned</SelectItem>
                             {users.map((user) => (
                               <SelectItem key={user.id} value={user.id.toString()}>
                                 {user.name}
@@ -689,8 +689,8 @@ export default function CrmLeads() {
                     <FormItem>
                       <FormLabel>Assigned To</FormLabel>
                       <Select
-                        onValueChange={(value) => field.onChange(value ? parseInt(value) : null)}
-                        value={field.value?.toString() || ""}
+                        onValueChange={(value) => field.onChange(value === "unassigned" ? null : parseInt(value))}
+                        value={field.value?.toString() || "unassigned"}
                       >
                         <FormControl>
                           <SelectTrigger data-testid="edit-select-assigned-to">
@@ -698,7 +698,7 @@ export default function CrmLeads() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="">Unassigned</SelectItem>
+                          <SelectItem value="unassigned">Unassigned</SelectItem>
                           {users.map((user) => (
                             <SelectItem key={user.id} value={user.id.toString()}>
                               {user.name}
