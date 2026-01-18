@@ -60,6 +60,7 @@ Maintain a running tally of completed tasks and points.
 - **Trainings:** Manages training types, assignments, completions, and certificates.
 - **DocuGenie Forms:** AI-generated HTML forms and submissions.
 - **CRM Leads:** Tracks sales leads with various attributes and statuses.
+- **CRM Customers:** Manages customer accounts with contact info, industry, account owners, communication history, and contract file uploads.
 
 ### Core Features
 - **Document Workflow Engine:** State machine for document lifecycle (Draft -> In-Review -> Pending Approval -> Approved / Obsolete).
@@ -75,6 +76,7 @@ Maintain a running tally of completed tasks and points.
 - **Lock and Transfer to Document Hub:** Post-approval archiving with granular access control.
 - **DocuGenie - AI-Powered Form Conversion System:** Converts documents into embeddable HTML forms, supports public submissions and tracking.
 - **CRM - Leads Management:** Comprehensive lead tracking, qualification, and assignment for sales.
+- **CRM - Customers Management:** Customer account management with contract uploads, account owner assignment, communication history logging, and industry tracking.
 
 ### Project Structure
 - `client/`: React frontend
