@@ -21,6 +21,7 @@ import {
   LeadSource,
   LeadStatus,
   insertLeadSchema,
+  insertCustomerSchema,
 } from "@shared/schema";
 import { z } from "zod";
 import puppeteer from "puppeteer";
@@ -7262,6 +7263,187 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
     } catch (error) {
       console.error("Error deleting lead:", error);
       res.status(500).json({ message: "Error deleting lead" });
+    }
+  });
+
+  // ============================================
+  // CRM - CUSTOMERS ROUTES
+  // ============================================
+
+  // Get all customers
+  app.get("/api/customers", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      // Only Admin, Quality Manager, or COO can access customers
+      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const customers = await storage.getCustomers();
+      res.json(customers);
+    } catch (error) {
+      console.error("Error fetching customers:", error);
+      res.status(500).json({ message: "Error fetching customers" });
+    }
+  });
+
+  // Get single customer
+  app.get("/api/customers/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const customer = await storage.getCustomer(parseInt(req.params.id));
+      if (!customer) {
+        return res.status(404).json({ message: "Customer not found" });
+      }
+      res.json(customer);
+    } catch (error) {
+      console.error("Error fetching customer:", error);
+      res.status(500).json({ message: "Error fetching customer" });
+    }
+  });
+
+  // Create new customer
+  app.post("/api/customers", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const validatedData = insertCustomerSchema.parse({
+        ...req.body,
+        createdById: user.id,
+      });
+
+      const customer = await storage.createCustomer(validatedData);
+
+      // Log audit trail
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.CREATE,
+        entityType: 'customer',
+        entityId: customer.id,
+        description: `Created new customer: ${customer.customerName}`,
+      });
+
+      res.status(201).json(customer);
+    } catch (error) {
+      console.error("Error creating customer:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: error.errors[0].message, field: error.errors[0].path[0] });
+      }
+      res.status(500).json({ message: "Error creating customer" });
+    }
+  });
+
+  // Update customer
+  app.put("/api/customers/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const customerId = parseInt(req.params.id);
+      
+      const existingCustomer = await storage.getCustomer(customerId);
+      if (!existingCustomer) {
+        return res.status(404).json({ message: "Customer not found" });
+      }
+
+      const updateData = {
+        ...req.body,
+        updatedAt: new Date(),
+      };
+
+      const updatedCustomer = await storage.updateCustomer(customerId, updateData);
+
+      // Log audit trail
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.UPDATE,
+        entityType: 'customer',
+        entityId: customerId,
+        description: `Updated customer: ${updatedCustomer?.customerName}`,
+      });
+
+      res.json(updatedCustomer);
+    } catch (error) {
+      console.error("Error updating customer:", error);
+      res.status(500).json({ message: "Error updating customer" });
+    }
+  });
+
+  // Delete customer
+  app.delete("/api/customers/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const customerId = parseInt(req.params.id);
+      
+      const existingCustomer = await storage.getCustomer(customerId);
+      if (!existingCustomer) {
+        return res.status(404).json({ message: "Customer not found" });
+      }
+
+      await storage.deleteCustomer(customerId);
+
+      // Log audit trail
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.DELETE,
+        entityType: 'customer',
+        entityId: customerId,
+        description: `Deleted customer: ${existingCustomer.customerName}`,
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting customer:", error);
+      res.status(500).json({ message: "Error deleting customer" });
+    }
+  });
+
+  // Upload contract file for customer
+  app.post("/api/customers/:id/contract", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const customerId = parseInt(req.params.id);
+      const { fileUrl, fileName } = req.body;
+      
+      const existingCustomer = await storage.getCustomer(customerId);
+      if (!existingCustomer) {
+        return res.status(404).json({ message: "Customer not found" });
+      }
+
+      const updatedCustomer = await storage.updateCustomer(customerId, {
+        contractFileUrl: fileUrl,
+        contractFileName: fileName,
+        updatedAt: new Date(),
+      });
+
+      // Log audit trail
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.UPDATE,
+        entityType: 'customer',
+        entityId: customerId,
+        description: `Uploaded contract file for customer: ${existingCustomer.customerName}`,
+      });
+
+      res.json(updatedCustomer);
+    } catch (error) {
+      console.error("Error uploading contract:", error);
+      res.status(500).json({ message: "Error uploading contract" });
     }
   });
 
