@@ -1394,3 +1394,42 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({
 
 export type Customer = typeof customers.$inferSelect;
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
+
+// ============================================
+// CRM - OPPORTUNITIES
+// ============================================
+export const OpportunityStage = {
+  QUALIFIED: "qualified",
+  PROPOSAL_SENT: "proposal_sent",
+  NEGOTIATION: "negotiation",
+  WON: "won",
+  LOST: "lost",
+} as const;
+
+export type OpportunityStageType = typeof OpportunityStage[keyof typeof OpportunityStage];
+
+export const opportunities = pgTable("opportunities", {
+  id: serial("id").primaryKey(),
+  opportunityName: text("opportunity_name").notNull(),
+  customerId: integer("customer_id").references(() => customers.id),
+  courseIsoCertification: text("course_iso_certification"),
+  dealValue: text("deal_value"),
+  expectedCloseDate: timestamp("expected_close_date"),
+  stage: text("stage").default("qualified"),
+  discount: text("discount"),
+  notes: text("notes"),
+  proposalFileUrl: text("proposal_file_url"),
+  proposalFileName: text("proposal_file_name"),
+  createdById: integer("created_by_id").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertOpportunitySchema = createInsertSchema(opportunities).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type Opportunity = typeof opportunities.$inferSelect;
+export type InsertOpportunity = z.infer<typeof insertOpportunitySchema>;

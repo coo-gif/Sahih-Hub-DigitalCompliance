@@ -5,10 +5,11 @@ import {
   documentAccessRequests, documentAccess, userRecords, buddyStatus, pushSubscriptions, buddyDialogues,
   userActivityLogs, monthlyPerformanceReports, bugReports,
   certificationApplications, certificationAudits, auditFindings, certificates, wallPosts, revisionHistory,
-  trainings, trainingAssignments, trainingCompletions, docugenieForms, docugenieFormSubmissions, leads, customers,
+  trainings, trainingAssignments, trainingCompletions, docugenieForms, docugenieFormSubmissions, leads, customers, opportunities,
   type User, type InsertUser,
   type Lead, type InsertLead,
   type Customer, type InsertCustomer,
+  type Opportunity, type InsertOpportunity,
   type DocuGenieForm, type InsertDocuGenieForm,
   type DocuGenieFormSubmission, type InsertDocuGenieFormSubmission,
   type RevisionHistory, type InsertRevisionHistory,
@@ -309,6 +310,13 @@ export interface IStorage {
   createCustomer(customer: InsertCustomer): Promise<Customer>;
   updateCustomer(id: number, customer: Partial<InsertCustomer>): Promise<Customer | undefined>;
   deleteCustomer(id: number): Promise<void>;
+
+  // CRM - Opportunities
+  getOpportunities(filters?: { stage?: string; customerId?: number }): Promise<Opportunity[]>;
+  getOpportunity(id: number): Promise<Opportunity | undefined>;
+  createOpportunity(opportunity: InsertOpportunity): Promise<Opportunity>;
+  updateOpportunity(id: number, opportunity: Partial<InsertOpportunity>): Promise<Opportunity | undefined>;
+  deleteOpportunity(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2349,6 +2357,44 @@ export class DatabaseStorage implements IStorage {
 
   async deleteCustomer(id: number): Promise<void> {
     await db.delete(customers).where(eq(customers.id, id));
+  }
+
+  // ============================================
+  // CRM - OPPORTUNITIES
+  // ============================================
+  async getOpportunities(filters?: { stage?: string; customerId?: number }): Promise<Opportunity[]> {
+    let query = db.select().from(opportunities);
+    
+    if (filters?.stage) {
+      query = query.where(eq(opportunities.stage, filters.stage)) as any;
+    }
+    if (filters?.customerId) {
+      query = query.where(eq(opportunities.customerId, filters.customerId)) as any;
+    }
+    
+    return query.orderBy(desc(opportunities.createdAt));
+  }
+
+  async getOpportunity(id: number): Promise<Opportunity | undefined> {
+    const [opportunity] = await db.select().from(opportunities).where(eq(opportunities.id, id));
+    return opportunity;
+  }
+
+  async createOpportunity(opportunity: InsertOpportunity): Promise<Opportunity> {
+    const [created] = await db.insert(opportunities).values(opportunity).returning();
+    return created;
+  }
+
+  async updateOpportunity(id: number, opportunity: Partial<InsertOpportunity>): Promise<Opportunity | undefined> {
+    const [updated] = await db.update(opportunities)
+      .set({ ...opportunity, updatedAt: new Date() })
+      .where(eq(opportunities.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteOpportunity(id: number): Promise<void> {
+    await db.delete(opportunities).where(eq(opportunities.id, id));
   }
 }
 
