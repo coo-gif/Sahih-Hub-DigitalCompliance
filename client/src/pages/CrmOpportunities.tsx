@@ -113,7 +113,7 @@ export default function CrmOpportunities() {
       return apiRequest("POST", "/api/opportunities", {
         ...data,
         customerId: data.customerId || undefined,
-        expectedCloseDate: data.expectedCloseDate ? new Date(data.expectedCloseDate) : undefined,
+        expectedCloseDate: data.expectedCloseDate || undefined,
       });
     },
     onSuccess: () => {
@@ -132,7 +132,7 @@ export default function CrmOpportunities() {
       return apiRequest("PUT", `/api/opportunities/${id}`, {
         ...data,
         customerId: data.customerId || undefined,
-        expectedCloseDate: data.expectedCloseDate ? new Date(data.expectedCloseDate) : undefined,
+        expectedCloseDate: data.expectedCloseDate || undefined,
       });
     },
     onSuccess: () => {

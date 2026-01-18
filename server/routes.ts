@@ -7494,10 +7494,13 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         return res.status(403).json({ message: "Access denied" });
       }
 
-      const validatedData = insertOpportunitySchema.parse({
+      const bodyData = {
         ...req.body,
         createdById: user.id,
-      });
+        expectedCloseDate: req.body.expectedCloseDate ? new Date(req.body.expectedCloseDate) : undefined,
+      };
+
+      const validatedData = insertOpportunitySchema.parse(bodyData);
 
       const opportunity = await storage.createOpportunity(validatedData);
 
@@ -7538,6 +7541,7 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
       const updateData = {
         ...req.body,
         updatedAt: new Date(),
+        expectedCloseDate: req.body.expectedCloseDate ? new Date(req.body.expectedCloseDate) : undefined,
       };
 
       const updatedOpportunity = await storage.updateOpportunity(opportunityId, updateData);
