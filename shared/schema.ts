@@ -1433,3 +1433,30 @@ export const insertOpportunitySchema = createInsertSchema(opportunities).omit({
 
 export type Opportunity = typeof opportunities.$inferSelect;
 export type InsertOpportunity = z.infer<typeof insertOpportunitySchema>;
+
+// ============================================
+// HISTORICAL PERFORMANCE DATA
+// ============================================
+export const historicalData = pgTable("historical_data", {
+  id: serial("id").primaryKey(),
+  year: integer("year").notNull(),
+  month: text("month").notNull(),
+  leadsReceived: integer("leads_received").default(0),
+  dealsClosed: integer("deals_closed").default(0),
+  revenue: text("revenue"),
+  trainingsDelivered: integer("trainings_delivered").default(0),
+  certificationsIssued: integer("certifications_issued").default(0),
+  notes: text("notes"),
+  createdById: integer("created_by_id").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertHistoricalDataSchema = createInsertSchema(historicalData).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type HistoricalData = typeof historicalData.$inferSelect;
+export type InsertHistoricalData = z.infer<typeof insertHistoricalDataSchema>;

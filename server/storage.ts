@@ -5,11 +5,12 @@ import {
   documentAccessRequests, documentAccess, userRecords, buddyStatus, pushSubscriptions, buddyDialogues,
   userActivityLogs, monthlyPerformanceReports, bugReports,
   certificationApplications, certificationAudits, auditFindings, certificates, wallPosts, revisionHistory,
-  trainings, trainingAssignments, trainingCompletions, docugenieForms, docugenieFormSubmissions, leads, customers, opportunities,
+  trainings, trainingAssignments, trainingCompletions, docugenieForms, docugenieFormSubmissions, leads, customers, opportunities, historicalData,
   type User, type InsertUser,
   type Lead, type InsertLead,
   type Customer, type InsertCustomer,
   type Opportunity, type InsertOpportunity,
+  type HistoricalData, type InsertHistoricalData,
   type DocuGenieForm, type InsertDocuGenieForm,
   type DocuGenieFormSubmission, type InsertDocuGenieFormSubmission,
   type RevisionHistory, type InsertRevisionHistory,
@@ -317,6 +318,13 @@ export interface IStorage {
   createOpportunity(opportunity: InsertOpportunity): Promise<Opportunity>;
   updateOpportunity(id: number, opportunity: Partial<InsertOpportunity>): Promise<Opportunity | undefined>;
   deleteOpportunity(id: number): Promise<void>;
+
+  // Historical Performance Data
+  getHistoricalData(filters?: { year?: number }): Promise<HistoricalData[]>;
+  getHistoricalDataEntry(id: number): Promise<HistoricalData | undefined>;
+  createHistoricalData(data: InsertHistoricalData): Promise<HistoricalData>;
+  updateHistoricalData(id: number, data: Partial<InsertHistoricalData>): Promise<HistoricalData | undefined>;
+  deleteHistoricalData(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2395,6 +2403,41 @@ export class DatabaseStorage implements IStorage {
 
   async deleteOpportunity(id: number): Promise<void> {
     await db.delete(opportunities).where(eq(opportunities.id, id));
+  }
+
+  // ============================================
+  // HISTORICAL PERFORMANCE DATA
+  // ============================================
+  async getHistoricalData(filters?: { year?: number }): Promise<HistoricalData[]> {
+    let query = db.select().from(historicalData);
+    
+    if (filters?.year) {
+      query = query.where(eq(historicalData.year, filters.year)) as any;
+    }
+    
+    return query.orderBy(desc(historicalData.year), desc(historicalData.createdAt));
+  }
+
+  async getHistoricalDataEntry(id: number): Promise<HistoricalData | undefined> {
+    const [entry] = await db.select().from(historicalData).where(eq(historicalData.id, id));
+    return entry;
+  }
+
+  async createHistoricalData(data: InsertHistoricalData): Promise<HistoricalData> {
+    const [created] = await db.insert(historicalData).values(data).returning();
+    return created;
+  }
+
+  async updateHistoricalData(id: number, data: Partial<InsertHistoricalData>): Promise<HistoricalData | undefined> {
+    const [updated] = await db.update(historicalData)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(historicalData.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteHistoricalData(id: number): Promise<void> {
+    await db.delete(historicalData).where(eq(historicalData.id, id));
   }
 }
 
