@@ -204,7 +204,7 @@ export const api = {
         documentCode: z.string().min(1),
         title: z.string().min(1),
         description: z.string().optional(),
-        category: z.enum([DocumentCategory.POLICY, DocumentCategory.MANUAL, DocumentCategory.SOP, DocumentCategory.FORMAT, DocumentCategory.JOB_DESCRIPTION]),
+        category: z.enum([DocumentCategory.POLICY, DocumentCategory.MANUAL, DocumentCategory.SOP, DocumentCategory.FORMAT, DocumentCategory.JOB_DESCRIPTION, DocumentCategory.TRAINING_ASSESSMENT]),
         content: z.string().optional(),
         fileUrl: z.string().optional(),
         nextReviewDate: z.string().optional(),
