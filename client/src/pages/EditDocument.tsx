@@ -762,7 +762,7 @@ export default function EditDocument() {
                   <div className="font-bold text-lg">{formData.title || "Untitled Document"}</div>
                   <div className="text-sm text-gray-600 font-mono">{document.documentCode}</div>
                   <div className="text-xs text-gray-500 mt-1">
-                    Edition: {document.editionNumber || 1} | Revision: {document.revisionNumber || 0}
+                    Edition: {formData.editionNumber || 1} | Revision: {currentRevisionNumber}
                   </div>
                 </div>
               </div>
