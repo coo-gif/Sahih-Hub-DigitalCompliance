@@ -1339,6 +1339,11 @@ export const LeadStatus = {
   CONTACTED: "contacted",
   QUALIFIED: "qualified",
   NOT_INTERESTED: "not_interested",
+  PENDING: "pending",
+  PROPOSAL_SUBMITTED: "proposal_submitted",
+  APPROVED: "approved",
+  LOST: "lost",
+  NOT_RELEVANT: "not_relevant",
 } as const;
 
 export const leads = pgTable("leads", {
@@ -1365,6 +1370,49 @@ export const insertLeadSchema = createInsertSchema(leads).omit({
 
 export type Lead = typeof leads.$inferSelect;
 export type InsertLead = z.infer<typeof insertLeadSchema>;
+
+// Lead Status History - tracks all status changes with reasons and evidence
+export const leadStatusHistory = pgTable("lead_status_history", {
+  id: serial("id").primaryKey(),
+  leadId: integer("lead_id").notNull().references(() => leads.id),
+  previousStatus: text("previous_status"),
+  newStatus: text("new_status").notNull(),
+  reason: text("reason").notNull(),
+  evidenceUrl: text("evidence_url"),
+  evidenceFileName: text("evidence_file_name"),
+  changedById: integer("changed_by_id").notNull().references(() => users.id),
+  changedAt: timestamp("changed_at").defaultNow(),
+});
+
+export const insertLeadStatusHistorySchema = createInsertSchema(leadStatusHistory).omit({
+  id: true,
+  changedAt: true,
+});
+
+export type LeadStatusHistory = typeof leadStatusHistory.$inferSelect;
+export type InsertLeadStatusHistory = z.infer<typeof insertLeadStatusHistorySchema>;
+
+// Lead Update Requests - for COO/CEO to request updates from assigned users
+export const leadUpdateRequests = pgTable("lead_update_requests", {
+  id: serial("id").primaryKey(),
+  leadId: integer("lead_id").notNull().references(() => leads.id),
+  requestedById: integer("requested_by_id").notNull().references(() => users.id),
+  requestedFromId: integer("requested_from_id").notNull().references(() => users.id),
+  message: text("message"),
+  isResolved: boolean("is_resolved").default(false),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertLeadUpdateRequestSchema = createInsertSchema(leadUpdateRequests).omit({
+  id: true,
+  createdAt: true,
+  isResolved: true,
+  resolvedAt: true,
+});
+
+export type LeadUpdateRequest = typeof leadUpdateRequests.$inferSelect;
+export type InsertLeadUpdateRequest = z.infer<typeof insertLeadUpdateRequestSchema>;
 
 // ============================================
 // CRM - CUSTOMERS
