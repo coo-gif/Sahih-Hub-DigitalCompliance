@@ -139,6 +139,20 @@ export const ReportType = {
   STAFF_CONFIRMATION: "staff_confirmation",
 } as const;
 
+// Document Hub: after the approver signs, the document waits for the COO's final approval
+export const DocumentHubStatus = {
+  PENDING_COO_APPROVAL: "pending_coo_approval",
+  STORED: "stored",
+} as const;
+
+// Classification the COO assigns when storing a document in the Sahih Hub
+export const DocumentClassification = {
+  CONFIDENTIAL: "confidential",
+  CONTROLLED_COPY: "controlled_copy",
+  PUBLIC_INFORMATION: "public_information",
+  LEGAL: "legal",
+} as const;
+
 export const DocumentImportance = {
   LOW: "low",
   MEDIUM: "medium",
@@ -260,6 +274,11 @@ export const documents = pgTable("documents", {
   finalPdfGeneratedAt: timestamp("final_pdf_generated_at"),
   downloadRequiresApproval: boolean("download_requires_approval").default(true),
   isLocked: boolean("is_locked").default(false),
+  hubStatus: text("hub_status"), // null until approved, then pending_coo_approval -> stored
+  classification: text("classification"), // set by the COO on final approval
+  transferredToHubAt: timestamp("transferred_to_hub_at"),
+  hubApprovedById: integer("hub_approved_by_id"),
+  hubApprovedAt: timestamp("hub_approved_at"),
   assignedStaffIds: integer("assigned_staff_ids").array(),
   assignedDepartments: text("assigned_departments").array(),
   createdAt: timestamp("created_at").defaultNow(),

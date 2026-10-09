@@ -110,20 +110,22 @@ Step 2: The author sees the pending feedback on the document --->
 Step 3: The author fixes the content and marks the feedback addressed → `POST /api/feedback/:id/address` --->
 Step 4: Audit log.
 
-### 2.7 Approve
+### 2.7 Approve (moves the document to the Document Hub)
 Step 1: The approver opens the "approve" task --->
 Step 2: `POST /api/my-tasks/:docId/complete {taskType:"approve"}` --->
-Step 3: Status becomes `approved`, `approvedAt` and the signature are stamped, and `isLocked = true` --->
-Step 4: Puppeteer creates the **Document Approval Report** PDF with signatures and report number `DAR-YYYY-NNN` --->
-Step 5: The PDF is saved to User Records for every admin and for the creator, and each of them is notified --->
-Step 6: Live stat (`document_approved`).
+Step 3: Status becomes `approved` and the approver's signature is stamped. The document is **not locked yet**. It moves to the Document Hub with `hubStatus = pending_coo_approval` and can no longer be edited --->
+Step 4: The COO is notified that a document is awaiting final approval --->
+Step 5: Puppeteer creates the **Document Approval Report** PDF with signatures and report number `DAR-YYYY-NNN` --->
+Step 6: The PDF is saved to User Records for every admin and for the creator, and each of them is notified --->
+Step 7: Live stat (`document_approved`).
 
-### 2.8 Lock & transfer to Document Hub
-Step 1: After approval, Dashboard opens the "Lock & Transfer" dialog --->
-Step 2: The approver, COO, admin or QM picks which users get access --->
-Step 3: `POST /api/documents/:id/lock-transfer` --->
-Step 4: Access grants are created for the chosen users and the COO is added automatically. Those users are notified --->
-Step 5: The document appears in `/document-hub` for those users only.
+### 2.8 COO final approval & storage in the Sahih Hub
+Step 1: The COO opens `/document-hub` → "Awaiting Final Approval" tab. The Documents list also shows an "Awaiting COO final approval" badge --->
+Step 2: The COO views the document, then clicks Approve & Store --->
+Step 3: The COO picks a classification: **Confidential**, **Controlled Copy**, **Public Information** or **Legal**. For any classification except public, the COO can also choose who gets access --->
+Step 4: `POST /api/documents/:id/hub-approve` (COO only). The document is locked, `hubStatus = stored`, and the classification, COO and timestamp are recorded --->
+Step 5: Access is granted to the chosen users. They, the creator and the approver are notified, and an audit log entry is written --->
+Step 6: The document appears in the Hub master list with its classification. Public Information documents can be read by every signed-in user. The other three classifications can be read only by people granted access. The COO can change the classification later (`POST /api/documents/:id/classification`).
 
 ### 2.9 Reassign a workflow step
 Step 1: The current assignee, an admin or the QM opens the task --->
@@ -172,8 +174,7 @@ Step 2: A "download_approval" task appears for admins and the QM --->
 Step 3: Approve or reject (`/download-requests/:id/approve|reject`) --->
 Step 4: The requester is notified, and the download is allowed only if approved.
 
-### 3.4 Manual lock (COO only)
-Step 1: The COO selects an unlocked document and the users who should keep access --->
+--->
 Step 2: `POST /api/documents/:id/lock` --->
 Step 3: `isLocked = true`, access is granted to those users, and they are notified.
 
@@ -353,7 +354,7 @@ TASK 0 Foundation ---> TASK 1 Identity ---> TASK 2 Document Control ---> TASK 3 
 
 | # | Cycle | Problem | Where |
 |---|-------|---------|-------|
-| 1 | 2.7 → 2.8 | Approving sets `isLocked = true`, and `lock-transfer` then refuses with "already locked". The Lock & Transfer dialog that opens right after approval therefore always fails, so no access grants are created. | `server/routes.ts` ~1172 and ~4256 |
+| 1 | 2.7 → 2.8 | **Fixed.** Approval used to lock the document, so the follow-up "Lock & Transfer" always failed. Now approval moves the document to the Hub, and the COO gives final approval with a classification. | — |
 | 2 | 10.1 Step 3 | The lead status change reads `existingLead.status` and writes `status:`. The real column is `leadStatus`, so the new status is never saved and `previousStatus` is empty. `reason` is NOT NULL in the DB, but the code sends `null` when no reason is given. | `server/routes.ts` ~7312, ~7326 |
 | 3 | 10.1 / 10.2 / 10.3 uploads | The CRM pages call `POST /api/upload`, but no such route exists. Lead evidence, contract and proposal uploads fail. | `CrmLeads.tsx:279`, `CrmCustomers.tsx:134`, `CrmOpportunities.tsx:168` |
 | 4 | 2.4 / 2.5 | There is no "reject / send back to draft" for documents. Once a document is in review it can only move forward. Feedback (2.6) does not change status. | document workflow routes |

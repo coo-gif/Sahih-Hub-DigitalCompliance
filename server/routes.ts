@@ -4,6 +4,8 @@ import { storage, verifyPassword } from "./storage";
 import { api } from "@shared/routes";
 import { 
   DocumentStatus, 
+  DocumentHubStatus,
+  DocumentClassification,
   AuditAction,
   UrgencyLevel,
   UserRole,
@@ -113,6 +115,13 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
   }
   
   next();
+}
+
+const COO_EMAIL = 'coo@sahihcertify.com';
+
+// Documents the COO stored in the Hub as public information are readable by every signed-in user
+function isPublicHubDocument(doc: { hubStatus?: string | null; classification?: string | null }): boolean {
+  return doc.hubStatus === DocumentHubStatus.STORED && doc.classification === DocumentClassification.PUBLIC_INFORMATION;
 }
 
 function getCurrentUserId(req: any): number {
@@ -671,7 +680,7 @@ export async function registerRoutes(
       }
       
       // For locked/approved docs, check if user has explicit access
-      const hasAccess = await storage.hasDocumentAccess(doc.id, userId);
+      const hasAccess = isPublicHubDocument(doc) || await storage.hasDocumentAccess(doc.id, userId);
       
       // If user has access or is part of the workflow (creator, reviewer, approver), show full doc
       if (hasAccess || doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId) {
@@ -716,7 +725,7 @@ export async function registerRoutes(
     }
     
     // For locked/approved docs, check access
-    const hasAccess = await storage.hasDocumentAccess(doc.id, userId);
+    const hasAccess = isPublicHubDocument(doc) || await storage.hasDocumentAccess(doc.id, userId);
     
     // If user has access or is part of the workflow
     if (hasAccess || doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId) {
@@ -806,9 +815,12 @@ export async function registerRoutes(
         return res.status(404).json({ message: 'Document not found' });
       }
 
-      // Prevent editing locked (approved) documents
+      // Prevent editing locked documents, and signed-off documents awaiting the COO in the Document Hub
       if (existing.isLocked) {
         return res.status(403).json({ message: 'This document is locked and cannot be edited. Approved documents are read-only.' });
+      }
+      if (existing.status === DocumentStatus.APPROVED) {
+        return res.status(403).json({ message: 'This document has been approved and is awaiting the COO\'s final approval in the Document Hub. It cannot be edited.' });
       }
 
       const updateData: any = {};
@@ -1169,13 +1181,26 @@ export async function registerRoutes(
           return res.status(400).json({ message: 'Document is not pending approval' });
         }
 
-        // Approve and lock the document (approved docs are immutable)
+        // Approve and move to the Document Hub. The document stays unlocked until
+        // the COO gives final approval and classifies it (see /hub-approve).
         const updated = await storage.updateDocument(documentId, {
           status: DocumentStatus.APPROVED,
           approvedAt: new Date(),
           approvedBySignedAt: new Date(),
-          isLocked: true,
+          hubStatus: DocumentHubStatus.PENDING_COO_APPROVAL,
+          transferredToHubAt: new Date(),
         });
+
+        const cooUser = await storage.getUserByEmail(COO_EMAIL);
+        if (cooUser) {
+          await storage.createNotification({
+            userId: cooUser.id,
+            title: 'Document Awaiting Final Approval',
+            message: `Document "${doc.title}" (${doc.documentCode}) has been approved and moved to the Document Hub. Your final approval and classification are required.`,
+            urgencyLevel: UrgencyLevel.HIGH,
+            relatedDocumentId: documentId,
+          });
+        }
 
         await storage.createAuditLog({
           userId,
@@ -2096,7 +2121,7 @@ export async function registerRoutes(
     const COO_EMAIL = 'coo@sahihcertify.com';
     
     if ((doc.isLocked || doc.status === DocumentStatus.APPROVED) && currentUser?.email !== COO_EMAIL) {
-      const hasAccess = await storage.hasDocumentAccess(doc.id, userId);
+      const hasAccess = isPublicHubDocument(doc) || await storage.hasDocumentAccess(doc.id, userId);
       const isWorkflowMember = doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId;
       
       if (!hasAccess && !isWorkflowMember) {
@@ -2800,7 +2825,7 @@ export async function registerRoutes(
     const COO_EMAIL = 'coo@sahihcertify.com';
     
     if ((doc.isLocked || doc.status === DocumentStatus.APPROVED) && currentUser?.email !== COO_EMAIL) {
-      const hasAccess = await storage.hasDocumentAccess(doc.id, userId);
+      const hasAccess = isPublicHubDocument(doc) || await storage.hasDocumentAccess(doc.id, userId);
       const isWorkflowMember = doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId;
       
       if (!hasAccess && !isWorkflowMember) {
@@ -2968,7 +2993,7 @@ export async function registerRoutes(
     const COO_EMAIL = 'coo@sahihcertify.com';
     
     if ((doc.isLocked || doc.status === DocumentStatus.APPROVED) && currentUser?.email !== COO_EMAIL) {
-      const hasAccess = await storage.hasDocumentAccess(doc.id, userId);
+      const hasAccess = isPublicHubDocument(doc) || await storage.hasDocumentAccess(doc.id, userId);
       const isWorkflowMember = doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId;
       
       if (!hasAccess && !isWorkflowMember) {
@@ -3957,7 +3982,7 @@ export async function registerRoutes(
     }
     
     // For approved (locked) documents, check explicit access grant from COO
-    const hasAccess = await storage.hasDocumentAccess(documentId, userId);
+    const hasAccess = isPublicHubDocument(document) || await storage.hasDocumentAccess(documentId, userId);
     res.json({ hasAccess });
   });
 
@@ -4142,205 +4167,142 @@ export async function registerRoutes(
     }
   });
 
-  // Manual lock document and grant access to selected users (COO only)
-  app.post('/api/documents/:id/lock', requireAuth, async (req, res) => {
+  // COO final approval: classify an approved document, lock it and store it in the Sahih Hub
+  const classificationSchema = z.enum([
+    DocumentClassification.CONFIDENTIAL,
+    DocumentClassification.CONTROLLED_COPY,
+    DocumentClassification.PUBLIC_INFORMATION,
+    DocumentClassification.LEGAL,
+  ]);
+
+  app.post('/api/documents/:id/hub-approve', requireAuth, async (req, res) => {
     try {
       const documentId = Number(req.params.id);
       if (isNaN(documentId)) {
         return res.status(400).json({ message: 'Invalid document ID' });
       }
-      
+
+      const parseResult = z.object({
+        classification: classificationSchema,
+        userIds: z.array(z.number().int().positive()).optional().default([]),
+        comments: z.string().optional(),
+      }).safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ message: 'Please choose a classification for the document', errors: parseResult.error.errors });
+      }
+      const { classification, userIds, comments } = parseResult.data;
+
       const currentUserId = getCurrentUserId(req);
       const currentUser = await storage.getUser(currentUserId);
-      
-      // Only COO can manually lock documents
-      const COO_EMAIL = 'coo@sahihcertify.com';
       if (currentUser?.email !== COO_EMAIL) {
-        return res.status(403).json({ message: 'Only the COO can manually lock documents' });
+        return res.status(403).json({ message: 'Only the COO can give final approval in the Document Hub' });
       }
-      
+
       const document = await storage.getDocument(documentId);
       if (!document) {
         return res.status(404).json({ message: 'Document not found' });
       }
-      
-      // Cannot lock already locked documents
-      if (document.isLocked) {
-        return res.status(400).json({ message: 'Document is already locked' });
+      if (document.status !== DocumentStatus.APPROVED || document.hubStatus !== DocumentHubStatus.PENDING_COO_APPROVAL) {
+        return res.status(400).json({ message: 'Only approved documents awaiting final approval can be stored in the Document Hub' });
       }
-      
-      const { userIds } = req.body as { userIds?: number[] };
-      
-      // Lock the document
+
       const updated = await storage.updateDocument(documentId, {
         isLocked: true,
+        hubStatus: DocumentHubStatus.STORED,
+        classification,
+        hubApprovedById: currentUserId,
+        hubApprovedAt: new Date(),
       });
-      
-      // Grant access to selected users
-      if (userIds && userIds.length > 0) {
-        for (const userId of userIds) {
-          await storage.grantDocumentAccess({
-            documentId,
-            userId,
-            grantedById: currentUserId,
-          });
-          
-          // Notify each user
-          await storage.createNotification({
-            userId,
-            title: 'Document Access Granted',
-            message: `You have been granted access to locked document "${document.documentCode} - ${document.title}"`,
-            urgencyLevel: UrgencyLevel.LOW,
-            relatedDocumentId: documentId,
-          });
-        }
+
+      const accessGrantedTo: number[] = [];
+      for (const userId of userIds) {
+        if (userId === currentUserId) continue;
+        const user = await storage.getUser(userId);
+        if (!user || await storage.hasDocumentAccess(documentId, userId)) continue;
+        await storage.grantDocumentAccess({ documentId, userId, grantedById: currentUserId });
+        accessGrantedTo.push(userId);
+        await storage.createNotification({
+          userId,
+          title: 'Document Hub Access Granted',
+          message: `You have been granted access to document "${document.documentCode} - ${document.title}" in the Document Hub`,
+          urgencyLevel: UrgencyLevel.LOW,
+          relatedDocumentId: documentId,
+        });
       }
-      
-      // Audit log
+
+      // Let the document's creator and approver know it is now stored
+      const classificationLabel = classification.replace(/_/g, ' ');
+      for (const userId of Array.from(new Set([document.createdById, document.approverId]))) {
+        if (!userId || userId === currentUserId) continue;
+        await storage.createNotification({
+          userId,
+          title: 'Document Stored in Sahih Hub',
+          message: `Document "${document.documentCode} - ${document.title}" received the COO's final approval and is stored as ${classificationLabel}.`,
+          urgencyLevel: UrgencyLevel.LOW,
+          relatedDocumentId: documentId,
+        });
+      }
+
       await storage.createAuditLog({
         userId: currentUserId,
-        action: AuditAction.UPDATE,
+        action: AuditAction.APPROVE,
         entityType: 'document',
         entityId: documentId,
-        previousValue: JSON.stringify({ isLocked: false }),
-        newValue: JSON.stringify({ isLocked: true, grantedAccessTo: userIds || [] }),
+        previousValue: JSON.stringify({ hubStatus: document.hubStatus, isLocked: document.isLocked }),
+        newValue: JSON.stringify({ hubStatus: DocumentHubStatus.STORED, isLocked: true, classification, grantedAccessTo: accessGrantedTo, comments }),
       });
-      
-      res.json({ 
-        document: updated, 
-        accessGrantedTo: userIds?.length || 0 
-      });
+
+      res.json({ document: updated, accessGrantedTo: accessGrantedTo.length });
     } catch (err) {
-      console.error('Error locking document:', err);
-      res.status(500).json({ message: 'Failed to lock document' });
+      console.error('Error giving final approval in Document Hub:', err);
+      res.status(500).json({ message: 'Failed to store document in the Document Hub' });
     }
   });
 
-  // Lock and transfer to Document Hub (called after document approval)
-  app.post('/api/documents/:id/lock-transfer', requireAuth, async (req, res) => {
+  // COO changes the classification of a document already stored in the Hub
+  app.post('/api/documents/:id/classification', requireAuth, async (req, res) => {
     try {
       const documentId = Number(req.params.id);
       if (isNaN(documentId)) {
         return res.status(400).json({ message: 'Invalid document ID' });
       }
-      
-      // Validate request body with Zod
-      const lockTransferSchema = z.object({
-        userIds: z.array(z.number().int().positive()).optional().default([]),
-      });
-      
-      const parseResult = lockTransferSchema.safeParse(req.body);
+      const parseResult = z.object({ classification: classificationSchema }).safeParse(req.body);
       if (!parseResult.success) {
-        return res.status(400).json({ 
-          message: 'Invalid request body', 
-          errors: parseResult.error.errors 
-        });
+        return res.status(400).json({ message: 'Invalid classification' });
       }
-      
-      const { userIds } = parseResult.data;
-      
+
       const currentUserId = getCurrentUserId(req);
       const currentUser = await storage.getUser(currentUserId);
-      
+      if (currentUser?.email !== COO_EMAIL) {
+        return res.status(403).json({ message: 'Only the COO can change a document classification' });
+      }
+
       const document = await storage.getDocument(documentId);
       if (!document) {
         return res.status(404).json({ message: 'Document not found' });
       }
-      
-      // Only allow lock-transfer for approved documents
-      if (document.status !== DocumentStatus.APPROVED) {
-        return res.status(400).json({ message: 'Only approved documents can be transferred to Document Hub' });
+      if (!document.isLocked) {
+        return res.status(400).json({ message: 'Only documents stored in the Document Hub can be classified' });
       }
-      
-      // Cannot lock already locked documents
-      if (document.isLocked) {
-        return res.status(400).json({ message: 'Document is already locked and transferred to Document Hub' });
-      }
-      
-      // Only approver, COO, admin, or quality manager can lock-transfer
-      const COO_EMAIL = 'coo@sahihcertify.com';
-      const isApprover = document.approverId === currentUserId;
-      const isCOO = currentUser?.email === COO_EMAIL;
-      const isAdmin = currentUser?.role === UserRole.ADMIN;
-      const isQM = currentUser?.role === UserRole.QUALITY_MANAGER;
-      
-      if (!isApprover && !isCOO && !isAdmin && !isQM) {
-        return res.status(403).json({ message: 'Only the approver, COO, Admin, or Quality Manager can transfer documents to Document Hub' });
-      }
-      
-      // Validate that all userIds exist
-      const validUserIds: number[] = [];
-      for (const userId of userIds) {
-        const user = await storage.getUser(userId);
-        if (user) {
-          validUserIds.push(userId);
-        }
-      }
-      
-      // Lock the document
+
       const updated = await storage.updateDocument(documentId, {
-        isLocked: true,
+        classification: parseResult.data.classification,
+        hubStatus: DocumentHubStatus.STORED,
       });
-      
-      const accessGrantedTo: number[] = [];
-      
-      // Grant access to selected users (only valid ones)
-      for (const userId of validUserIds) {
-        try {
-          await storage.grantDocumentAccess({
-            documentId,
-            userId,
-            grantedById: currentUserId,
-          });
-          accessGrantedTo.push(userId);
-          
-          // Notify each user
-          await storage.createNotification({
-            userId,
-            title: 'Document Hub Access Granted',
-            message: `You have been granted access to document "${document.documentCode} - ${document.title}" in the Document Hub`,
-            urgencyLevel: UrgencyLevel.LOW,
-            relatedDocumentId: documentId,
-          });
-        } catch (err) {
-          // Continue with other users if one fails
-          console.error(`Failed to grant access to user ${userId}:`, err);
-        }
-      }
-      
-      // Also grant access to COO automatically
-      const cooUser = await storage.getUserByEmail(COO_EMAIL);
-      if (cooUser && cooUser.id !== currentUserId && !validUserIds.includes(cooUser.id)) {
-        try {
-          await storage.grantDocumentAccess({
-            documentId,
-            userId: cooUser.id,
-            grantedById: currentUserId,
-          });
-          accessGrantedTo.push(cooUser.id);
-        } catch (err) {
-          console.error('Failed to grant COO access:', err);
-        }
-      }
-      
-      // Audit log
+
       await storage.createAuditLog({
         userId: currentUserId,
         action: AuditAction.UPDATE,
         entityType: 'document',
         entityId: documentId,
-        previousValue: JSON.stringify({ isLocked: false }),
-        newValue: JSON.stringify({ isLocked: true, transferredToHub: true, grantedAccessTo: accessGrantedTo }),
+        previousValue: JSON.stringify({ classification: document.classification }),
+        newValue: JSON.stringify({ classification: parseResult.data.classification }),
       });
-      
-      res.json({ 
-        document: updated, 
-        accessGrantedTo: accessGrantedTo.length,
-        transferredToHub: true,
-      });
+
+      res.json(updated);
     } catch (err) {
-      console.error('Error transferring document to hub:', err);
-      res.status(500).json({ message: 'Failed to transfer document to Document Hub' });
+      console.error('Error changing document classification:', err);
+      res.status(500).json({ message: 'Failed to change classification' });
     }
   });
 
