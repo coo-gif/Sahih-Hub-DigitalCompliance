@@ -84,6 +84,13 @@ export function useSubmitDocumentForReview() {
   });
 }
 
+// Filtered lists keep a [path, filters] key (so invalidating the path refreshes them) but fetch the real URL
+async function fetchJson(url: string) {
+  const res = await fetch(url, { credentials: "include" });
+  if (!res.ok) throw new Error(`${res.status}: ${(await res.text()) || res.statusText}`);
+  return res.json();
+}
+
 // Document Access Control
 export function useDocumentAccessCheck(documentId: number) {
   return useQuery<{ hasAccess: boolean }>({
@@ -102,12 +109,15 @@ export function useDocumentAccessRequests(filters?: { documentId?: number; reque
   
   return useQuery<any[]>({
     queryKey: ['/api/document-access-requests', filters],
+    queryFn: () => fetchJson(url),
   });
 }
 
 export function useMyDocumentAccessRequests() {
+  // The server returns only the caller's own requests to staff
   return useQuery<any[]>({
     queryKey: ['/api/document-access-requests', { mine: true }],
+    queryFn: () => fetchJson('/api/document-access-requests'),
   });
 }
 
@@ -164,5 +174,6 @@ export function useDocumentAccess(filters?: { documentId?: number; userId?: numb
   
   return useQuery<any[]>({
     queryKey: ['/api/document-access', filters],
+    queryFn: () => fetchJson(url),
   });
 }

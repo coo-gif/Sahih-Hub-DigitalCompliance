@@ -1092,7 +1092,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.documents.update.path, async (req, res) => {
+  app.put(api.documents.update.path, requireAuth, async (req, res) => {
     try {
       const input = api.documents.update.input.parse(req.body);
       const id = Number(req.params.id);
@@ -4051,28 +4051,36 @@ export async function registerRoutes(
   // ============================================
   // DOCUMENT ACCESS REQUESTS
   // ============================================
-  app.get(api.documentAccessRequests.list.path, async (req, res) => {
+  // Who may see every access request / access grant (others only see their own)
+  const seesAllDocumentAccess = async (req: Request) => {
+    const user = await storage.getUser(getCurrentUserId(req));
+    return !!user && (user.email === COO_EMAIL || user.role === UserRole.ADMIN || user.role === UserRole.QUALITY_MANAGER);
+  };
+
+  app.get(api.documentAccessRequests.list.path, requireAuth, async (req, res) => {
     const documentId = req.query.documentId ? Number(req.query.documentId) : undefined;
-    const requesterId = req.query.requesterId ? Number(req.query.requesterId) : undefined;
+    const requesterId = (await seesAllDocumentAccess(req))
+      ? (req.query.requesterId ? Number(req.query.requesterId) : undefined)
+      : getCurrentUserId(req);
     const status = req.query.status as string | undefined;
     
     const requests = await storage.getDocumentAccessRequests({ documentId, requesterId, status });
     res.json(requests);
   });
 
-  app.get(api.documentAccessRequests.get.path, async (req, res) => {
+  app.get(api.documentAccessRequests.get.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid request ID' });
     }
     const request = await storage.getDocumentAccessRequest(id);
-    if (!request) {
+    if (!request || (request.requesterId !== getCurrentUserId(req) && !(await seesAllDocumentAccess(req)))) {
       return res.status(404).json({ message: 'Access request not found' });
     }
     res.json(request);
   });
 
-  app.post(api.documentAccessRequests.create.path, async (req, res) => {
+  app.post(api.documentAccessRequests.create.path, requireAuth, async (req, res) => {
     try {
       const input = api.documentAccessRequests.create.input.parse(req.body);
       const userId = getCurrentUserId(req);
@@ -4143,7 +4151,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.documentAccessRequests.approve.path, async (req, res) => {
+  app.post(api.documentAccessRequests.approve.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -4215,7 +4223,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.documentAccessRequests.reject.path, async (req, res) => {
+  app.post(api.documentAccessRequests.reject.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -4283,15 +4291,17 @@ export async function registerRoutes(
   // ============================================
   // DOCUMENT ACCESS
   // ============================================
-  app.get(api.documentAccess.list.path, async (req, res) => {
+  app.get(api.documentAccess.list.path, requireAuth, async (req, res) => {
     const documentId = req.query.documentId ? Number(req.query.documentId) : undefined;
-    const userId = req.query.userId ? Number(req.query.userId) : undefined;
+    const userId = (await seesAllDocumentAccess(req))
+      ? (req.query.userId ? Number(req.query.userId) : undefined)
+      : getCurrentUserId(req);
     
     const accessList = await storage.getDocumentAccess({ documentId, userId });
     res.json(accessList);
   });
 
-  app.get(api.documentAccess.check.path, async (req, res) => {
+  app.get(api.documentAccess.check.path, requireAuth, async (req, res) => {
     const documentId = Number(req.params.id);
     if (isNaN(documentId)) {
       return res.status(400).json({ message: 'Invalid document ID' });
@@ -4326,7 +4336,7 @@ export async function registerRoutes(
     res.json({ hasAccess });
   });
 
-  app.post(api.documentAccess.grant.path, async (req, res) => {
+  app.post(api.documentAccess.grant.path, requireAuth, async (req, res) => {
     try {
       const documentId = Number(req.params.id);
       if (isNaN(documentId)) {
@@ -4381,7 +4391,7 @@ export async function registerRoutes(
   });
 
   // Grant access to multiple users at once
-  app.post(api.documentAccess.grantMultiple.path, async (req, res) => {
+  app.post(api.documentAccess.grantMultiple.path, requireAuth, async (req, res) => {
     try {
       const documentId = Number(req.params.id);
       if (isNaN(documentId)) {
@@ -4454,7 +4464,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.documentAccess.revoke.path, async (req, res) => {
+  app.post(api.documentAccess.revoke.path, requireAuth, async (req, res) => {
     try {
       const documentId = Number(req.params.id);
       if (isNaN(documentId)) {
