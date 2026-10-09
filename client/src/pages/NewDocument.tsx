@@ -1,6 +1,9 @@
 import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
-import { useCreateDocument } from "@/hooks/use-documents";
+import { useCreateDocument, useSubmitDocumentForReview } from "@/hooks/use-documents";
+import { useAuth } from "@/hooks/use-auth";
+import { apiRequest } from "@/lib/queryClient";
+import { TargetDateField, TARGET_DAYS, defaultTargetInput, targetToIso } from "@/components/TargetDateField";
 import { useUsers } from "@/hooks/use-users";
 import { useEmployees } from "@/hooks/use-employees";
 import { useToast } from "@/hooks/use-toast";
@@ -33,6 +36,14 @@ export default function NewDocument() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const createMutation = useCreateDocument();
+  const submitForReviewMutation = useSubmitDocumentForReview();
+  const { data: currentUser } = useAuth();
+  // Who prepares the document, and by when (default 2 days)
+  const [preparerId, setPreparerId] = useState<string>("");
+  const [prepareTarget, setPrepareTarget] = useState(defaultTargetInput(TARGET_DAYS.prepare));
+  const [reviewTarget, setReviewTarget] = useState(defaultTargetInput(TARGET_DAYS.review));
+  const effectivePreparerId = preparerId ? parseInt(preparerId) : currentUser?.id;
+  const preparedByMe = effectivePreparerId === currentUser?.id;
   const { data: users = [] } = useUsers();
   const { data: employees = [] } = useEmployees();
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
@@ -84,8 +95,13 @@ export default function NewDocument() {
         status: "draft",
         assignedStaffIds: selectedStaffIds.length > 0 ? selectedStaffIds : undefined,
         assignedDepartments: selectedDepartments.length > 0 ? selectedDepartments : undefined,
+        preparedById: effectivePreparerId,
+        prepareTargetDate: targetToIso(prepareTarget),
+      } as any);
+      toast({
+        title: preparedByMe ? "Document saved as draft" : "Document assigned to the preparer",
+        description: `Preparation due by ${prepareTarget}.`,
       });
-      toast({ title: "Document saved as draft" });
       navigate("/documents");
     } catch (error: any) {
       toast({ title: "Error creating document", description: error.message, variant: "destructive" });
@@ -104,17 +120,25 @@ export default function NewDocument() {
     }
     setShowReviewerDialog(false);
     try {
-      await createMutation.mutateAsync({
+      // Created as a draft prepared by me, then sent through the normal review step so the reviewer gets a target date
+      const doc: any = await createMutation.mutateAsync({
         documentCode: formData.documentCode,
         title: formData.title,
         description: formData.description || undefined,
         category: formData.category as "policy" | "manual" | "sop" | "format",
         content: formData.content || undefined,
         nextReviewDate: formData.nextReviewDate || undefined,
-        reviewerId: parseInt(selectedReviewerId),
-        status: "in_review",
+        status: "draft",
         assignedStaffIds: selectedStaffIds.length > 0 ? selectedStaffIds : undefined,
         assignedDepartments: selectedDepartments.length > 0 ? selectedDepartments : undefined,
+        preparedById: currentUser?.id,
+        prepareTargetDate: targetToIso(prepareTarget),
+      } as any);
+      await apiRequest('POST', `/api/documents/${doc.id}/confirm-preparation`, {});
+      await submitForReviewMutation.mutateAsync({
+        id: doc.id,
+        reviewerId: parseInt(selectedReviewerId),
+        reviewTargetDate: targetToIso(reviewTarget),
       });
       toast({ title: "Document submitted for review" });
       navigate("/documents");
@@ -324,16 +348,48 @@ export default function NewDocument() {
             </CardContent>
           </Card>
 
+          <Card>
+            <CardHeader>
+              <CardTitle>Preparation</CardTitle>
+              <CardDescription>Who prepares this document and by when. The preparer gets it as a task.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="preparer">Prepared by *</Label>
+                <Select value={preparerId || (currentUser ? String(currentUser.id) : "")} onValueChange={setPreparerId}>
+                  <SelectTrigger id="preparer" data-testid="select-preparer">
+                    <SelectValue placeholder="Choose the preparer..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {users.map((user) => (
+                      <SelectItem key={user.id} value={user.id.toString()}>
+                        {user.name}{user.id === currentUser?.id ? " (me)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <TargetDateField
+                id="prepare-target"
+                label="Preparation due by"
+                value={prepareTarget}
+                onChange={setPrepareTarget}
+                defaultDays={TARGET_DAYS.prepare}
+              />
+            </CardContent>
+          </Card>
+
           <div className="flex items-center justify-end gap-3 pt-4 border-t">
             <Button 
               variant="outline"
               onClick={handleCreateAsDraft} 
-              disabled={createMutation.isPending || !formData.documentCode || !formData.title}
+              disabled={createMutation.isPending || !formData.documentCode || !formData.title || !prepareTarget}
               data-testid="button-save"
             >
               <Save className="w-4 h-4 mr-2" />
-              {createMutation.isPending ? "Saving..." : "Save as Draft"}
+              {createMutation.isPending ? "Saving..." : preparedByMe ? "Save as Draft" : "Assign to Preparer"}
             </Button>
+            {preparedByMe && (
             <Button 
               onClick={handleSubmitForReviewClick} 
               disabled={createMutation.isPending || !formData.documentCode || !formData.title}
@@ -342,6 +398,7 @@ export default function NewDocument() {
               <Send className="w-4 h-4 mr-2" />
               Submit for Review
             </Button>
+            )}
           </div>
 
           </div>
@@ -481,6 +538,13 @@ export default function NewDocument() {
                 The reviewer will check and validate this document
               </p>
             </div>
+            <TargetDateField
+              id="review-target"
+              label="Review due by"
+              value={reviewTarget}
+              onChange={setReviewTarget}
+              defaultDays={TARGET_DAYS.review}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowReviewerDialog(false)}>
@@ -488,7 +552,7 @@ export default function NewDocument() {
             </Button>
             <Button 
               onClick={handleCompleteReviewerSelection}
-              disabled={!selectedReviewerId || createMutation.isPending}
+              disabled={!selectedReviewerId || !reviewTarget || createMutation.isPending || submitForReviewMutation.isPending}
               data-testid="button-complete"
             >
               {createMutation.isPending ? "Submitting..." : "Submit for Review"}

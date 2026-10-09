@@ -22,6 +22,9 @@ export interface MyTask {
   description?: string;
   link?: string;
   isOverdue?: boolean;
+  hasTarget?: boolean;
+  initiatorId?: number | null;
+  initiatorName?: string | null;
   status: string;
   createdAt: string | null;
   dueDate: string | null;
@@ -56,6 +59,7 @@ export interface TaskPerformance {
   tasksTransferred: number;
   reworkCount: number;
   totalTaskMinutes: number;
+  totalTargetMinutes: number;
   avgTurnaroundMinutes: number | null;
   avgDelayMinutes: number | null;
   onTimeRate: number | null;
@@ -140,16 +144,18 @@ export function useDocumentTasksForDocument(documentId: number | null) {
 
 export function useCompleteTask() {
   return useMutation({
-    mutationFn: async ({ documentId, taskType, comments, approverId }: { 
+    mutationFn: async ({ documentId, taskType, comments, approverId, nextTargetDate }: { 
       documentId: number; 
       taskType: 'prepare' | 'review' | 'approve';
       comments?: string;
       approverId?: number;
+      nextTargetDate?: string; // ISO: by when the approver (after a review) or the COO (after an approval) must act
     }) => {
       const res = await apiRequest('POST', `/api/my-tasks/${documentId}/complete`, {
         taskType,
         comments,
         approverId,
+        nextTargetDate,
       });
       return res.json();
     },

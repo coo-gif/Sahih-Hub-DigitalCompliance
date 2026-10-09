@@ -18,6 +18,7 @@ import TiptapEditor, { AISuggestion, type CommentSelection } from "@/components/
 import { CommentComposer, CommentsPanel, type DocComment } from "@/components/DocumentComments";
 import { locateComment } from "@/lib/comment-highlights";
 import { useAuth } from "@/hooks/use-auth";
+import { TargetDateField, TARGET_DAYS, defaultTargetInput, targetToIso } from "@/components/TargetDateField";
 import type { Editor } from "@tiptap/react";
 import {
   Dialog,
@@ -102,11 +103,12 @@ export default function EditDocument() {
   };
 
   const addCommentMutation = useMutation({
-    mutationFn: async (data: { content: string; assigneeIds: number[] }) => {
+    mutationFn: async (data: { content: string; assigneeIds: number[]; targetDate?: string }) => {
       if (!commentSelection) throw new Error("No text selected");
       const res = await apiRequest("POST", commentsKey, {
         content: data.content,
         assigneeIds: data.assigneeIds,
+        targetDate: data.targetDate,
         quotedText: commentSelection.text,
         anchorFrom: commentSelection.from,
         anchorTo: commentSelection.to,
@@ -175,10 +177,16 @@ export default function EditDocument() {
   const myOpenComments = openComments.filter(c => c.authorId === currentUser?.id);
   const [showReturnDialog, setShowReturnDialog] = useState(false);
   const [returnNote, setReturnNote] = useState("");
+  // Revising after a return gets 2 days by default; a return to the reviewer or approver gets 1 day
+  const returnDays = returnTarget?.role === "preparer" ? TARGET_DAYS.revise : TARGET_DAYS.review;
+  const [returnTargetDate, setReturnTargetDate] = useState(defaultTargetInput(TARGET_DAYS.revise));
+  useEffect(() => {
+    setReturnTargetDate(defaultTargetInput(returnDays));
+  }, [returnDays]);
 
   const returnMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/documents/${documentId}/return`, { note: returnNote || undefined });
+      const res = await apiRequest("POST", `/api/documents/${documentId}/return`, { note: returnNote || undefined, targetDate: targetToIso(returnTargetDate) });
       return res.json();
     },
     onSuccess: () => {
@@ -1121,6 +1129,13 @@ export default function EditDocument() {
                   data-testid="input-return-note"
                 />
               </div>
+              <TargetDateField
+                id="return-target"
+                label={`${returnTarget?.name || "They"} must finish by`}
+                value={returnTargetDate}
+                onChange={setReturnTargetDate}
+                defaultDays={returnDays}
+              />
             </div>
           )}
           <DialogFooter className="gap-2">
@@ -1129,7 +1144,7 @@ export default function EditDocument() {
             </Button>
             <Button
               onClick={() => returnMutation.mutate()}
-              disabled={myOpenComments.length === 0 || returnMutation.isPending}
+              disabled={myOpenComments.length === 0 || !returnTargetDate || returnMutation.isPending}
               className="bg-amber-600 hover:bg-amber-700 text-white"
               data-testid="button-confirm-return"
             >

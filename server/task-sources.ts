@@ -5,25 +5,26 @@ import {
   certificationApplications, certificationAudits, revisionHistory, docugenieForms, docugenieFormSubmissions,
   DocumentStatus, DocumentHubStatus, DocumentCommentStatus, EmployeeRecordStatus, TaskStatus,
   TrainingAssignmentStatus, MonthlyReportStatus, BugReportStatus, LeadStatus, CertificationApplicationStatus,
-  AuditStatus, RevisionHistoryStatus, DocuGenieFormStatus, UserRole,
+  AuditStatus, RevisionHistoryStatus, DocuGenieFormStatus, UserRole, taskAssignments, DEFAULT_TARGET_DAYS,
 } from "@shared/schema";
 
 const COO_EMAIL = 'coo@sahihcertify.com';
 const CEO_EMAIL = 'ceo@sahihcertify.com';
 const HOUR = 60 * 60 * 1000;
 
-// Default time allowed for each kind of task when the source has no due date of its own (hours)
+// Default time allowed for each kind of task when nobody set a target date and the source has
+// no due date of its own (hours). Document steps follow DEFAULT_TARGET_DAYS.
 export const TASK_SLA_HOURS: Record<string, number> = {
-  prepare: 72,
-  review: 48,
-  approve: 48,
-  hub_approval: 48,
-  revise: 72,
-  comment: 48,
+  prepare: DEFAULT_TARGET_DAYS.prepare * 24,
+  review: DEFAULT_TARGET_DAYS.review * 24,
+  approve: DEFAULT_TARGET_DAYS.approve * 24,
+  hub_approval: DEFAULT_TARGET_DAYS.hub_approval * 24,
+  revise: DEFAULT_TARGET_DAYS.revise * 24,
+  comment: DEFAULT_TARGET_DAYS.comment * 24,
   download_approval: 24,
   access_approval: 24,
-  employee_review: 48,
-  employee_approve: 48,
+  employee_review: DEFAULT_TARGET_DAYS.employee_review * 24,
+  employee_approve: DEFAULT_TARGET_DAYS.employee_approve * 24,
   employee_task: 7 * 24,
   training: 30 * 24,
   report_review: 72,
@@ -80,6 +81,9 @@ export interface OpenTask {
   entityType: string;     // audit-log entity, used to see who acted on pooled tasks
   entityId: number;
   documentId?: number;
+  initiatorId?: number | null; // who assigned it; can reassign it or change its target date
+  // where dueAt came from: a target date someone set, the source record's own date, or the default allowance
+  dueSource?: 'target' | 'source' | 'default';
   extra?: Record<string, unknown>;
 }
 
@@ -155,7 +159,7 @@ export async function collectOpenTasks(): Promise<TaskSnapshot> {
       const preparerId = doc.preparedById ?? doc.createdById;
       if (doc.returnedAt) {
         tasks.push({
-          ...base, key: `revise:${doc.id}`, userId: preparerId, taskType: 'revise', title: doc.title,
+          ...base, key: `revise:${doc.id}`, userId: preparerId, initiatorId: doc.returnedById, taskType: 'revise', title: doc.title,
           description: `${userName.get(doc.returnedById!) || 'Your reviewer'} returned this document for revision.${doc.returnNote ? ` Note: "${doc.returnNote}"` : ''} Address the comments and resubmit it.`,
           assignedAt: doc.returnedAt, dueAt: due(doc.returnedAt, 'revise'),
           extra: { ...base.extra, returnedByName: doc.returnedById ? userName.get(doc.returnedById) : null, returnNote: doc.returnNote },
@@ -163,7 +167,7 @@ export async function collectOpenTasks(): Promise<TaskSnapshot> {
       } else if (doc.preparedById && !doc.preparerConfirmedAt) {
         const assigned = at(doc.createdAt);
         tasks.push({
-          ...base, key: `prepare:${doc.id}`, userId: doc.preparedById, taskType: 'prepare', title: doc.title,
+          ...base, key: `prepare:${doc.id}`, userId: doc.preparedById, initiatorId: doc.createdById, taskType: 'prepare', title: doc.title,
           description: 'You are assigned to prepare this document. Write the content, confirm preparation and submit it for review.',
           assignedAt: assigned, dueAt: due(assigned, 'prepare'),
         });
@@ -171,7 +175,7 @@ export async function collectOpenTasks(): Promise<TaskSnapshot> {
     }
     if (doc.status === DocumentStatus.IN_REVIEW && doc.reviewerId) {
       tasks.push({
-        ...base, key: `review:${doc.id}`, userId: doc.reviewerId, taskType: 'review', title: doc.title,
+        ...base, key: `review:${doc.id}`, userId: doc.reviewerId, initiatorId: doc.preparedById ?? doc.createdById, taskType: 'review', title: doc.title,
         description: 'This document requires your review before it can proceed to approval.',
         assignedAt: since, dueAt: due(since, 'review'),
         extra: { ...base.extra, reviewCompleted: false, approveCompleted: false },
@@ -179,7 +183,7 @@ export async function collectOpenTasks(): Promise<TaskSnapshot> {
     }
     if (doc.status === DocumentStatus.PENDING_APPROVAL && doc.approverId) {
       tasks.push({
-        ...base, key: `approve:${doc.id}`, userId: doc.approverId, taskType: 'approve', title: doc.title,
+        ...base, key: `approve:${doc.id}`, userId: doc.approverId, initiatorId: doc.reviewerId, taskType: 'approve', title: doc.title,
         description: 'This document is awaiting your approval.',
         assignedAt: since, dueAt: due(since, 'approve'),
         extra: { ...base.extra, reviewCompleted: true, approveCompleted: false },
@@ -188,7 +192,7 @@ export async function collectOpenTasks(): Promise<TaskSnapshot> {
     if (doc.status === DocumentStatus.APPROVED && doc.hubStatus === DocumentHubStatus.PENDING_COO_APPROVAL && coo) {
       const assigned = at(doc.transferredToHubAt, doc.approvedAt, doc.updatedAt);
       tasks.push({
-        ...base, key: `hub_approval:${doc.id}`, userId: coo.id, taskType: 'hub_approval', title: doc.title,
+        ...base, key: `hub_approval:${doc.id}`, userId: coo.id, initiatorId: doc.approverId, taskType: 'hub_approval', title: doc.title,
         description: 'Approved and moved to the Document Hub. Give final approval and classify it, or return it to the approver.',
         link: '/document-hub', assignedAt: assigned, dueAt: due(assigned, 'hub_approval'),
       });
@@ -204,7 +208,7 @@ export async function collectOpenTasks(): Promise<TaskSnapshot> {
     for (const assigneeId of c.assigneeIds) {
       if (assigneeId === c.authorId) continue;
       tasks.push({
-        key: `comment:${c.id}`, userId: assigneeId, taskType: 'comment', title: doc.title, reference: doc.documentCode,
+        key: `comment:${c.id}`, userId: assigneeId, initiatorId: c.authorId, taskType: 'comment', title: doc.title, reference: doc.documentCode,
         description: `${userName.get(c.authorId) || 'Someone'} mentioned you: "${c.content.slice(0, 120)}"`,
         link: `/documents/${doc.id}/edit`, assignedAt: at(c.createdAt), dueAt: due(at(c.createdAt), 'comment'),
         entityType: 'document_comment', entityId: c.id, documentId: doc.id,
@@ -258,7 +262,7 @@ export async function collectOpenTasks(): Promise<TaskSnapshot> {
     if (emp.workflowStatus === EmployeeRecordStatus.IN_REVIEW && emp.reviewerId) {
       const assigned = at(emp.submittedForReviewAt, emp.createdAt);
       tasks.push({
-        key: `employee_review:${emp.id}`, userId: emp.reviewerId, taskType: 'employee_review', title: `Review Employee Record: ${emp.name}`,
+        key: `employee_review:${emp.id}`, userId: emp.reviewerId, initiatorId: emp.createdByUserId, taskType: 'employee_review', title: `Review Employee Record: ${emp.name}`,
         reference: emp.employeeNumber, description: 'This employee record requires your review before it can proceed to approval.',
         link: '/hr', assignedAt: assigned, dueAt: due(assigned, 'employee_review'), entityType: 'employee', entityId: emp.id, extra,
       });
@@ -266,7 +270,7 @@ export async function collectOpenTasks(): Promise<TaskSnapshot> {
     if (emp.workflowStatus === EmployeeRecordStatus.PENDING_APPROVAL && emp.approverId) {
       const assigned = at(emp.submittedForApprovalAt, emp.createdAt);
       tasks.push({
-        key: `employee_approve:${emp.id}`, userId: emp.approverId, taskType: 'employee_approve', title: `Approve Employee Record: ${emp.name}`,
+        key: `employee_approve:${emp.id}`, userId: emp.approverId, initiatorId: emp.reviewerId, taskType: 'employee_approve', title: `Approve Employee Record: ${emp.name}`,
         reference: emp.employeeNumber, description: 'This employee record is awaiting your approval.',
         link: '/hr', assignedAt: assigned, dueAt: due(assigned, 'employee_approve'), entityType: 'employee', entityId: emp.id, extra,
       });
@@ -287,7 +291,7 @@ export async function collectOpenTasks(): Promise<TaskSnapshot> {
     if (!ownerId) continue;
     const assigned = at(t.createdAt);
     tasks.push({
-      key: `employee_task:${t.id}`, userId: ownerId, taskType: 'employee_task', title: t.title,
+      key: `employee_task:${t.id}`, userId: ownerId, initiatorId: t.assignedByUserId, dueSource: t.dueDate ? 'source' : 'default', taskType: 'employee_task', title: t.title,
       reference: `Priority: ${t.priority}`, description: t.description || 'Task assigned to you by HR.',
       link: '/employees', assignedAt: assigned, dueAt: t.dueDate ? endOfDay(t.dueDate) : due(assigned, 'employee_task'),
       entityType: 'employee_task', entityId: t.id,
@@ -306,7 +310,7 @@ export async function collectOpenTasks(): Promise<TaskSnapshot> {
     const training = trainingById.get(a.trainingId);
     const assigned = at(a.createdAt);
     tasks.push({
-      key: `training:${a.id}`, userId: ownerId, taskType: 'training', title: training?.title || 'Training',
+      key: `training:${a.id}`, userId: ownerId, initiatorId: a.assignedById, dueSource: a.dueDate ? 'source' : 'default', taskType: 'training', title: training?.title || 'Training',
       reference: training?.type ? training.type.charAt(0).toUpperCase() + training.type.slice(1) : 'Training',
       description: training?.description || 'Complete this training assigned to you.',
       link: '/trainings', assignedAt: assigned, dueAt: a.dueDate ? endOfDay(a.dueDate) : due(assigned, 'training'),
@@ -372,7 +376,7 @@ export async function collectOpenTasks(): Promise<TaskSnapshot> {
     const dueAt = endOfDay(lead.nextFollowUpDate);
     tasks.push({
       // a new follow-up date is a new piece of work
-      key: `lead_followup:${lead.id}:${dueAt.toISOString().slice(0, 10)}`, userId: lead.assignedToId, taskType: 'lead_followup',
+      key: `lead_followup:${lead.id}:${dueAt.toISOString().slice(0, 10)}`, userId: lead.assignedToId, initiatorId: lead.createdById, dueSource: 'source', taskType: 'lead_followup',
       title: `Follow up: ${lead.leadName}${lead.companyName ? ` (${lead.companyName})` : ''}`, reference: lead.interestedCourse || 'Lead',
       description: `Follow up with this lead by ${dueAt.toLocaleDateString('en-GB')}.`,
       link: '/crm/leads', assignedAt: at(lead.updatedAt, lead.createdAt), dueAt,
@@ -386,7 +390,7 @@ export async function collectOpenTasks(): Promise<TaskSnapshot> {
     const lead = leadById.get(r.leadId);
     const assigned = at(r.createdAt);
     tasks.push({
-      key: `lead_update:${r.id}`, userId: r.requestedFromId, taskType: 'lead_update',
+      key: `lead_update:${r.id}`, userId: r.requestedFromId, initiatorId: r.requestedById, taskType: 'lead_update',
       title: `Update requested: ${lead?.leadName || 'Lead'}`, reference: lead?.companyName || 'Lead',
       description: `${userName.get(r.requestedById) || 'Management'} asked for an update.${r.message ? ` "${r.message}"` : ''}`,
       link: '/crm/leads', assignedAt: assigned, dueAt: due(assigned, 'lead_update'),
@@ -423,7 +427,7 @@ export async function collectOpenTasks(): Promise<TaskSnapshot> {
     const app = appById.get(audit.applicationId);
     const assigned = at(audit.createdAt);
     tasks.push({
-      key: `certification_audit:${audit.id}`, userId: audit.leadAuditorId, taskType: 'certification_audit',
+      key: `certification_audit:${audit.id}`, userId: audit.leadAuditorId, dueSource: audit.scheduledDate ? 'source' : 'default', taskType: 'certification_audit',
       title: `${audit.auditType.replace(/_|\d/g, ' ').trim()} audit: ${app?.clientName || 'Client'}`, reference: app?.applicationNumber || 'Audit',
       description: audit.scheduledDate ? `Scheduled for ${audit.scheduledDate.toLocaleDateString('en-GB')}.` : 'Audit not yet scheduled.',
       link: '/certification', assignedAt: assigned,
@@ -440,7 +444,7 @@ export async function collectOpenTasks(): Promise<TaskSnapshot> {
     if (!doc) continue;
     const assigned = at(entry.createdAt);
     tasks.push({
-      key: `amendment_approval:${entry.id}`, userId: entry.approvedById, taskType: 'amendment_approval', title: doc.title,
+      key: `amendment_approval:${entry.id}`, userId: entry.approvedById, initiatorId: entry.requestedById, taskType: 'amendment_approval', title: doc.title,
       reference: doc.documentCode, description: `Amendment request: ${entry.description}`,
       link: `/documents/${doc.id}/edit`, assignedAt: assigned, dueAt: due(assigned, 'amendment_approval'),
       entityType: 'revision_history', entityId: entry.id, documentId: doc.id,
@@ -457,11 +461,24 @@ export async function collectOpenTasks(): Promise<TaskSnapshot> {
     if (allSubmissions.some(s => s.formId === form.id && s.submittedById === form.assignedToId)) continue;
     const assigned = at(form.updatedAt, form.createdAt);
     tasks.push({
-      key: `form_fill:${form.id}`, userId: form.assignedToId, taskType: 'form_fill', title: form.title, reference: 'DocuGenie',
+      key: `form_fill:${form.id}`, userId: form.assignedToId, initiatorId: form.createdById, dueSource: form.expiresAt ? 'source' : 'default', taskType: 'form_fill', title: form.title, reference: 'DocuGenie',
       description: form.description || 'Fill in and submit this form.',
       link: form.shareToken ? `/form/${form.shareToken}` : '/docugenie', assignedAt: assigned,
       dueAt: form.expiresAt ?? due(assigned, 'form_fill'), entityType: 'docugenie_form', entityId: form.id,
     });
+  }
+
+  // A target date set when the task was assigned or forwarded overrides everything else
+  const assignments = new Map((await db.select().from(taskAssignments)).map(a => [a.taskKey, a]));
+  for (const t of tasks) {
+    const assignment = assignments.get(t.key);
+    if (assignment) {
+      t.dueAt = assignment.targetDate;
+      t.dueSource = 'target';
+      t.initiatorId = assignment.initiatorId;
+    } else {
+      t.dueSource ??= 'default';
+    }
   }
 
   return { tasks, existingEntities, cancelledKeys };

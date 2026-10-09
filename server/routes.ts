@@ -102,7 +102,10 @@ import {
 } from "./gmail-oauth";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { collectOpenTasks, TASK_TYPE_LABELS, type OpenTask } from "./task-sources";
-import { reconcileTasks, scheduleReconcile, getOpenTaskRecords, computeTaskMetrics, monthRange, refreshPerformanceReports } from "./task-ledger";
+import {
+  reconcileTasks, scheduleReconcile, getOpenTaskRecords, computeTaskMetrics, monthRange, refreshPerformanceReports,
+  parseTargetDate, setTaskTarget, getTaskTarget, TargetDateError,
+} from "./task-ledger";
 
 async function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) {
@@ -143,6 +146,113 @@ async function canViewDocument(doc: Document, user: { id: number; email: string 
   if (isPublicHubDocument(doc)) return true;
   if (doc.createdById === user.id || doc.preparedById === user.id || doc.reviewerId === user.id || doc.approverId === user.id) return true;
   return storage.hasDocumentAccess(doc.id, user.id);
+}
+
+// Moves a document workflow step (prepare / revise / review / approve) to another person and tells everyone involved
+async function reassignDocumentTask(doc: Document, taskType: string, newAssigneeId: number, userId: number, reason?: string, newApproverId?: number) {
+  const documentId = doc.id;
+  const newAssignee = await storage.getUser(newAssigneeId);
+  if (!newAssignee) throw new Error('New assignee not found');
+  // Prepare update data based on task type
+  const updateData: any = {};
+  let oldAssigneeId: number | null = null;
+  
+  if (taskType === 'review') {
+    oldAssigneeId = doc.reviewerId;
+    updateData.reviewerId = newAssigneeId;
+    updateData.reviewedBySignedAt = null; // Clear previous signature
+  } else if (taskType === 'approve') {
+    oldAssigneeId = doc.approverId;
+    updateData.approverId = newAssigneeId;
+    updateData.approvedBySignedAt = null; // Clear previous signature
+  } else if (taskType === 'prepare' || taskType === 'revise') {
+    oldAssigneeId = doc.preparedById;
+    updateData.preparedById = newAssigneeId;
+    updateData.preparerConfirmedAt = null;
+    updateData.preparedBySignedAt = null;
+  }
+  
+  // If new approver is also specified
+  if (newApproverId) {
+    const newApprover = await storage.getUser(newApproverId);
+    if (!newApprover) {
+      throw new Error('New approver not found');
+    }
+    updateData.approverId = newApproverId;
+  }
+  
+  // Update the document
+  const updated = await storage.updateDocument(documentId, updateData);
+  
+  // Get old assignee info for audit log
+  const oldAssignee = oldAssigneeId ? await storage.getUser(oldAssigneeId) : null;
+  
+  // Create audit log
+  await storage.createAuditLog({
+    userId,
+    action: AuditAction.UPDATE,
+    entityType: 'document',
+    entityId: documentId,
+    oldValue: JSON.stringify({
+      taskType,
+      assignedTo: oldAssignee?.name || 'Unknown',
+      assignedToId: oldAssigneeId,
+    }),
+    newValue: JSON.stringify({
+      taskType,
+      assignedTo: newAssignee.name,
+      assignedToId: newAssigneeId,
+      reason: reason || 'Task reassigned',
+      ...(newApproverId && { newApproverId }),
+    }),
+  });
+  
+  // Create workflow log
+  await storage.createWorkflowLog({
+    documentId,
+    fromStatus: doc.status,
+    toStatus: doc.status, // Status doesn't change
+    actionById: userId,
+    comments: `Task reassigned: ${taskType} from ${oldAssignee?.name || 'Unknown'} to ${newAssignee.name}. ${reason ? `Reason: ${reason}` : ''}`,
+  });
+  
+  // Notify the new assignee
+  await storage.createNotification({
+    userId: newAssigneeId,
+    title: 'Task Assigned to You',
+    message: `You have been assigned to ${taskType} document "${doc.title}" (${doc.documentCode}). ${reason ? `Reason: ${reason}` : ''}`,
+    urgencyLevel: UrgencyLevel.HIGH,
+    relatedDocumentId: documentId,
+  });
+  
+  // Notify the old assignee if they weren't the one doing the reassignment
+  if (oldAssigneeId && oldAssigneeId !== userId) {
+    await storage.createNotification({
+      userId: oldAssigneeId,
+      title: 'Task Reassigned',
+      message: `Your ${taskType} task for document "${doc.title}" has been reassigned to ${newAssignee.name}.`,
+      urgencyLevel: UrgencyLevel.MEDIUM,
+      relatedDocumentId: documentId,
+    });
+  }
+  
+  return updated;
+}
+
+// Who assigned a task: the recorded initiator, else the one implied by the workflow
+async function taskInitiatorId(taskKey: string): Promise<number | null> {
+  const target = await getTaskTarget(taskKey);
+  if (target) return target.initiatorId;
+  const { tasks } = await collectOpenTasks();
+  return tasks.find(t => t.key === taskKey)?.initiatorId ?? null;
+}
+
+// Task types whose assignee can be changed from the task screens
+const REASSIGNABLE_TASK_TYPES = new Set(['prepare', 'revise', 'review', 'approve', 'employee_review', 'employee_approve', 'comment', 'bug', 'lead_followup']);
+
+function canManageTasks(user: { id: number; role: string; email: string } | undefined, initiatorId: number | null): boolean {
+  if (!user) return false;
+  return user.id === initiatorId || user.role === UserRole.ADMIN || user.role === UserRole.QUALITY_MANAGER || user.email === COO_EMAIL;
 }
 
 function getCurrentUserId(req: any): number {
@@ -775,6 +885,7 @@ export async function registerRoutes(
   app.post(api.documents.create.path, async (req, res) => {
     try {
       const input = api.documents.create.input.parse(req.body);
+      const prepareTarget = input.preparedById ? parseTargetDate(input.prepareTargetDate, 'prepare') : null;
       
       const doc = await storage.createDocument({
         documentCode: input.documentCode,
@@ -815,11 +926,16 @@ export async function registerRoutes(
         comments: 'Document created',
       });
 
+      if (input.preparedById && prepareTarget) {
+        await setTaskTarget(`prepare:${doc.id}`, { assigneeId: input.preparedById, initiatorId: getCurrentUserId(req), targetDate: prepareTarget });
+      }
+
       // Update live performance report stats
       await storage.updateLiveReportStats(getCurrentUserId(req), 'document_created');
 
       res.status(201).json(doc);
     } catch (err: any) {
+      if (err instanceof TargetDateError) return res.status(400).json({ message: err.message, field: 'prepareTargetDate' });
       if (err instanceof z.ZodError) {
         return res.status(400).json({
           message: err.errors[0].message,
@@ -868,10 +984,16 @@ export async function registerRoutes(
       if (input.requiresReviewedBy !== undefined) updateData.requiresReviewedBy = input.requiresReviewedBy;
       if (input.requiresApprovedBy !== undefined) updateData.requiresApprovedBy = input.requiresApprovedBy;
       if (input.preparedById !== undefined) updateData.preparedById = input.preparedById;
+      const prepareTarget = input.preparedById && input.preparedById !== existing.preparedById
+        ? parseTargetDate(input.prepareTargetDate, 'prepare')
+        : (input.prepareTargetDate ? parseTargetDate(input.prepareTargetDate, 'prepare') : null);
       if (input.reviewedById !== undefined) updateData.reviewerId = input.reviewedById;
       if (input.approvedById !== undefined) updateData.approverId = input.approvedById;
 
       const doc = await storage.updateDocument(id, updateData);
+      if (prepareTarget && doc.preparedById) {
+        await setTaskTarget(`prepare:${id}`, { assigneeId: doc.preparedById, initiatorId: getCurrentUserId(req), targetDate: prepareTarget });
+      }
 
       // Audit log
       await storage.createAuditLog({
@@ -885,6 +1007,7 @@ export async function registerRoutes(
 
       res.json(doc);
     } catch (err) {
+      if (err instanceof TargetDateError) return res.status(400).json({ message: err.message, field: 'prepareTargetDate' });
       if (err instanceof z.ZodError) {
         return res.status(400).json({
           message: err.errors[0].message,
@@ -940,6 +1063,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: 'Reviewer not found', field: 'reviewerId' });
       }
 
+      const reviewTarget = parseTargetDate(input.reviewTargetDate, 'review');
+
       // Update document status to in_review
       const updateData: any = {
         status: DocumentStatus.IN_REVIEW,
@@ -958,12 +1083,13 @@ export async function registerRoutes(
       }
 
       const doc = await storage.updateDocument(id, updateData);
+      await setTaskTarget(`review:${id}`, { assigneeId: input.reviewerId, initiatorId: getCurrentUserId(req), targetDate: reviewTarget });
 
       // Create notification for reviewer
       await storage.createNotification({
         userId: input.reviewerId,
         title: 'Document Requires Review',
-        message: `Document "${doc.title}" (${doc.documentCode}) requires your review.`,
+        message: `Document "${doc.title}" (${doc.documentCode}) requires your review by ${reviewTarget.toLocaleDateString('en-GB')}.`,
         urgencyLevel: 'medium',
       });
 
@@ -979,6 +1105,7 @@ export async function registerRoutes(
 
       res.json(doc);
     } catch (err) {
+      if (err instanceof TargetDateError) return res.status(400).json({ message: err.message, field: 'reviewTargetDate' });
       if (err instanceof z.ZodError) {
         return res.status(400).json({
           message: err.errors[0].message,
@@ -1012,6 +1139,7 @@ export async function registerRoutes(
       }
 
       const now = Date.now();
+      const allUsers = await storage.getUsers();
       const result = shown.map((t, index) => {
         const record = records.get(t.key);
         const assignedAt = record?.assignedAt ?? t.assignedAt;
@@ -1034,6 +1162,9 @@ export async function registerRoutes(
           createdAt: assignedAt,
           dueDate: dueAt,
           isOverdue: !!dueAt && dueAt.getTime() < now,
+          hasTarget: t.dueSource !== 'default',
+          initiatorId: t.initiatorId ?? null,
+          initiatorName: t.initiatorId ? allUsers.find(u => u.id === t.initiatorId)?.name ?? null : null,
           commentCount,
         };
       });
@@ -1042,6 +1173,164 @@ export async function registerRoutes(
     } catch (err) {
       console.error('Error fetching my tasks:', err);
       res.status(500).json({ message: 'Failed to fetch tasks' });
+    }
+  });
+
+  // Tasks this user assigned to others (initiator view). Managers can ask for every open task with ?all=1.
+  app.get('/api/tasks/initiated', requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const all = req.query.all === '1' && canManageTasks(user, null);
+      const { tasks } = await collectOpenTasks();
+      const users = await storage.getUsers();
+      const nameOf = (id: number | null | undefined) => (id ? users.find(u => u.id === id)?.name ?? 'Unknown' : null);
+      const now = Date.now();
+      const result = tasks
+        .filter(t => all ? true : t.initiatorId === user.id && t.userId !== user.id)
+        .map(t => ({
+          taskKey: t.key,
+          taskType: t.taskType,
+          typeLabel: TASK_TYPE_LABELS[t.taskType] || t.taskType,
+          title: t.title,
+          reference: t.reference,
+          link: t.link,
+          assigneeId: t.userId,
+          assigneeName: nameOf(t.userId),
+          initiatorId: t.initiatorId ?? null,
+          initiatorName: nameOf(t.initiatorId),
+          assignedAt: t.assignedAt,
+          dueDate: t.dueAt,
+          isOverdue: !!t.dueAt && t.dueAt.getTime() < now,
+          canReassign: REASSIGNABLE_TASK_TYPES.has(t.taskType),
+        }))
+        .sort((a, b) => (a.dueDate?.getTime() ?? Infinity) - (b.dueDate?.getTime() ?? Infinity));
+      res.json(result);
+    } catch (err) {
+      console.error('Error fetching initiated tasks:', err);
+      res.status(500).json({ message: 'Failed to fetch tasks' });
+    }
+  });
+
+  // The initiator (or an admin, QM or the COO) moves a task to another person and/or changes its target date
+  app.post('/api/tasks/change', requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const parsed = z.object({
+        taskKey: z.string().min(1),
+        assigneeId: z.number().int().positive().optional(), // current assignee, for tasks shared by several people
+        newAssigneeId: z.number().int().positive().optional(),
+        targetDate: z.string().optional(),
+        reason: z.string().optional(),
+      }).safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: 'Invalid request' });
+      }
+      const { taskKey, assigneeId, newAssigneeId, reason } = parsed.data;
+      if (!newAssigneeId && !parsed.data.targetDate) {
+        return res.status(400).json({ message: 'Choose a new person or a new target date' });
+      }
+
+      const { tasks } = await collectOpenTasks();
+      const task = tasks.find(t => t.key === taskKey && (!assigneeId || t.userId === assigneeId));
+      if (!task) {
+        return res.status(404).json({ message: 'This task is no longer open' });
+      }
+      if (!canManageTasks(user, task.initiatorId ?? null)) {
+        return res.status(403).json({ message: 'Only the person who assigned this task (or an admin, the Quality Manager or the COO) can change it' });
+      }
+
+      const previousTarget = await getTaskTarget(taskKey);
+      const targetDate = parsed.data.targetDate
+        ? parseTargetDate(parsed.data.targetDate, task.taskType)
+        : (previousTarget?.targetDate ?? task.dueAt ?? parseTargetDate(undefined, task.taskType));
+
+      const moving = !!newAssigneeId && newAssigneeId !== task.userId;
+      if (moving) {
+        if (!REASSIGNABLE_TASK_TYPES.has(task.taskType)) {
+          return res.status(400).json({ message: 'This kind of task cannot be moved to another person here. You can still change its target date.' });
+        }
+        const newAssignee = await storage.getUser(newAssigneeId!);
+        if (!newAssignee) {
+          return res.status(404).json({ message: 'New assignee not found' });
+        }
+        const entityId = task.entityId;
+        switch (task.taskType) {
+          case 'prepare':
+          case 'revise':
+          case 'review':
+          case 'approve': {
+            const doc = await storage.getDocument(task.documentId!);
+            if (!doc) return res.status(404).json({ message: 'Document not found' });
+            await reassignDocumentTask(doc, task.taskType, newAssigneeId!, user.id, reason);
+            break;
+          }
+          case 'employee_review':
+          case 'employee_approve':
+            await storage.updateEmployee(entityId, task.taskType === 'employee_review' ? { reviewerId: newAssigneeId } : { approverId: newAssigneeId });
+            break;
+          case 'comment': {
+            const comment = await storage.getDocumentComment(entityId);
+            if (!comment) return res.status(404).json({ message: 'Comment not found' });
+            const assignees = Array.from(new Set(comment.assigneeIds.map(id => (id === task.userId ? newAssigneeId! : id))));
+            await storage.updateDocumentComment(entityId, { assigneeIds: assignees });
+            break;
+          }
+          case 'bug':
+            await storage.updateBugReport(entityId, { assignedToId: newAssigneeId } as any);
+            break;
+          case 'lead_followup':
+            await storage.updateLead(entityId, { assignedToId: newAssigneeId } as any);
+            break;
+        }
+        if (!['prepare', 'revise', 'review', 'approve'].includes(task.taskType)) {
+          await storage.createNotification({
+            userId: newAssigneeId!,
+            title: 'Task Assigned to You',
+            message: `${user.name} assigned you: ${TASK_TYPE_LABELS[task.taskType] || task.taskType} - ${task.title}. Target: ${targetDate.toLocaleDateString('en-GB')}.${reason ? ` Reason: ${reason}` : ''}`,
+            urgencyLevel: UrgencyLevel.HIGH,
+            relatedDocumentId: task.documentId,
+          });
+          if (task.userId !== user.id) {
+            await storage.createNotification({
+              userId: task.userId,
+              title: 'Task Reassigned',
+              message: `${TASK_TYPE_LABELS[task.taskType] || task.taskType} - ${task.title} has been reassigned to ${newAssignee.name}.`,
+              urgencyLevel: UrgencyLevel.MEDIUM,
+              relatedDocumentId: task.documentId,
+            });
+          }
+        }
+      } else if (task.userId !== user.id) {
+        await storage.createNotification({
+          userId: task.userId,
+          title: 'Target Date Changed',
+          message: `${user.name} changed the target date of "${task.title}" to ${targetDate.toLocaleDateString('en-GB')}.${reason ? ` Reason: ${reason}` : ''}`,
+          urgencyLevel: UrgencyLevel.MEDIUM,
+          relatedDocumentId: task.documentId,
+        });
+      }
+
+      await setTaskTarget(taskKey, {
+        assigneeId: moving ? newAssigneeId : task.userId,
+        initiatorId: task.initiatorId ?? user.id,
+        targetDate,
+        note: reason || null,
+      });
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.ASSIGN_TASK,
+        entityType: 'task',
+        entityId: task.entityId,
+        previousValue: JSON.stringify({ taskKey, assigneeId: task.userId, targetDate: task.dueAt }),
+        newValue: JSON.stringify({ taskKey, assigneeId: moving ? newAssigneeId : task.userId, targetDate, reason }),
+      });
+
+      res.json({ success: true, taskKey, assigneeId: moving ? newAssigneeId : task.userId, targetDate });
+    } catch (err) {
+      if (err instanceof TargetDateError) return res.status(400).json({ message: err.message, field: 'targetDate' });
+      console.error('Error changing task:', err);
+      res.status(500).json({ message: 'Failed to change task' });
     }
   });
 
@@ -1071,6 +1360,8 @@ export async function registerRoutes(
       const documentId = Number(req.params.documentId);
       const userId = getCurrentUserId(req);
       const { taskType, comments, approverId } = req.body;
+      // Target for the next person: the approver after a review, the COO after an approval
+      const nextTarget = parseTargetDate(req.body.nextTargetDate, taskType === 'review' ? 'approve' : 'hub_approval');
 
       const doc = await storage.getDocument(documentId);
       if (!doc) {
@@ -1100,6 +1391,9 @@ export async function registerRoutes(
         }
 
         const updated = await storage.updateDocument(documentId, updateData);
+        if (finalApproverId) {
+          await setTaskTarget(`approve:${documentId}`, { assigneeId: finalApproverId, initiatorId: userId, targetDate: nextTarget });
+        }
 
         // Notify approver if set
         if (finalApproverId) {
@@ -1147,6 +1441,7 @@ export async function registerRoutes(
 
         const cooUser = await storage.getUserByEmail(COO_EMAIL);
         if (cooUser) {
+          await setTaskTarget(`hub_approval:${documentId}`, { assigneeId: cooUser.id, initiatorId: userId, targetDate: nextTarget });
           await storage.createNotification({
             userId: cooUser.id,
             title: 'Document Awaiting Final Approval',
@@ -1286,6 +1581,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: 'Invalid task type' });
       }
     } catch (err) {
+      if (err instanceof TargetDateError) return res.status(400).json({ message: err.message, field: 'nextTargetDate' });
       console.error('Error completing task:', err);
       res.status(500).json({ message: 'Failed to complete task' });
     }
@@ -1505,7 +1801,9 @@ export async function registerRoutes(
         return res.status(400).json({ message: 'Reviewer not found', field: 'reviewerId' });
       }
 
+      const targetDate = parseTargetDate(input.targetDate, 'employee_review');
       const employee = await storage.submitEmployeeForReview(id, input.reviewerId, input.notes);
+      await setTaskTarget(`employee_review:${id}`, { assigneeId: input.reviewerId, initiatorId: getCurrentUserId(req), targetDate });
 
       // Create notification for reviewer
       await storage.createNotification({
@@ -1527,6 +1825,7 @@ export async function registerRoutes(
 
       res.json(employee);
     } catch (err) {
+      if (err instanceof TargetDateError) return res.status(400).json({ message: err.message, field: 'targetDate' });
       if (err instanceof z.ZodError) {
         return res.status(400).json({
           message: err.errors[0].message,
@@ -1560,7 +1859,9 @@ export async function registerRoutes(
         return res.status(400).json({ message: 'Approver not found', field: 'approverId' });
       }
 
+      const targetDate = parseTargetDate(input.targetDate, 'employee_approve');
       const employee = await storage.submitEmployeeForApproval(id, input.approverId, input.notes);
+      await setTaskTarget(`employee_approve:${id}`, { assigneeId: input.approverId, initiatorId: getCurrentUserId(req), targetDate });
 
       // Create notification for approver
       await storage.createNotification({
@@ -1582,6 +1883,7 @@ export async function registerRoutes(
 
       res.json(employee);
     } catch (err) {
+      if (err instanceof TargetDateError) return res.status(400).json({ message: err.message, field: 'targetDate' });
       if (err instanceof z.ZodError) {
         return res.status(400).json({
           message: err.errors[0].message,
@@ -1850,7 +2152,15 @@ export async function registerRoutes(
         notificationMessage = `You have been assigned to approve the employee record for "${existing.name}" (${existing.employeeNumber}).`;
       }
 
+      const targetDate = parseTargetDate(input.targetDate, input.taskType);
       const employee = await storage.updateEmployee(id, updateData);
+      const previousTarget = await getTaskTarget(`${input.taskType}:${id}`);
+      await setTaskTarget(`${input.taskType}:${id}`, {
+        assigneeId: input.newAssigneeId,
+        initiatorId: previousTarget?.initiatorId ?? getCurrentUserId(req),
+        targetDate,
+        note: input.notes,
+      });
 
       // Create notification for new assignee
       await storage.createNotification({
@@ -1879,6 +2189,7 @@ export async function registerRoutes(
 
       res.json(employee);
     } catch (err) {
+      if (err instanceof TargetDateError) return res.status(400).json({ message: err.message, field: 'targetDate' });
       if (err instanceof z.ZodError) {
         return res.status(400).json({
           message: err.errors[0].message,
@@ -3507,103 +3818,33 @@ export async function registerRoutes(
         (taskType === 'approve' && doc.approverId === userId) ||
         (taskType === 'prepare' && doc.preparedById === userId);
       
-      const hasPermission = isAssigned || 
-        currentUser?.role === 'admin' || 
-        currentUser?.role === 'quality_manager';
+      const hasPermission = isAssigned ||
+        currentUser?.role === 'admin' ||
+        currentUser?.role === 'quality_manager' ||
+        currentUser?.email === COO_EMAIL ||
+        (await taskInitiatorId(`${taskType}:${documentId}`)) === userId;
       
       if (!hasPermission) {
         return res.status(403).json({ message: 'You do not have permission to reassign this task' });
       }
       
-      // Prepare update data based on task type
-      const updateData: any = {};
-      let oldAssigneeId: number | null = null;
-      
-      if (taskType === 'review') {
-        oldAssigneeId = doc.reviewerId;
-        updateData.reviewerId = newAssigneeId;
-        updateData.reviewedBySignedAt = null; // Clear previous signature
-      } else if (taskType === 'approve') {
-        oldAssigneeId = doc.approverId;
-        updateData.approverId = newAssigneeId;
-        updateData.approvedBySignedAt = null; // Clear previous signature
-      } else if (taskType === 'prepare') {
-        oldAssigneeId = doc.preparedById;
-        updateData.preparedById = newAssigneeId;
-        updateData.preparerConfirmedAt = null;
-        updateData.preparedBySignedAt = null;
-      }
-      
-      // If new approver is also specified
-      if (newApproverId) {
-        const newApprover = await storage.getUser(newApproverId);
-        if (!newApprover) {
-          return res.status(404).json({ message: 'New approver not found' });
-        }
-        updateData.approverId = newApproverId;
-      }
-      
-      // Update the document
-      const updated = await storage.updateDocument(documentId, updateData);
-      
-      // Get old assignee info for audit log
-      const oldAssignee = oldAssigneeId ? await storage.getUser(oldAssigneeId) : null;
-      
-      // Create audit log
-      await storage.createAuditLog({
-        userId,
-        action: AuditAction.UPDATE,
-        entityType: 'document',
-        entityId: documentId,
-        oldValue: JSON.stringify({
-          taskType,
-          assignedTo: oldAssignee?.name || 'Unknown',
-          assignedToId: oldAssigneeId,
-        }),
-        newValue: JSON.stringify({
-          taskType,
-          assignedTo: newAssignee.name,
-          assignedToId: newAssigneeId,
-          reason: reason || 'Task reassigned',
-          ...(newApproverId && { newApproverId }),
-        }),
+      const targetDate = parseTargetDate(req.body.targetDate, taskType);
+      const updated = await reassignDocumentTask(doc, taskType, newAssigneeId, userId, reason, newApproverId);
+      const existingTarget = await getTaskTarget(`${taskType}:${documentId}`);
+      await setTaskTarget(`${taskType}:${documentId}`, {
+        assigneeId: newAssigneeId,
+        initiatorId: existingTarget?.initiatorId ?? userId,
+        targetDate,
+        note: reason || null,
       });
-      
-      // Create workflow log
-      await storage.createWorkflowLog({
-        documentId,
-        fromStatus: doc.status,
-        toStatus: doc.status, // Status doesn't change
-        actionById: userId,
-        comments: `Task reassigned: ${taskType} from ${oldAssignee?.name || 'Unknown'} to ${newAssignee.name}. ${reason ? `Reason: ${reason}` : ''}`,
-      });
-      
-      // Notify the new assignee
-      await storage.createNotification({
-        userId: newAssigneeId,
-        title: 'Task Assigned to You',
-        message: `You have been assigned to ${taskType} document "${doc.title}" (${doc.documentCode}). ${reason ? `Reason: ${reason}` : ''}`,
-        urgencyLevel: UrgencyLevel.HIGH,
-        relatedDocumentId: documentId,
-      });
-      
-      // Notify the old assignee if they weren't the one doing the reassignment
-      if (oldAssigneeId && oldAssigneeId !== userId) {
-        await storage.createNotification({
-          userId: oldAssigneeId,
-          title: 'Task Reassigned',
-          message: `Your ${taskType} task for document "${doc.title}" has been reassigned to ${newAssignee.name}.`,
-          urgencyLevel: UrgencyLevel.MEDIUM,
-          relatedDocumentId: documentId,
-        });
-      }
-      
+
       res.json({ 
         success: true, 
         document: updated,
         message: `Task reassigned to ${newAssignee.name}` 
       });
     } catch (err) {
+      if (err instanceof TargetDateError) return res.status(400).json({ message: err.message });
       console.error('Error reassigning task:', err);
       res.status(500).json({ message: 'Failed to reassign task' });
     }
@@ -4152,6 +4393,7 @@ export async function registerRoutes(
         anchorFrom: z.number().int().nonnegative(),
         anchorTo: z.number().int().positive(),
         assigneeIds: z.array(z.number().int().positive()).optional().default([]),
+        targetDate: z.string().optional(),
       }).safeParse(req.body);
       if (!parseResult.success) {
         return res.status(400).json({ message: parseResult.error.errors[0].message });
@@ -4174,6 +4416,7 @@ export async function registerRoutes(
         if (await storage.getUser(id)) assigneeIds.push(id);
       }
 
+      const commentTarget = assigneeIds.length > 0 ? parseTargetDate(input.targetDate, 'comment') : null;
       const comment = await storage.createDocumentComment({
         documentId,
         authorId: user.id,
@@ -4185,6 +4428,9 @@ export async function registerRoutes(
         documentStatus: doc.status,
       });
 
+      if (commentTarget) {
+        await setTaskTarget(`comment:${comment.id}`, { initiatorId: user.id, targetDate: commentTarget });
+      }
       for (const assigneeId of assigneeIds) {
         if (assigneeId === user.id) continue;
         await storage.createNotification({
@@ -4206,6 +4452,7 @@ export async function registerRoutes(
 
       res.status(201).json(comment);
     } catch (err) {
+      if (err instanceof TargetDateError) return res.status(400).json({ message: err.message, field: 'targetDate' });
       console.error('Error creating document comment:', err);
       res.status(500).json({ message: 'Failed to add comment' });
     }
@@ -4336,6 +4583,9 @@ export async function registerRoutes(
         return res.status(403).json({ message: 'Only the person currently responsible for this document (reviewer, approver, or the COO in the Document Hub) can return it' });
       }
 
+      const returnedTaskType = toStatus === DocumentStatus.DRAFT ? 'revise' : toStatus === DocumentStatus.IN_REVIEW ? 'review' : 'approve';
+      const returnTarget = parseTargetDate(req.body?.targetDate, returnedTaskType);
+
       // The reason must be written in the document itself, as comments
       const comments = await storage.getDocumentComments(documentId);
       const myOpenComments = comments.filter(c => c.authorId === user.id && c.status === DocumentCommentStatus.OPEN);
@@ -4350,6 +4600,8 @@ export async function registerRoutes(
         returnedById: user.id,
         returnNote: note || null,
       });
+
+      await setTaskTarget(`${returnedTaskType}:${documentId}`, { assigneeId: returnToId, initiatorId: user.id, targetDate: returnTarget, note: note || null });
 
       await storage.createWorkflowLog({
         documentId,
@@ -4381,6 +4633,7 @@ export async function registerRoutes(
 
       res.json({ document: updated, returnedToId: returnToId, returnToRole });
     } catch (err) {
+      if (err instanceof TargetDateError) return res.status(400).json({ message: err.message, field: 'targetDate' });
       console.error('Error returning document:', err);
       res.status(500).json({ message: 'Failed to return document' });
     }

@@ -1,8 +1,8 @@
 import { db } from "./db";
 import { and, eq, gte, lte, or, isNull, gt } from "drizzle-orm";
 import {
-  taskRecords, auditLogs, monthlyPerformanceReports, users,
-  TaskRecordStatus, MonthlyReportStatus, type TaskRecord,
+  taskRecords, taskAssignments, auditLogs, monthlyPerformanceReports, users,
+  TaskRecordStatus, MonthlyReportStatus, DEFAULT_TARGET_DAYS, type TaskRecord,
 } from "@shared/schema";
 import { collectOpenTasks, POOLED_TASK_TYPES, TASK_TYPE_LABELS, type OpenTask } from "./task-sources";
 
@@ -53,7 +53,21 @@ async function runReconcile() {
 
   // Close records whose task is no longer in that person's list
   for (const row of openRows) {
-    if (openNow.has(`${row.userId}|${row.taskKey}`)) continue;
+    const current = openNow.get(`${row.userId}|${row.taskKey}`);
+    if (current) {
+      // The initiator may have moved the target date: measure against the latest one
+      const dueChanged = current.dueSource !== 'default' && (current.dueAt?.getTime() ?? null) !== (row.dueAt?.getTime() ?? null);
+      if (dueChanged || (current.initiatorId ?? null) !== row.initiatorId) {
+        await db.update(taskRecords).set({
+          dueAt: dueChanged ? current.dueAt : row.dueAt,
+          minutesAllowed: dueChanged
+            ? (current.dueAt ? Math.max(1, Math.round((current.dueAt.getTime() - row.assignedAt.getTime()) / MINUTE)) : null)
+            : row.minutesAllowed,
+          initiatorId: current.initiatorId ?? null,
+        }).where(eq(taskRecords.id, row.id));
+      }
+      continue;
+    }
     const status = await closingStatus(row, ownersByKey, existingEntities, cancelledKeys);
     const minutesTaken = Math.max(0, Math.round((now.getTime() - row.assignedAt.getTime()) / MINUTE));
     const counted = status === TaskRecordStatus.COMPLETED;
@@ -77,6 +91,7 @@ async function runReconcile() {
       link: t.link,
       entityType: t.entityType,
       entityId: t.entityId,
+      initiatorId: t.initiatorId ?? null,
       assignedAt: t.assignedAt,
       dueAt: t.dueAt,
       minutesAllowed: t.dueAt ? Math.max(1, Math.round((t.dueAt.getTime() - t.assignedAt.getTime()) / MINUTE)) : null,
@@ -110,6 +125,55 @@ async function closingStatus(
   return TaskRecordStatus.COMPLETED;
 }
 
+// ============================================
+// Target dates set when a task is assigned or forwarded
+// ============================================
+
+// End of the day, N days from now: the default target when assigning
+export function defaultTargetDate(taskType: string): Date {
+  const d = new Date();
+  d.setDate(d.getDate() + (DEFAULT_TARGET_DAYS[taskType] ?? 1));
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+// Reads a target date sent by the client (ISO string); falls back to the default for the task type
+export function parseTargetDate(value: unknown, taskType: string): Date {
+  if (typeof value === 'string' && value) {
+    const d = new Date(value);
+    if (isNaN(d.getTime())) throw new TargetDateError('Invalid target completion date');
+    if (d.getTime() < Date.now() - 5 * MINUTE) throw new TargetDateError('The target completion date cannot be in the past');
+    return d;
+  }
+  return defaultTargetDate(taskType);
+}
+
+export class TargetDateError extends Error {}
+
+export async function setTaskTarget(taskKey: string, data: { assigneeId?: number | null; initiatorId: number; targetDate: Date; note?: string | null }) {
+  await db.insert(taskAssignments).values({
+    taskKey,
+    assigneeId: data.assigneeId ?? null,
+    initiatorId: data.initiatorId,
+    targetDate: data.targetDate,
+    note: data.note ?? null,
+  }).onConflictDoUpdate({
+    target: taskAssignments.taskKey,
+    set: {
+      assigneeId: data.assigneeId ?? null,
+      initiatorId: data.initiatorId,
+      targetDate: data.targetDate,
+      note: data.note ?? null,
+      updatedAt: new Date(),
+    },
+  });
+}
+
+export async function getTaskTarget(taskKey: string) {
+  const [row] = await db.select().from(taskAssignments).where(eq(taskAssignments.taskKey, taskKey));
+  return row;
+}
+
 export async function getOpenTaskRecords(userId: number): Promise<TaskRecord[]> {
   return db.select().from(taskRecords).where(and(eq(taskRecords.userId, userId), eq(taskRecords.status, TaskRecordStatus.OPEN)));
 }
@@ -136,6 +200,7 @@ export interface TaskMetrics {
   tasksTransferred: number;
   reworkCount: number;
   totalTaskMinutes: number;
+  totalTargetMinutes: number;
   avgTurnaroundMinutes: number | null;
   avgDelayMinutes: number | null;
   onTimeRate: number | null;
@@ -225,6 +290,7 @@ export async function computeTaskMetrics(userId: number, start: Date, end: Date)
     ).length,
     reworkCount: rows.filter(r => r.taskType === 'revise' && inPeriod(r.assignedAt)).length,
     totalTaskMinutes,
+    totalTargetMinutes: allowed,
     avgTurnaroundMinutes: completed.length ? Math.round(totalTaskMinutes / completed.length) : null,
     avgDelayMinutes: delays.length ? Math.round(delays.reduce((a, b) => a + b, 0) / delays.length) : null,
     onTimeRate,
@@ -250,6 +316,7 @@ export function reportFieldsFromMetrics(m: TaskMetrics) {
     tasksTransferred: m.tasksTransferred,
     reworkCount: m.reworkCount,
     totalTaskMinutes: m.totalTaskMinutes,
+    totalTargetMinutes: m.totalTargetMinutes,
     avgTurnaroundMinutes: m.avgTurnaroundMinutes,
     avgDelayMinutes: m.avgDelayMinutes,
     onTimeRate: m.onTimeRate,

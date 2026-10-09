@@ -42,12 +42,12 @@ function TaskPerformanceSection({ report }: { report: PerformanceReport }) {
     { label: "Performance Score", value: report.performanceScore === null ? "-" : `${report.performanceScore}/100`, hint: "On-time 50%, completion 30%, efficiency 20%", className: scoreColor(report.performanceScore) },
     { label: "Tasks Assigned", value: String(report.tasksAssigned ?? 0), hint: "New this month" },
     { label: "Tasks Completed", value: String(report.tasksCompleted ?? 0), hint: `${report.tasksCompletedOnTime ?? 0} on time, ${report.tasksCompletedLate ?? 0} late`, className: "text-green-600" },
-    { label: "On-time Rate", value: percent(report.onTimeRate), hint: "Completed by the due date", className: scoreColor(report.onTimeRate) },
+    { label: "On-time Rate", value: percent(report.onTimeRate), hint: "Completed by the target date", className: scoreColor(report.onTimeRate) },
     { label: "Completion Rate", value: percent(report.completionRate), hint: "Tasks due this month that were done", className: scoreColor(report.completionRate) },
-    { label: "Efficiency", value: percent(report.efficiencyPercent), hint: "Time allowed ÷ time taken (100% = on schedule)", className: scoreColor(report.efficiencyPercent) },
-    { label: "Total Time on Tasks", value: formatMinutes(report.totalTaskMinutes ?? 0), hint: "Assignment to completion, all tasks" },
+    { label: "Efficiency", value: percent(report.efficiencyPercent), hint: "Target time ÷ time taken (100% = exactly on target)", className: scoreColor(report.efficiencyPercent) },
+    { label: "Time Taken vs Target", value: `${formatMinutes(report.totalTaskMinutes ?? 0)} / ${formatMinutes(report.totalTargetMinutes ?? 0)}`, hint: "Assignment to completion, against the time the target dates allowed" },
     { label: "Average Turnaround", value: formatMinutes(report.avgTurnaroundMinutes), hint: "Per completed task" },
-    { label: "Average Delay", value: formatMinutes(report.avgDelayMinutes), hint: "How late the late tasks were" },
+    { label: "Average Delay", value: formatMinutes(report.avgDelayMinutes), hint: "How far past the target date the late tasks were" },
     { label: "Open / Overdue", value: `${report.tasksPending ?? 0} / ${report.tasksOverdue ?? 0}`, hint: "At the end of the month (or now)", className: (report.tasksOverdue ?? 0) > 0 ? "text-red-600" : undefined },
     { label: "Returned for Rework", value: String(report.reworkCount ?? 0), hint: "Documents sent back to this person" },
     { label: "Reassigned / Handled by Others", value: String(report.tasksTransferred ?? 0), hint: "Not counted in the rates" },
@@ -117,6 +117,7 @@ interface PerformanceReport {
   tasksTransferred: number | null;
   reworkCount: number | null;
   totalTaskMinutes: number | null;
+  totalTargetMinutes: number | null;
   avgTurnaroundMinutes: number | null;
   avgDelayMinutes: number | null;
   onTimeRate: number | null;

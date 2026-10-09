@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Check, Loader2, MessageSquare, Trash2, X } from "lucide-react";
+import { TargetDateField, TARGET_DAYS, defaultTargetInput, targetToIso } from "@/components/TargetDateField";
 
 export interface DocComment {
   id: number;
@@ -52,7 +53,7 @@ interface CommentComposerProps {
   quotedText: string;
   users: CommentUser[];
   isPending: boolean;
-  onSubmit: (data: { content: string; assigneeIds: number[] }) => void;
+  onSubmit: (data: { content: string; assigneeIds: number[]; targetDate?: string }) => void;
 }
 
 export function CommentComposer({ open, onOpenChange, quotedText, users, isPending, onSubmit }: CommentComposerProps) {
@@ -60,6 +61,7 @@ export function CommentComposer({ open, onOpenChange, quotedText, users, isPendi
   const [mentionedIds, setMentionedIds] = useState<number[]>([]);
   const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
   const [highlightIndex, setHighlightIndex] = useState(0);
+  const [target, setTarget] = useState(defaultTargetInput(TARGET_DAYS.comment));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const suggestions = useMemo(() => {
@@ -78,6 +80,7 @@ export function CommentComposer({ open, onOpenChange, quotedText, users, isPendi
     setMentionedIds([]);
     setMention(null);
     setHighlightIndex(0);
+    setTarget(defaultTargetInput(TARGET_DAYS.comment));
   };
 
   const updateMention = (text: string, caret: number) => {
@@ -204,6 +207,16 @@ export function CommentComposer({ open, onOpenChange, quotedText, users, isPendi
               ))
             )}
           </div>
+
+          {assignees.length > 0 && (
+            <TargetDateField
+              id="comment-target"
+              label="Mentioned people must act by"
+              value={target}
+              onChange={setTarget}
+              defaultDays={TARGET_DAYS.comment}
+            />
+          )}
         </div>
 
         <DialogFooter className="gap-2">
@@ -211,8 +224,12 @@ export function CommentComposer({ open, onOpenChange, quotedText, users, isPendi
             Cancel
           </Button>
           <Button
-            onClick={() => onSubmit({ content: content.trim(), assigneeIds: assignees.map(u => u.id) })}
-            disabled={!content.trim() || isPending}
+            onClick={() => onSubmit({
+              content: content.trim(),
+              assigneeIds: assignees.map(u => u.id),
+              targetDate: assignees.length > 0 ? targetToIso(target) : undefined,
+            })}
+            disabled={!content.trim() || isPending || (assignees.length > 0 && !target)}
             data-testid="button-submit-comment"
           >
             {isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}

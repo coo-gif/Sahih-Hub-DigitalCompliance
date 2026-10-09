@@ -272,6 +272,21 @@ Step 2: `GET /api/my-tasks` returns the signed-in user's tasks, soonest due firs
 Step 3: My Tasks and the Dashboard show every type. Review, approval and request tasks keep their own buttons; every other task has **Open**, which goes to the page where the work is done --->
 Step 4: The task disappears from the list once the work is done.
 
+### 7.1a Target dates and task initiators
+Step 1: Whenever work is assigned or forwarded, the person doing it gives a **target completion date**. The field is pre-filled with the default: prepare 2 days, review 1 day, approve 1 day, COO final approval 1 day, revise after a return 2 days, @mention comment 1 day, employee review or approval 1 day (`DEFAULT_TARGET_DAYS`). Where it is asked for:
+  - New Document: Prepared by + preparation date
+  - Submit for Review: review date
+  - Complete Review: approval date
+  - Approve: COO final approval date
+  - Return for Revision: date for the person it goes back to
+  - Comment with @mentions: action date
+  - Every Re-assign dialog
+  - Employee review and approval steps --->
+Step 2: `task_assignments` stores, per task (e.g. `review:12`), the **initiator** (who assigned it) and the target date. A target date always overrides default allowances. Dates in the past are refused --->
+Step 3: My Tasks shows "Assigned by …" and the target date on every task --->
+Step 4: The initiator, an admin, the QM or the COO opens **My Tasks → Assigned by me** and can move the task to another person (documents, employee records, comments, bug reports, lead follow-ups) or change its target date (any task). This uses `POST /api/tasks/change`. The assignee is notified and an audit entry is written. Managers can switch on "Show everyone's open tasks" --->
+Step 5: The task ledger follows the latest target date. A task moved to someone else closes as *transferred* for the first person, so it does not count against them.
+
 ### 7.2 Task ledger → individual performance (automatic)
 Step 1: After every successful change, and every minute, `server/task-ledger.ts` reconciles open tasks against the `task_records` table. A record opens when a task first appears in someone's list, with its assigned and due dates --->
 Step 2: When a task leaves a person's list, the record closes as:
@@ -279,7 +294,7 @@ Step 2: When a task leaves a person's list, the record closes as:
   - **transferred**, if it was reassigned
   - **closed by other**, for a shared task someone else handled (decided from the audit log)
   - **cancelled**, if the source was deleted or withdrawn --->
-Step 3: For any person and month, `computeTaskMetrics` works out: tasks assigned, completed, on time and late; on-time rate; completion rate; efficiency (time allowed ÷ time taken); total and average time; average delay; open and overdue; rework (documents returned to them); reassigned or handled by others; a breakdown by task type; and a **Performance Score** (on-time 50%, completion 30%, efficiency 20%) --->
+Step 3: For any person and month, `computeTaskMetrics` works out, against each task's target date: tasks assigned, completed, on time and late; on-time rate; completion rate; efficiency (time allowed ÷ time taken); total and average time; average delay; open and overdue; rework (documents returned to them); reassigned or handled by others; a breakdown by task type; and a **Performance Score** (on-time 50%, completion 30%, efficiency 20%) --->
 Step 4: Everyone with a task this month automatically gets a draft monthly performance report. Draft reports refresh every 5 minutes and whenever the reports page is opened --->
 Step 5: The admin submits the report → the COO reviews it (a task for the COO) → the CEO approves it (a task for the CEO). Figures stop changing once the report is submitted --->
 Step 6: The Performance Reports page shows On Time, Efficiency, Overdue and Score in the table, with all task figures and the per-type breakdown in the report detail. My Tasks shows the user's own completed count and on-time rate for the month.

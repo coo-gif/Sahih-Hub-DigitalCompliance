@@ -405,6 +405,7 @@ export const taskRecords = pgTable("task_records", {
   link: text("link"),
   entityType: text("entity_type").notNull(),
   entityId: integer("entity_id").notNull(),
+  initiatorId: integer("initiator_id"),
   assignedAt: timestamp("assigned_at").notNull(),
   dueAt: timestamp("due_at"),
   status: text("status").notNull().default(TaskRecordStatus.OPEN),
@@ -416,6 +417,33 @@ export const taskRecords = pgTable("task_records", {
 });
 
 export type TaskRecord = typeof taskRecords.$inferSelect;
+
+// Who assigned a task and by when it must be completed. One row per task key (e.g. "review:12"),
+// overwritten each time the task is assigned or forwarded again.
+export const taskAssignments = pgTable("task_assignments", {
+  id: serial("id").primaryKey(),
+  taskKey: text("task_key").notNull().unique(),
+  assigneeId: integer("assignee_id"),
+  initiatorId: integer("initiator_id").notNull(),
+  targetDate: timestamp("target_date").notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type TaskAssignment = typeof taskAssignments.$inferSelect;
+
+// Default time allowed when a task is assigned or forwarded (days). The person assigning can change it.
+export const DEFAULT_TARGET_DAYS: Record<string, number> = {
+  prepare: 2,
+  review: 1,
+  approve: 1,
+  hub_approval: 1,
+  revise: 2,
+  comment: 1,
+  employee_review: 1,
+  employee_approve: 1,
+};
 
 // ============================================
 // DOCUMENT COMMENTS (inline comments anchored to selected text, with @mentioned assignees)
@@ -729,6 +757,7 @@ export const monthlyPerformanceReports = pgTable("monthly_performance_reports", 
   tasksTransferred: integer("tasks_transferred").default(0), // reassigned away or handled by a colleague
   reworkCount: integer("rework_count").default(0), // documents returned to this person for revision
   totalTaskMinutes: integer("total_task_minutes").default(0), // time from assignment to completion, summed
+  totalTargetMinutes: integer("total_target_minutes").default(0), // time allowed by the target dates of the same tasks
   avgTurnaroundMinutes: integer("avg_turnaround_minutes"),
   avgDelayMinutes: integer("avg_delay_minutes"), // average lateness of late tasks
   onTimeRate: integer("on_time_rate"), // %

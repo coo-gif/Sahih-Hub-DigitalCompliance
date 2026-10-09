@@ -129,8 +129,8 @@ export function useCompleteEmployeeTask() {
 
 export function useSubmitEmployeeForReview() {
   return useMutation({
-    mutationFn: async ({ id, reviewerId, notes }: { id: number; reviewerId: number; notes?: string }) => {
-      const res = await apiRequest('POST', `/api/employees/${id}/submit-review`, { reviewerId, notes });
+    mutationFn: async ({ id, reviewerId, notes, targetDate }: { id: number; reviewerId: number; notes?: string; targetDate?: string }) => {
+      const res = await apiRequest('POST', `/api/employees/${id}/submit-review`, { reviewerId, notes, targetDate });
       return res.json();
     },
     onSuccess: () => {
@@ -141,8 +141,8 @@ export function useSubmitEmployeeForReview() {
 
 export function useSubmitEmployeeForApproval() {
   return useMutation({
-    mutationFn: async ({ id, approverId, notes }: { id: number; approverId: number; notes?: string }) => {
-      const res = await apiRequest('POST', `/api/employees/${id}/submit-approval`, { approverId, notes });
+    mutationFn: async ({ id, approverId, notes, targetDate }: { id: number; approverId: number; notes?: string; targetDate?: string }) => {
+      const res = await apiRequest('POST', `/api/employees/${id}/submit-approval`, { approverId, notes, targetDate });
       return res.json();
     },
     onSuccess: () => {

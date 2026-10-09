@@ -93,6 +93,7 @@ import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import { useState, useEffect, useMemo, useId } from "react";
 import type { MyTask } from "@/hooks/use-tasks";
+import { TargetDateField, TARGET_DAYS, defaultTargetInput, targetToIso } from "@/components/TargetDateField";
 import quoteImage1 from "@assets/generated_images/quality_certification_rings_abstract.png";
 import quoteImage2 from "@assets/generated_images/excellence_network_visualization.png";
 import quoteImage3 from "@assets/generated_images/continuous_improvement_ribbons.png";
@@ -857,8 +858,8 @@ export default function Dashboard() {
   const submitEmployeeForApprovalMutation = useSubmitEmployeeForApproval();
   
   const reassignEmployeeMutation = useMutation({
-    mutationFn: async ({ id, taskType, newAssigneeId, notes }: { id: number; taskType: 'employee_review' | 'employee_approve'; newAssigneeId: number; notes?: string }) => {
-      const res = await apiRequest('POST', `/api/employees/${id}/reassign`, { taskType, newAssigneeId, notes });
+    mutationFn: async ({ id, taskType, newAssigneeId, notes, targetDate }: { id: number; taskType: 'employee_review' | 'employee_approve'; newAssigneeId: number; notes?: string; targetDate?: string }) => {
+      const res = await apiRequest('POST', `/api/employees/${id}/reassign`, { taskType, newAssigneeId, notes, targetDate });
       return res.json();
     },
     onSuccess: () => {
@@ -871,6 +872,9 @@ export default function Dashboard() {
   const [selectedTask, setSelectedTask] = useState<MyTask | null>(null);
   const [showTaskDialog, setShowTaskDialog] = useState(false);
   const [taskComments, setTaskComments] = useState("");
+  // Deadline for whoever the task goes to next (approver, COO, employee approver) or for a new assignee
+  const [nextTarget, setNextTarget] = useState(defaultTargetInput(TARGET_DAYS.approve));
+  const [employeeReassignTarget, setEmployeeReassignTarget] = useState(defaultTargetInput(TARGET_DAYS.employee_review));
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showComplianceDialog, setShowComplianceDialog] = useState(false);
   const [showTasksFocusDialog, setShowTasksFocusDialog] = useState(false);
@@ -985,6 +989,8 @@ export default function Dashboard() {
     }
     setSelectedTask(task);
     setTaskComments("");
+    setNextTarget(defaultTargetInput(task.taskType === 'approve' ? TARGET_DAYS.hub_approval : TARGET_DAYS.approve));
+    setEmployeeReassignTarget(defaultTargetInput(task.taskType === 'employee_approve' ? TARGET_DAYS.employee_approve : TARGET_DAYS.employee_review));
     // Default approver to CEO for employee review tasks
     if (task.taskType === 'employee_review' && ceoUser) {
       setSelectedApproverId(String(ceoUser.id));
@@ -1002,6 +1008,7 @@ export default function Dashboard() {
         documentId: selectedTask.documentId,
         taskType: selectedTask.taskType as 'prepare' | 'review' | 'approve',
         comments: taskComments || undefined,
+        nextTargetDate: targetToIso(nextTarget),
       });
       
       toast({
@@ -2412,6 +2419,16 @@ export default function Dashboard() {
               </div>
             )}
 
+            {(selectedTask?.taskType === 'review' || selectedTask?.taskType === 'approve' || selectedTask?.taskType === 'employee_review') && (
+              <TargetDateField
+                id="next-target"
+                label={selectedTask?.taskType === 'approve' ? "COO's final approval due by" : 'Approval due by'}
+                value={nextTarget}
+                onChange={setNextTarget}
+                defaultDays={TARGET_DAYS.approve}
+              />
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="comments">Comments (optional)</Label>
               <Textarea
@@ -2582,7 +2599,7 @@ export default function Dashboard() {
                       return;
                     }
                     if (selectedTask?.employeeId) {
-                      submitEmployeeForApprovalMutation.mutate({ id: selectedTask.employeeId, approverId: Number(selectedApproverId), notes: taskComments || undefined }, {
+                      submitEmployeeForApprovalMutation.mutate({ id: selectedTask.employeeId, approverId: Number(selectedApproverId), notes: taskComments || undefined, targetDate: targetToIso(nextTarget) }, {
                         onSuccess: () => {
                           const approverName = allUsers?.find(u => u.id === Number(selectedApproverId))?.name || 'the approver';
                           toast({ title: "Review Complete", description: `Employee record for ${selectedTask.employeeName} has been sent to ${approverName} for approval.` });
@@ -2726,6 +2743,13 @@ export default function Dashboard() {
                 data-testid="textarea-employee-reassign-comment"
               />
             </div>
+            <TargetDateField
+              id="employee-reassign-target"
+              label="New person must finish by"
+              value={employeeReassignTarget}
+              onChange={setEmployeeReassignTarget}
+              defaultDays={TARGET_DAYS.employee_review}
+            />
           </div>
 
           <DialogFooter className="gap-2">
@@ -2746,6 +2770,7 @@ export default function Dashboard() {
                   taskType: selectedTask.taskType as 'employee_review' | 'employee_approve',
                   newAssigneeId: Number(employeeReassigneeId),
                   notes: employeeReassignComment || undefined,
+                  targetDate: targetToIso(employeeReassignTarget),
                 }, {
                   onSuccess: () => {
                     const assigneeName = allUsers?.find(u => u.id === Number(employeeReassigneeId))?.name || 'the new assignee';

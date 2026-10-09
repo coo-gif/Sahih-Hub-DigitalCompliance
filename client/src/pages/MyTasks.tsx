@@ -12,6 +12,10 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { useMyTasks, useCompleteTask, MyTask, useTaskPerformance, SPECIAL_TASK_TYPES } from "@/hooks/use-tasks";
 import { format } from "date-fns";
+import { TargetDateField, TARGET_DAYS, defaultTargetInput, targetToIso } from "@/components/TargetDateField";
+import { AssignedByMe } from "@/components/AssignedByMe";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAuth } from "@/hooks/use-auth";
 import { useUsers } from "@/hooks/use-users";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -60,19 +64,21 @@ function ReassignTaskDialog({
   task: MyTask; 
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onReassign: (newAssigneeId: number, newApproverId?: number, reason?: string) => void;
+  onReassign: (newAssigneeId: number, newApproverId?: number, reason?: string, targetDate?: string) => void;
   isPending: boolean;
   users?: UserOption[];
 }) {
   const [selectedAssigneeId, setSelectedAssigneeId] = useState<string>("");
   const [selectedApproverId, setSelectedApproverId] = useState<string>("");
   const [reason, setReason] = useState("");
+  const reassignDays = task.taskType === 'approve' ? TARGET_DAYS.approve : task.taskType === 'prepare' ? TARGET_DAYS.prepare : TARGET_DAYS.review;
+  const [target, setTarget] = useState(defaultTargetInput(reassignDays));
 
   const handleReassign = () => {
     if (!selectedAssigneeId) return;
     const assigneeId = parseInt(selectedAssigneeId);
     const approverId = selectedApproverId ? parseInt(selectedApproverId) : undefined;
-    onReassign(assigneeId, approverId, reason);
+    onReassign(assigneeId, approverId, reason, targetToIso(target));
     setSelectedAssigneeId("");
     setSelectedApproverId("");
     setReason("");
@@ -150,11 +156,15 @@ function ReassignTaskDialog({
           </div>
         </div>
         
+        <div className="pt-2">
+          <TargetDateField id="reassign-target" label="New person must finish by" value={target} onChange={setTarget} defaultDays={reassignDays} />
+        </div>
+
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button 
             onClick={handleReassign} 
-            disabled={isPending || !selectedAssigneeId}
+            disabled={isPending || !selectedAssigneeId || !target}
             className="gap-1"
           >
             <RefreshCw className="h-4 w-4" />
@@ -177,16 +187,19 @@ function CompleteTaskDialog({
   task: MyTask; 
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onComplete: (comments: string, approverId?: number) => void;
+  onComplete: (comments: string, approverId?: number, nextTargetDate?: string) => void;
   isPending: boolean;
   users?: UserOption[];
 }) {
   const [comments, setComments] = useState("");
   const [selectedApproverId, setSelectedApproverId] = useState<string>("");
+  // The next person's deadline: the approver after a review, the COO after an approval
+  const nextDays = task.taskType === 'review' ? TARGET_DAYS.approve : TARGET_DAYS.hub_approval;
+  const [nextTarget, setNextTarget] = useState(defaultTargetInput(nextDays));
 
   const handleComplete = () => {
     const approverId = selectedApproverId ? parseInt(selectedApproverId) : undefined;
-    onComplete(comments, approverId);
+    onComplete(comments, approverId, targetToIso(nextTarget));
     setComments("");
     setSelectedApproverId("");
   };
@@ -238,6 +251,16 @@ function CompleteTaskDialog({
             </div>
           )}
           
+          {(task.taskType === 'review' || task.taskType === 'approve') && (
+            <TargetDateField
+              id="next-target"
+              label={task.taskType === 'review' ? 'Approval due by' : "COO's final approval due by"}
+              value={nextTarget}
+              onChange={setNextTarget}
+              defaultDays={nextDays}
+            />
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="comments">Comments (optional)</Label>
             <Textarea
@@ -254,7 +277,7 @@ function CompleteTaskDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button 
             onClick={handleComplete} 
-            disabled={isPending || (task.taskType === 'review' && !selectedApproverId)}
+            disabled={isPending || (task.taskType === 'review' && !selectedApproverId) || !nextTarget}
           >
             {isPending ? "Processing..." : actionLabel}
           </Button>
@@ -276,18 +299,20 @@ export default function MyTasks() {
   const completeMutation = useCompleteTask();
   
   const reassignMutation = useMutation({
-    mutationFn: async ({ documentId, taskType, newAssigneeId, newApproverId, reason }: { 
+    mutationFn: async ({ documentId, taskType, newAssigneeId, newApproverId, reason, targetDate }: { 
       documentId: number; 
       taskType: string; 
       newAssigneeId: number; 
       newApproverId?: number;
       reason?: string;
+      targetDate?: string;
     }) => {
       const res = await apiRequest('POST', `/api/documents/${documentId}/reassign`, {
         taskType,
         newAssigneeId,
         newApproverId: newApproverId === -1 ? undefined : newApproverId,
         reason,
+        targetDate,
       });
       return res.json();
     },
@@ -348,11 +373,13 @@ export default function MyTasks() {
   });
 
   const pendingTasks = tasks;
+  const { data: currentUser } = useAuth();
+  const canSeeAllTasks = currentUser?.role === 'admin' || currentUser?.role === 'quality_manager' || currentUser?.email === 'coo@sahihcertify.com';
   const { data: performance } = useTaskPerformance();
   const overdueCount = tasks.filter(t => t.isOverdue).length;
   const completedCount = performance?.tasksCompleted ?? 0;
 
-  const handleCompleteTask = (comments: string, approverId?: number) => {
+  const handleCompleteTask = (comments: string, approverId?: number, nextTargetDate?: string) => {
     if (!selectedTask || !selectedTask.documentId) return;
     
     completeMutation.mutate(
@@ -360,7 +387,8 @@ export default function MyTasks() {
         documentId: selectedTask.documentId, 
         taskType: selectedTask.taskType as 'prepare' | 'review' | 'approve',
         comments,
-        approverId 
+        approverId,
+        nextTargetDate,
       },
       {
         onSuccess: () => {
@@ -395,7 +423,7 @@ export default function MyTasks() {
     setShowReassignDialog(true);
   };
 
-  const handleReassignTask = (newAssigneeId: number, newApproverId?: number, reason?: string) => {
+  const handleReassignTask = (newAssigneeId: number, newApproverId?: number, reason?: string, targetDate?: string) => {
     if (!selectedTask || !selectedTask.documentId) return;
     
     reassignMutation.mutate(
@@ -405,6 +433,7 @@ export default function MyTasks() {
         newAssigneeId,
         newApproverId: newApproverId && newApproverId !== -1 ? newApproverId : undefined,
         reason,
+        targetDate,
       },
       {
         onSuccess: (data) => {
@@ -488,6 +517,15 @@ export default function MyTasks() {
         </Card>
       </div>
 
+      <Tabs defaultValue="mine" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="mine" data-testid="tab-assigned-to-me">Assigned to me ({pendingTasks.length})</TabsTrigger>
+          <TabsTrigger value="initiated" data-testid="tab-assigned-by-me">Assigned by me</TabsTrigger>
+        </TabsList>
+        <TabsContent value="initiated">
+          <AssignedByMe canSeeAll={canSeeAllTasks} />
+        </TabsContent>
+        <TabsContent value="mine">
       <div className="space-y-4">
         <h2 className="text-xl font-semibold">Pending Tasks</h2>
         {pendingTasks.length === 0 ? (
@@ -563,6 +601,13 @@ export default function MyTasks() {
                       : 'This task requires your attention.')
                     }
                   </CardDescription>
+                  {(task.initiatorName || task.dueDate) && (
+                    <p className="text-xs text-muted-foreground mt-2" data-testid={`task-initiator-${task.id}`}>
+                      {task.initiatorName && <>Assigned by <span className="font-medium text-foreground">{task.initiatorName}</span></>}
+                      {task.initiatorName && task.dueDate && " · "}
+                      {task.dueDate && <>{task.hasTarget ? "Target" : "Default deadline"}: {format(new Date(task.dueDate), "EEE d MMM yyyy")}</>}
+                    </p>
+                  )}
                   {(task.taskType === 'review' || task.taskType === 'approve') && (task.reviewerName || task.approverName) && (
                     <div className="flex flex-wrap gap-4 mt-3 text-sm">
                       {task.reviewerName && (
@@ -799,6 +844,9 @@ export default function MyTasks() {
           </div>
         )}
       </div>
+
+        </TabsContent>
+      </Tabs>
 
       {selectedTask && (
         <CompleteTaskDialog

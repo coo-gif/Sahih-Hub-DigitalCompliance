@@ -62,6 +62,7 @@ import { Plus, MoreHorizontal, Pencil, Trash2, AlertCircle, Eye, FileText, Calen
 import { format } from "date-fns";
 import type { Document } from "@shared/schema";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
+import { TargetDateField, TARGET_DAYS, defaultTargetInput, targetToIso } from "@/components/TargetDateField";
 
 const statusColors: Record<string, string> = {
   draft: "bg-muted text-slate-700",
@@ -94,6 +95,8 @@ export default function Documents() {
   const [selectedApproverId, setSelectedApproverId] = useState<string>("");
   const [reviewComment, setReviewComment] = useState("");
   const [reassignComment, setReassignComment] = useState("");
+  const [reviewTarget, setReviewTarget] = useState(defaultTargetInput(TARGET_DAYS.review));
+  const [reassignTarget, setReassignTarget] = useState(defaultTargetInput(TARGET_DAYS.review));
   
   const filters = {
     status: statusFilter !== "all" ? statusFilter : undefined,
@@ -298,6 +301,7 @@ export default function Documents() {
     setSelectedReviewerId("");
     setSelectedApproverId("");
     setReviewComment("");
+    setReviewTarget(defaultTargetInput(TARGET_DAYS.review));
     setShowSubmitReviewDialog(true);
   };
 
@@ -310,6 +314,7 @@ export default function Documents() {
         reviewerId: parseInt(selectedReviewerId),
         approverId: selectedApproverId ? parseInt(selectedApproverId) : undefined,
         notes: reviewComment || undefined,
+        reviewTargetDate: targetToIso(reviewTarget),
       });
       toast({ title: "Document submitted for review" });
       setShowSubmitReviewDialog(false);
@@ -324,6 +329,7 @@ export default function Documents() {
     setSelectedReviewerId(doc.reviewerId?.toString() || "");
     setSelectedApproverId(doc.approverId?.toString() || "");
     setReassignComment("");
+    setReassignTarget(defaultTargetInput(doc.status === "pending_approval" ? TARGET_DAYS.approve : TARGET_DAYS.review));
     setShowReassignDialog(true);
   };
 
@@ -365,6 +371,7 @@ export default function Documents() {
           newAssigneeId,
           newApproverId: !isApprovalTask && approverId && !isNaN(approverId) ? approverId : undefined,
           reason: reassignComment || 'Task reassigned',
+          targetDate: targetToIso(reassignTarget),
         }),
       });
       
@@ -1302,6 +1309,13 @@ export default function Documents() {
                 data-testid="input-review-comment"
               />
             </div>
+            <TargetDateField
+              id="review-target"
+              label="Review due by"
+              value={reviewTarget}
+              onChange={setReviewTarget}
+              defaultDays={TARGET_DAYS.review}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowSubmitReviewDialog(false)}>
@@ -1309,7 +1323,7 @@ export default function Documents() {
             </Button>
             <Button 
               onClick={handleSubmitForReview}
-              disabled={!selectedReviewerId || submitForReviewMutation.isPending}
+              disabled={!selectedReviewerId || !reviewTarget || submitForReviewMutation.isPending}
               data-testid="button-submit-review"
             >
               {submitForReviewMutation.isPending ? "Submitting..." : "Submit for Review"}
@@ -1363,6 +1377,13 @@ export default function Documents() {
                 </SelectContent>
               </Select>
             </div>
+            <TargetDateField
+              id="reassign-target"
+              label="New person must finish by"
+              value={reassignTarget}
+              onChange={setReassignTarget}
+              defaultDays={selectedDocument?.status === "pending_approval" ? TARGET_DAYS.approve : TARGET_DAYS.review}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowReassignDialog(false)}>
