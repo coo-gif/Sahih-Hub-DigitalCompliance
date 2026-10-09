@@ -13,7 +13,7 @@ export interface MyTask {
   employeeDepartment?: string;
   employeeSupervisorName?: string;
   title: string;
-  taskType: 'prepare' | 'review' | 'approve' | 'download_approval' | 'access_approval' | 'employee_review' | 'employee_approve';
+  taskType: 'prepare' | 'review' | 'approve' | 'revise' | 'comment' | 'download_approval' | 'access_approval' | 'employee_review' | 'employee_approve';
   status: string;
   createdAt: string | null;
   dueDate: string | null;
@@ -28,6 +28,9 @@ export interface MyTask {
   approverName?: string;
   reviewCompleted?: boolean;
   approveCompleted?: boolean;
+  returnedByName?: string | null;
+  returnNote?: string | null;
+  commentCount?: number;
 }
 
 export interface DocumentTask {

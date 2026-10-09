@@ -20,6 +20,8 @@ function TaskTypeBadge({ type }: { type: string }) {
     review: { className: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200", label: "Review" },
     approve: { className: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200", label: "Approve" },
     prepare: { className: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200", label: "Prepare" },
+    revise: { className: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200", label: "Returned for Revision" },
+    comment: { className: "bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-200", label: "Comment Assigned" },
     download_approval: { className: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200", label: "Download Request" },
     access_approval: { className: "bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200", label: "Access Request" },
     employee_review: { className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200", label: "Employee Review" },
@@ -344,7 +346,7 @@ export default function MyTasks() {
     },
   });
 
-  const pendingTasks = tasks.filter(t => t.taskType === 'review' || t.taskType === 'approve' || t.taskType === 'download_approval' || t.taskType === 'access_approval' || t.taskType === 'employee_review' || t.taskType === 'employee_approve');
+  const pendingTasks = tasks.filter(t => t.taskType === 'review' || t.taskType === 'approve' || t.taskType === 'revise' || t.taskType === 'comment' || t.taskType === 'download_approval' || t.taskType === 'access_approval' || t.taskType === 'employee_review' || t.taskType === 'employee_approve');
   const completedCount = 0;
 
   const handleCompleteTask = (comments: string, approverId?: number) => {
@@ -527,6 +529,10 @@ export default function MyTasks() {
                       ? 'This document requires your review before it can proceed to approval.'
                       : task.taskType === 'approve'
                       ? 'This document is awaiting your final approval.'
+                      : task.taskType === 'revise'
+                      ? `${task.returnedByName || 'Your reviewer'} returned this document for revision.${task.returnNote ? ` Note: "${task.returnNote}"` : ''} Address the comments in the document and resubmit it.`
+                      : task.taskType === 'comment'
+                      ? `You were mentioned in ${task.commentCount === 1 ? 'an open comment' : `${task.commentCount} open comments`} on this document.`
                       : task.taskType === 'download_approval'
                       ? `A user has requested permission to download this document.${task.reason ? ` Reason: "${task.reason}"` : ''}`
                       : task.taskType === 'access_approval'
@@ -720,6 +726,15 @@ export default function MyTasks() {
                           {rejectAccessMutation.isPending ? "Denying..." : "Deny"}
                         </Button>
                       </>
+                    ) : (task.taskType === 'revise' || task.taskType === 'comment') ? (
+                      <Button
+                        onClick={() => navigate(`/documents/${task.documentId}/edit`)}
+                        className="gap-1"
+                        data-testid={`button-open-document-${task.id}`}
+                      >
+                        <FileText className="h-4 w-4" />
+                        {task.taskType === 'revise' ? 'Revise Document' : 'Open Comments'}
+                      </Button>
                     ) : (
                       <Button 
                         onClick={() => openCompleteDialog(task)}

@@ -74,6 +74,7 @@ import {
   GraduationCap,
   UserCog,
   MessageSquarePlus,
+  MessageSquare,
   Pin,
   Trash2,
   Send,
@@ -950,6 +951,10 @@ export default function Dashboard() {
         return <FileCheck className="w-4 h-4 text-amber-600" />;
       case 'approve':
         return <FileSignature className="w-4 h-4 text-success" />;
+      case 'revise':
+        return <FilePen className="w-4 h-4 text-amber-600" />;
+      case 'comment':
+        return <MessageSquare className="w-4 h-4 text-primary" />;
       default:
         return <FileText className="w-4 h-4" />;
     }
@@ -963,12 +968,21 @@ export default function Dashboard() {
         return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400';
       case 'approve':
         return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400';
+      case 'revise':
+        return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400';
+      case 'comment':
+        return 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400';
       default:
         return '';
     }
   };
 
   const handleOpenTask = (task: MyTask) => {
+    // Returned documents and comment assignments are handled inside the document itself
+    if (task.taskType === 'revise' || task.taskType === 'comment') {
+      navigate(`/documents/${task.documentId}/edit`);
+      return;
+    }
     setSelectedTask(task);
     setTaskComments("");
     // Default approver to CEO for employee review tasks

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -56,7 +57,8 @@ import {
   Loader2,
   Search,
   ShieldCheck,
-  Tag
+  Tag,
+  MessageSquare
 } from "lucide-react";
 import { format } from "date-fns";
 import { DocumentHubStatus } from "@shared/schema";
@@ -111,6 +113,7 @@ export default function DocumentHub() {
   const { data: currentUser } = useAuth();
   const { data: users = [] } = useUsers();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
@@ -347,7 +350,7 @@ export default function DocumentHub() {
               <CardHeader>
                 <CardTitle>Awaiting Final Approval</CardTitle>
                 <CardDescription>
-                  Documents signed off by their approver. Review each one, choose a classification and store it in the Sahih Hub.
+                  Documents signed off by their approver. Review each one, then either choose a classification and store it, or comment on it and return it to the approver.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -402,6 +405,15 @@ export default function DocumentHub() {
                               >
                                 <Eye className="h-4 w-4 mr-1" />
                                 View
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => navigate(`/documents/${doc.id}/edit`)}
+                                data-testid={`button-comment-pending-${doc.id}`}
+                              >
+                                <MessageSquare className="h-4 w-4 mr-1" />
+                                Comment / Return
                               </Button>
                               <Button
                                 size="sm"

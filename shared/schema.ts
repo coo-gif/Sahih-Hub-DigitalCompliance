@@ -57,6 +57,7 @@ export const AuditAction = {
   ARCHIVE: "archive",
   ASSIGN_TASK: "assign_task",
   COMPLETE_TASK: "complete_task",
+  RETURN_FOR_REVISION: "return_for_revision",
 } as const;
 
 export const EmploymentType = {
@@ -279,6 +280,9 @@ export const documents = pgTable("documents", {
   transferredToHubAt: timestamp("transferred_to_hub_at"),
   hubApprovedById: integer("hub_approved_by_id"),
   hubApprovedAt: timestamp("hub_approved_at"),
+  returnedAt: timestamp("returned_at"), // set when sent back a step; cleared when it moves forward again
+  returnedById: integer("returned_by_id"),
+  returnNote: text("return_note"),
   assignedStaffIds: integer("assigned_staff_ids").array(),
   assignedDepartments: text("assigned_departments").array(),
   createdAt: timestamp("created_at").defaultNow(),
@@ -370,6 +374,33 @@ export const documentFeedback = pgTable("document_feedback", {
   createdAt: timestamp("created_at").defaultNow(),
   addressedAt: timestamp("addressed_at"),
 });
+
+// ============================================
+// DOCUMENT COMMENTS (inline comments anchored to selected text, with @mentioned assignees)
+// ============================================
+export const DocumentCommentStatus = {
+  OPEN: "open",
+  RESOLVED: "resolved",
+} as const;
+
+export const documentComments = pgTable("document_comments", {
+  id: serial("id").primaryKey(),
+  documentId: integer("document_id").notNull(),
+  authorId: integer("author_id").notNull(),
+  content: text("content").notNull(),
+  quotedText: text("quoted_text").notNull(), // the text the comment was made on
+  anchorFrom: integer("anchor_from").notNull(), // editor positions at the time of commenting
+  anchorTo: integer("anchor_to").notNull(),
+  assigneeIds: integer("assignee_ids").array().notNull().default(sql`'{}'::integer[]`),
+  documentStatus: text("document_status").notNull(), // workflow stage when the comment was made
+  status: text("status").notNull().default(DocumentCommentStatus.OPEN),
+  resolvedById: integer("resolved_by_id"),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type DocumentComment = typeof documentComments.$inferSelect;
+export type InsertDocumentComment = typeof documentComments.$inferInsert;
 
 // ============================================
 // DOWNLOAD REQUESTS

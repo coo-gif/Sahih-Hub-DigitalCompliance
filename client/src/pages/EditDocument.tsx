@@ -14,7 +14,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import TiptapEditor, { AISuggestion } from "@/components/TiptapEditor";
+import TiptapEditor, { AISuggestion, type CommentSelection } from "@/components/TiptapEditor";
+import { CommentComposer, CommentsPanel, type DocComment } from "@/components/DocumentComments";
+import { locateComment } from "@/lib/comment-highlights";
+import { useAuth } from "@/hooks/use-auth";
+import type { Editor } from "@tiptap/react";
 import {
   Dialog,
   DialogContent,
@@ -23,7 +27,7 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { ArrowLeft, FileText, Save, Eye, Maximize2, Minimize2, Wand2, Loader2, Check, X, Lightbulb, ChevronRight, Plus, Minus, History, Trash2 } from "lucide-react";
+import { ArrowLeft, FileText, Save, Eye, Maximize2, Minimize2, Wand2, Loader2, Check, X, Lightbulb, ChevronRight, Plus, Minus, History, Trash2, MessageSquare, Undo2, Lock } from "lucide-react";
 import DOMPurify from "dompurify";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -70,6 +74,138 @@ export default function EditDocument() {
   });
 
   const document = documents?.find(d => d.id === documentId);
+  const { data: currentUser } = useAuth();
+
+  // ---- Inline comments ----
+  const commentsKey = `/api/documents/${documentId}/comments`;
+  const { data: comments = [] } = useQuery<DocComment[]>({
+    queryKey: [commentsKey],
+    enabled: !!documentId,
+  });
+  const openComments = comments.filter(c => c.status === "open");
+  const [showComments, setShowComments] = useState(false);
+  const [commentsAutoOpened, setCommentsAutoOpened] = useState(false);
+  const [activeCommentId, setActiveCommentId] = useState<number | null>(null);
+  const [commentSelection, setCommentSelection] = useState<CommentSelection | null>(null);
+  const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
+
+  useEffect(() => {
+    if (!commentsAutoOpened && openComments.length > 0) {
+      setShowComments(true);
+      setCommentsAutoOpened(true);
+    }
+  }, [openComments.length, commentsAutoOpened]);
+
+  const invalidateComments = () => {
+    queryClient.invalidateQueries({ queryKey: [commentsKey] });
+    queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+  };
+
+  const addCommentMutation = useMutation({
+    mutationFn: async (data: { content: string; assigneeIds: number[] }) => {
+      if (!commentSelection) throw new Error("No text selected");
+      const res = await apiRequest("POST", commentsKey, {
+        content: data.content,
+        assigneeIds: data.assigneeIds,
+        quotedText: commentSelection.text,
+        anchorFrom: commentSelection.from,
+        anchorTo: commentSelection.to,
+      });
+      return res.json() as Promise<DocComment>;
+    },
+    onSuccess: (comment) => {
+      invalidateComments();
+      setCommentSelection(null);
+      setShowComments(true);
+      setActiveCommentId(comment.id);
+      toast({
+        title: "Comment added",
+        description: comment.assigneeIds.length > 0
+          ? `${comment.assigneeIds.length} mentioned user${comment.assigneeIds.length > 1 ? 's were' : ' was'} notified.`
+          : undefined,
+      });
+    },
+    onError: (error: any) => {
+      toast({ title: "Could not add comment", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const resolveCommentMutation = useMutation({
+    mutationFn: async (id: number) => apiRequest("POST", `/api/document-comments/${id}/resolve`, {}),
+    onSuccess: () => invalidateComments(),
+    onError: (error: any) => toast({ title: "Could not resolve comment", description: error.message, variant: "destructive" }),
+  });
+
+  const deleteCommentMutation = useMutation({
+    mutationFn: async (id: number) => apiRequest("DELETE", `/api/document-comments/${id}`),
+    onSuccess: () => invalidateComments(),
+    onError: (error: any) => toast({ title: "Could not delete comment", description: error.message, variant: "destructive" }),
+  });
+
+  const selectComment = (comment: DocComment) => {
+    setActiveCommentId(comment.id);
+    if (!editorInstance || editorInstance.isDestroyed) return;
+    const range = locateComment(editorInstance.state.doc, comment);
+    if (!range) {
+      toast({ title: "Text not found", description: "The commented text has been changed or removed since this comment was made." });
+      return;
+    }
+    const { node } = editorInstance.view.domAtPos(range.from);
+    const element = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
+    element?.scrollIntoView({ block: "center", behavior: "smooth" });
+  };
+
+  // ---- Workflow: who may edit, comment or return ----
+  const canEdit = !!document && !document.isLocked && document.status !== "approved";
+  const canComment = !!document && !document.isLocked;
+  const userName = (id: number | null | undefined) => users?.find(u => u.id === id)?.name || "Unknown user";
+  const returnTarget = (() => {
+    if (!document || !currentUser) return null;
+    if (document.status === "in_review" && document.reviewerId === currentUser.id) {
+      return { role: "preparer", name: userName(document.preparedById ?? document.createdById) };
+    }
+    if (document.status === "pending_approval" && document.approverId === currentUser.id) {
+      return { role: "reviewer", name: userName(document.reviewerId) };
+    }
+    if (document.status === "approved" && document.hubStatus === "pending_coo_approval" && currentUser.email === "coo@sahihcertify.com") {
+      return { role: "approver", name: userName(document.approverId) };
+    }
+    return null;
+  })();
+  const myOpenComments = openComments.filter(c => c.authorId === currentUser?.id);
+  const [showReturnDialog, setShowReturnDialog] = useState(false);
+  const [returnNote, setReturnNote] = useState("");
+
+  const returnMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/documents/${documentId}/return`, { note: returnNote || undefined });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/documents?status=approved'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+      setShowReturnDialog(false);
+      setReturnNote("");
+      toast({ title: "Document returned", description: `Sent back to the ${returnTarget?.role}, ${returnTarget?.name}.` });
+      navigate("/documents");
+    },
+    onError: (error: any) => {
+      toast({ title: "Could not return document", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const commentEditorProps = {
+    editable: canEdit,
+    comments: openComments,
+    activeCommentId,
+    onRequestComment: canComment ? (selection: CommentSelection) => setCommentSelection(selection) : undefined,
+    onCommentClick: (id: number) => {
+      setActiveCommentId(id);
+      setShowComments(true);
+    },
+    onEditorReady: setEditorInstance,
+  };
 
   // Fetch revision history for this document
   const { data: revisionHistory = [] } = useQuery<RevisionHistoryEntry[]>({
@@ -326,12 +462,39 @@ export default function EditDocument() {
           <div>
             <h1 className="text-xl font-bold flex items-center gap-2">
               <FileText className="w-5 h-5" />
-              Edit Document
+              {canEdit ? "Edit Document" : "View Document"}
+              {!canEdit && (
+                <Badge variant="secondary" className="gap-1" data-testid="badge-read-only">
+                  <Lock className="w-3 h-3" />
+                  Read-only
+                </Badge>
+              )}
             </h1>
             <p className="text-sm text-muted-foreground font-mono">{document.documentCode}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <Button
+            variant={showComments ? "secondary" : "outline"}
+            onClick={() => setShowComments(v => !v)}
+            data-testid="button-toggle-comments"
+          >
+            <MessageSquare className="w-4 h-4 mr-2" />
+            Comments
+            {openComments.length > 0 && <Badge className="ml-2" variant="destructive">{openComments.length}</Badge>}
+          </Button>
+          {returnTarget && (
+            <Button
+              variant="outline"
+              className="border-amber-400 text-amber-700 hover:bg-amber-50 dark:text-amber-300"
+              onClick={() => setShowReturnDialog(true)}
+              data-testid="button-return-document"
+            >
+              <Undo2 className="w-4 h-4 mr-2" />
+              Return for Revision
+            </Button>
+          )}
+          {canEdit && (
           <Button 
             variant="outline" 
             onClick={handleAIReview}
@@ -350,9 +513,11 @@ export default function EditDocument() {
               </>
             )}
           </Button>
+          )}
           <Button variant="outline" onClick={() => navigate("/documents")} data-testid="button-cancel">
-            Cancel
+            {canEdit ? "Cancel" : "Back"}
           </Button>
+          {canEdit && (
           <Button 
             onClick={handleUpdate} 
             disabled={updateMutation.isPending || !formData.title}
@@ -361,6 +526,7 @@ export default function EditDocument() {
             <Save className="w-4 h-4 mr-2" />
             {updateMutation.isPending ? "Saving..." : "Save Changes"}
           </Button>
+          )}
         </div>
       </div>
 
@@ -368,6 +534,22 @@ export default function EditDocument() {
         <div className={`flex-1 overflow-y-auto transition-all ${showAISuggestions ? 'pr-0' : ''}`}>
         <div className="p-6 max-w-5xl mx-auto">
           <div className="grid gap-6">
+            {document.returnedAt && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 p-4 flex gap-3" data-testid="banner-returned">
+                <Undo2 className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div className="text-sm space-y-1">
+                  <p className="font-semibold text-amber-800 dark:text-amber-200">
+                    Returned for revision by {userName(document.returnedById)} on {format(new Date(document.returnedAt), "MMM d, yyyy 'at' h:mm a")}
+                  </p>
+                  {document.returnNote && <p className="text-amber-800 dark:text-amber-200">"{document.returnNote}"</p>}
+                  <p className="text-amber-700 dark:text-amber-300">
+                    {openComments.length > 0
+                      ? <>There {openComments.length === 1 ? "is 1 open comment" : `are ${openComments.length} open comments`} in the document. Highlighted text shows where changes are needed.</>
+                      : <>All comments have been resolved.</>}
+                  </p>
+                </div>
+              </div>
+            )}
             <Card>
               <CardHeader>
                 <CardTitle>Document Details</CardTitle>
@@ -585,7 +767,10 @@ export default function EditDocument() {
             <CardHeader className="flex flex-row items-center justify-between gap-2">
               <div>
                 <CardTitle>Document Content</CardTitle>
-                <CardDescription>Edit the document content using the rich text editor</CardDescription>
+                <CardDescription>
+                  {canEdit ? "Edit the document content using the rich text editor." : "This document is read-only."}
+                  {canComment && " To comment, select text, right-click and choose Comment."}
+                </CardDescription>
               </div>
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" onClick={() => setShowPreviewDialog(true)} data-testid="button-preview">
@@ -608,6 +793,7 @@ export default function EditDocument() {
                 <TiptapEditor
                   content={formData.content}
                   onChange={(content) => setFormData({ ...formData, content })}
+                  {...commentEditorProps}
                 />
               </div>
             </CardContent>
@@ -616,6 +802,20 @@ export default function EditDocument() {
           </div>
         </div>
         </div>
+
+        {showComments && (
+          <CommentsPanel
+            comments={comments}
+            users={users || []}
+            currentUser={currentUser}
+            activeCommentId={activeCommentId}
+            onSelect={selectComment}
+            onResolve={(c) => resolveCommentMutation.mutate(c.id)}
+            onDelete={(c) => deleteCommentMutation.mutate(c.id)}
+            onClose={() => setShowComments(false)}
+            canComment={canComment}
+          />
+        )}
 
         {/* AI Suggestions Panel */}
         {showAISuggestions && (
@@ -858,12 +1058,83 @@ export default function EditDocument() {
             <TiptapEditor
               content={formData.content}
               onChange={(content) => setFormData({ ...formData, content })}
+              {...commentEditorProps}
             />
           </div>
           <DialogFooter className="flex-shrink-0 border-t pt-4">
             <Button variant="outline" onClick={() => setIsFullscreen(false)}>
               <Minimize2 className="w-4 h-4 mr-2" />
               Close Editor
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <CommentComposer
+        open={!!commentSelection}
+        onOpenChange={(open) => { if (!open) setCommentSelection(null); }}
+        quotedText={commentSelection?.text || ""}
+        users={users || []}
+        isPending={addCommentMutation.isPending}
+        onSubmit={(data) => addCommentMutation.mutate(data)}
+      />
+
+      <Dialog open={showReturnDialog} onOpenChange={setShowReturnDialog}>
+        <DialogContent className="max-w-lg" data-testid="dialog-return-document">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Undo2 className="w-5 h-5 text-amber-600" />
+              Return for Revision
+            </DialogTitle>
+            <DialogDescription>
+              {document.documentCode} will go back to the {returnTarget?.role}, <strong>{returnTarget?.name}</strong>, with your comments.
+            </DialogDescription>
+          </DialogHeader>
+          {myOpenComments.length === 0 ? (
+            <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-900/20 p-3 text-sm text-amber-800 dark:text-amber-200" data-testid="text-return-needs-comment">
+              The reason for returning must be written in the document. Select the text that needs changing, right-click, choose <strong>Comment</strong>, and @mention who should fix it. Then return the document.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <Label className="text-sm font-medium">Your comments ({myOpenComments.length})</Label>
+                <ScrollArea className="max-h-40 mt-2">
+                  <ul className="space-y-2 pr-2">
+                    {myOpenComments.map(c => (
+                      <li key={c.id} className="text-sm border-l-2 border-amber-400 pl-2">
+                        <span className="italic text-muted-foreground">"{c.quotedText.slice(0, 80)}{c.quotedText.length > 80 ? "…" : ""}"</span>
+                        <br />
+                        {c.content}
+                      </li>
+                    ))}
+                  </ul>
+                </ScrollArea>
+              </div>
+              <div>
+                <Label htmlFor="return-note" className="text-sm font-medium">Overall note (optional)</Label>
+                <Textarea
+                  id="return-note"
+                  value={returnNote}
+                  onChange={(e) => setReturnNote(e.target.value)}
+                  placeholder="e.g. Please address the comments and resubmit"
+                  className="mt-2"
+                  data-testid="input-return-note"
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowReturnDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => returnMutation.mutate()}
+              disabled={myOpenComments.length === 0 || returnMutation.isPending}
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+              data-testid="button-confirm-return"
+            >
+              {returnMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Undo2 className="w-4 h-4 mr-2" />}
+              Return to {returnTarget?.role}
             </Button>
           </DialogFooter>
         </DialogContent>

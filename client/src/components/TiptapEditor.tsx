@@ -1,4 +1,4 @@
-import { useEditor, EditorContent } from '@tiptap/react';
+import { useEditor, EditorContent, type Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import Link from '@tiptap/extension-link';
@@ -75,16 +75,32 @@ import {
   ArrowUp,
   ArrowDown,
   X,
+  MessageSquarePlus,
 } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
+import { CommentHighlights, commentHighlightsKey, locateComment, textBetween, type CommentAnchor, type ResolvedCommentRange } from '@/lib/comment-highlights';
+
+export interface CommentSelection {
+  from: number;
+  to: number;
+  text: string;
+}
 
 interface TiptapEditorProps {
   content: string;
   onChange: (content: string) => void;
   onPreview?: () => void;
   onAISuggestionsChange?: (suggestions: AISuggestion[]) => void;
+  editable?: boolean;
+  // Open comments to highlight in the text
+  comments?: CommentAnchor[];
+  activeCommentId?: number | null;
+  // Shows "Comment" in the right-click menu when set
+  onRequestComment?: (selection: CommentSelection) => void;
+  onCommentClick?: (commentId: number) => void;
+  onEditorReady?: (editor: Editor) => void;
 }
 
 export interface AISuggestion {
@@ -95,8 +111,21 @@ export interface AISuggestion {
   applied: boolean;
 }
 
-export default function TiptapEditor({ content, onChange, onPreview, onAISuggestionsChange }: TiptapEditorProps) {
+export default function TiptapEditor({
+  content,
+  onChange,
+  onPreview,
+  onAISuggestionsChange,
+  editable = true,
+  comments,
+  activeCommentId,
+  onRequestComment,
+  onCommentClick,
+  onEditorReady,
+}: TiptapEditorProps) {
   const { toast } = useToast();
+  const onCommentClickRef = useRef(onCommentClick);
+  onCommentClickRef.current = onCommentClick;
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [showImageDialog, setShowImageDialog] = useState(false);
   const [showTableDialog, setShowTableDialog] = useState(false);
@@ -163,8 +192,10 @@ export default function TiptapEditor({ content, onChange, onPreview, onAISuggest
       TextAlign.configure({
         types: ['paragraph', 'heading'],
       }),
+      CommentHighlights.configure({ onCommentClick: onCommentClickRef }),
     ],
     content: content || '',
+    editable,
     onUpdate: ({ editor }) => {
       onChange(editor.getHTML());
     },
@@ -483,6 +514,43 @@ export default function TiptapEditor({ content, onChange, onPreview, onAISuggest
     reader.readAsDataURL(file);
   }, []);
 
+  useEffect(() => {
+    if (editor) onEditorReady?.(editor);
+  }, [editor]);
+
+  useEffect(() => {
+    if (editor && editor.isEditable !== editable) editor.setEditable(editable);
+  }, [editor, editable]);
+
+  // Re-locate and redraw comment highlights whenever the comments or the content change
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    const ranges = (comments || [])
+      .map(c => locateComment(editor.state.doc, c))
+      .filter((r): r is ResolvedCommentRange => r !== null);
+    editor.view.dispatch(editor.state.tr.setMeta(commentHighlightsKey, { ranges, activeId: activeCommentId }));
+  }, [editor, comments, activeCommentId, content]);
+
+  const requestComment = () => {
+    if (!editor || !onRequestComment) return;
+    // Read the browser selection directly: a read-only editor does not sync it into editor state
+    let { from, to } = editor.state.selection;
+    const domSelection = window.getSelection();
+    if (domSelection && domSelection.rangeCount > 0 && !domSelection.isCollapsed) {
+      const range = domSelection.getRangeAt(0);
+      if (editor.view.dom.contains(range.startContainer) && editor.view.dom.contains(range.endContainer)) {
+        from = editor.view.posAtDOM(range.startContainer, range.startOffset);
+        to = editor.view.posAtDOM(range.endContainer, range.endOffset);
+      }
+    }
+    const text = textBetween(editor.state.doc, from, to);
+    if (from === to || !text.trim()) {
+      toast({ title: "Select some text first", description: "Highlight the words you want to comment on, then right-click and choose Comment." });
+      return;
+    }
+    onRequestComment({ from, to, text });
+  };
+
   if (!editor) return null;
 
   return (
@@ -493,6 +561,7 @@ export default function TiptapEditor({ content, onChange, onPreview, onAISuggest
         <span className="text-white font-semibold text-sm">DocuGenie</span>
         <span className="text-purple-200 text-xs">AI-Powered Editor</span>
       </div>
+      {editable && (
       <div className="bg-gray-50 dark:bg-gray-800 border-b p-2 flex flex-wrap items-center gap-1 flex-shrink-0">
         <Button
           type="button"
@@ -773,6 +842,7 @@ export default function TiptapEditor({ content, onChange, onPreview, onAISuggest
           </>
         )}
       </div>
+      )}
 
       {/* Find & Replace Panel */}
       {showFindReplace && (
@@ -903,6 +973,17 @@ export default function TiptapEditor({ content, onChange, onPreview, onAISuggest
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent className="w-56">
+          {onRequestComment && (
+            <>
+              <ContextMenuItem onClick={requestComment} data-testid="context-menu-comment">
+                <MessageSquarePlus className="w-4 h-4 mr-2" />
+                Comment
+              </ContextMenuItem>
+              {editable && <ContextMenuSeparator />}
+            </>
+          )}
+          {editable && (
+          <>
           <ContextMenuItem onClick={() => editor?.chain().focus().toggleBold().run()}>
             <Bold className="w-4 h-4 mr-2" />
             Bold
@@ -1027,6 +1108,8 @@ export default function TiptapEditor({ content, onChange, onPreview, onAISuggest
             <SpellCheck className="w-4 h-4 mr-2" />
             Check Spelling
           </ContextMenuItem>
+          </>
+          )}
         </ContextMenuContent>
       </ContextMenu>
 

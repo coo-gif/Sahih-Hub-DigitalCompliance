@@ -6,6 +6,7 @@ import {
   DocumentStatus, 
   DocumentHubStatus,
   DocumentClassification,
+  DocumentCommentStatus,
   AuditAction,
   UrgencyLevel,
   UserRole,
@@ -27,6 +28,7 @@ import {
   insertOpportunitySchema,
   OpportunityStage,
   insertHistoricalDataSchema,
+  type Document,
 } from "@shared/schema";
 import { z } from "zod";
 import puppeteer from "puppeteer";
@@ -122,6 +124,15 @@ const COO_EMAIL = 'coo@sahihcertify.com';
 // Documents the COO stored in the Hub as public information are readable by every signed-in user
 function isPublicHubDocument(doc: { hubStatus?: string | null; classification?: string | null }): boolean {
   return doc.hubStatus === DocumentHubStatus.STORED && doc.classification === DocumentClassification.PUBLIC_INFORMATION;
+}
+
+// Same visibility rule as the documents list: unlocked, unapproved documents are open to everyone;
+// approved or locked ones need the COO, a workflow role, public classification or an access grant.
+async function canViewDocument(doc: Document, user: { id: number; email: string }): Promise<boolean> {
+  if (!doc.isLocked && doc.status !== DocumentStatus.APPROVED) return true;
+  if (user.email === COO_EMAIL || isPublicHubDocument(doc)) return true;
+  if (doc.createdById === user.id || doc.preparedById === user.id || doc.reviewerId === user.id || doc.approverId === user.id) return true;
+  return storage.hasDocumentAccess(doc.id, user.id);
 }
 
 function getCurrentUserId(req: any): number {
@@ -913,6 +924,9 @@ export async function registerRoutes(
       const updateData: any = {
         status: DocumentStatus.IN_REVIEW,
         reviewerId: input.reviewerId,
+        returnedAt: null,
+        returnedById: null,
+        returnNote: null,
       };
 
       if (input.approverId) {
@@ -1011,6 +1025,46 @@ export async function registerRoutes(
             approveCompleted: false,
           });
         }
+      }
+
+      // Revise task: a draft that was returned to this user as its preparer
+      for (const doc of allDocs) {
+        if (doc.status === DocumentStatus.DRAFT && doc.returnedAt && (doc.preparedById ?? doc.createdById) === userId) {
+          tasks.push({
+            id: doc.id * 1000 + 7,
+            documentId: doc.id,
+            documentCode: doc.documentCode,
+            title: doc.title,
+            taskType: 'revise',
+            status: 'pending',
+            createdAt: doc.returnedAt,
+            dueDate: null,
+            returnedByName: doc.returnedById ? userMap.get(doc.returnedById) : null,
+            returnNote: doc.returnNote,
+          });
+        }
+      }
+
+      // Comment task: open document comments where this user was @mentioned (one task per document)
+      const assignedComments = await storage.getOpenCommentsAssignedTo(userId);
+      const commentsByDoc = new Map<number, number>();
+      for (const c of assignedComments) {
+        commentsByDoc.set(c.documentId, (commentsByDoc.get(c.documentId) || 0) + 1);
+      }
+      for (const [documentId, count] of Array.from(commentsByDoc.entries())) {
+        const doc = allDocs.find(d => d.id === documentId);
+        if (!doc || doc.isLocked) continue; // stored documents are final; leftover comments are history
+        tasks.push({
+          id: doc.id * 1000 + 8,
+          documentId: doc.id,
+          documentCode: doc.documentCode,
+          title: doc.title,
+          taskType: 'comment',
+          status: 'pending',
+          createdAt: assignedComments.find(c => c.documentId === documentId)?.createdAt,
+          dueDate: null,
+          commentCount: count,
+        });
       }
 
       // Add employee review/approval tasks
@@ -1140,6 +1194,9 @@ export async function registerRoutes(
         // Move to pending approval and optionally set new approver
         const updateData: any = {
           status: DocumentStatus.PENDING_APPROVAL,
+          returnedAt: null,
+          returnedById: null,
+          returnNote: null,
         };
         
         // If a new approver is selected, update the approver
@@ -1189,6 +1246,9 @@ export async function registerRoutes(
           approvedBySignedAt: new Date(),
           hubStatus: DocumentHubStatus.PENDING_COO_APPROVAL,
           transferredToHubAt: new Date(),
+          returnedAt: null,
+          returnedById: null,
+          returnNote: null,
         });
 
         const cooUser = await storage.getUserByEmail(COO_EMAIL);
@@ -4164,6 +4224,271 @@ export async function registerRoutes(
         });
       }
       throw err;
+    }
+  });
+
+  // ============================================
+  // DOCUMENT COMMENTS (inline, with @mentioned assignees)
+  // ============================================
+  app.get('/api/documents/:id/comments', requireAuth, async (req, res) => {
+    try {
+      const documentId = Number(req.params.id);
+      const user = (req as any).user;
+      const doc = await storage.getDocument(documentId);
+      if (!doc) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+      if (!user || !(await canViewDocument(doc, user))) {
+        return res.status(403).json({ message: 'You do not have access to this document' });
+      }
+      res.json(await storage.getDocumentComments(documentId));
+    } catch (err) {
+      console.error('Error fetching document comments:', err);
+      res.status(500).json({ message: 'Failed to fetch comments' });
+    }
+  });
+
+  app.post('/api/documents/:id/comments', requireAuth, async (req, res) => {
+    try {
+      const documentId = Number(req.params.id);
+      const user = (req as any).user;
+      const parseResult = z.object({
+        content: z.string().trim().min(1, 'Comment cannot be empty'),
+        quotedText: z.string().min(1, 'Select the text you are commenting on'),
+        anchorFrom: z.number().int().nonnegative(),
+        anchorTo: z.number().int().positive(),
+        assigneeIds: z.array(z.number().int().positive()).optional().default([]),
+      }).safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ message: parseResult.error.errors[0].message });
+      }
+      const input = parseResult.data;
+
+      const doc = await storage.getDocument(documentId);
+      if (!doc) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+      if (!user || !(await canViewDocument(doc, user))) {
+        return res.status(403).json({ message: 'You do not have access to this document' });
+      }
+      if (doc.isLocked) {
+        return res.status(400).json({ message: 'This document is stored in the Document Hub and can no longer be commented on' });
+      }
+
+      const assigneeIds: number[] = [];
+      for (const id of Array.from(new Set(input.assigneeIds))) {
+        if (await storage.getUser(id)) assigneeIds.push(id);
+      }
+
+      const comment = await storage.createDocumentComment({
+        documentId,
+        authorId: user.id,
+        content: input.content,
+        quotedText: input.quotedText,
+        anchorFrom: input.anchorFrom,
+        anchorTo: input.anchorTo,
+        assigneeIds,
+        documentStatus: doc.status,
+      });
+
+      for (const assigneeId of assigneeIds) {
+        if (assigneeId === user.id) continue;
+        await storage.createNotification({
+          userId: assigneeId,
+          title: 'You were mentioned in a document comment',
+          message: `${user.name} commented on "${doc.documentCode} - ${doc.title}": ${input.content.slice(0, 200)}`,
+          urgencyLevel: UrgencyLevel.MEDIUM,
+          relatedDocumentId: documentId,
+        });
+      }
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.CREATE,
+        entityType: 'document_comment',
+        entityId: comment.id,
+        newValue: JSON.stringify({ documentId, quotedText: input.quotedText, content: input.content, assigneeIds }),
+      });
+
+      res.status(201).json(comment);
+    } catch (err) {
+      console.error('Error creating document comment:', err);
+      res.status(500).json({ message: 'Failed to add comment' });
+    }
+  });
+
+  app.post('/api/document-comments/:id/resolve', requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const user = (req as any).user;
+      const comment = await storage.getDocumentComment(id);
+      if (!comment) {
+        return res.status(404).json({ message: 'Comment not found' });
+      }
+      const canResolve = comment.authorId === user?.id ||
+        comment.assigneeIds.includes(user?.id) ||
+        user?.email === COO_EMAIL ||
+        user?.role === UserRole.ADMIN ||
+        user?.role === UserRole.QUALITY_MANAGER;
+      if (!canResolve) {
+        return res.status(403).json({ message: 'Only the author, a mentioned user, an admin or the Quality Manager can resolve this comment' });
+      }
+      if (comment.status === DocumentCommentStatus.RESOLVED) {
+        return res.json(comment);
+      }
+
+      const updated = await storage.updateDocumentComment(id, {
+        status: DocumentCommentStatus.RESOLVED,
+        resolvedById: user.id,
+        resolvedAt: new Date(),
+      });
+
+      if (comment.authorId !== user.id) {
+        const doc = await storage.getDocument(comment.documentId);
+        await storage.createNotification({
+          userId: comment.authorId,
+          title: 'Your comment was resolved',
+          message: `${user.name} resolved your comment on "${doc?.documentCode} - ${doc?.title}": "${comment.quotedText.slice(0, 80)}"`,
+          urgencyLevel: UrgencyLevel.LOW,
+          relatedDocumentId: comment.documentId,
+        });
+      }
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.UPDATE,
+        entityType: 'document_comment',
+        entityId: id,
+        previousValue: JSON.stringify({ status: comment.status }),
+        newValue: JSON.stringify({ status: DocumentCommentStatus.RESOLVED }),
+      });
+
+      res.json(updated);
+    } catch (err) {
+      console.error('Error resolving document comment:', err);
+      res.status(500).json({ message: 'Failed to resolve comment' });
+    }
+  });
+
+  app.delete('/api/document-comments/:id', requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const user = (req as any).user;
+      const comment = await storage.getDocumentComment(id);
+      if (!comment) {
+        return res.status(404).json({ message: 'Comment not found' });
+      }
+      if (comment.authorId !== user?.id) {
+        return res.status(403).json({ message: 'Only the author can delete a comment' });
+      }
+      if (comment.status !== DocumentCommentStatus.OPEN) {
+        return res.status(400).json({ message: 'Resolved comments are kept for the audit trail' });
+      }
+      await storage.deleteDocumentComment(id);
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.DELETE,
+        entityType: 'document_comment',
+        entityId: id,
+        previousValue: JSON.stringify(comment),
+      });
+      res.status(204).send();
+    } catch (err) {
+      console.error('Error deleting document comment:', err);
+      res.status(500).json({ message: 'Failed to delete comment' });
+    }
+  });
+
+  // ============================================
+  // RETURN FOR REVISION (one step back in the workflow)
+  // reviewer -> preparer (draft), approver -> reviewer, COO -> approver
+  // ============================================
+  app.post('/api/documents/:id/return', requireAuth, async (req, res) => {
+    try {
+      const documentId = Number(req.params.id);
+      const user = (req as any).user;
+      const note = typeof req.body?.note === 'string' ? req.body.note.trim() : '';
+
+      const doc = await storage.getDocument(documentId);
+      if (!doc) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+
+      let toStatus: string;
+      let returnToId: number | null;
+      let returnToRole: string;
+      const updateData: any = {};
+
+      if (doc.status === DocumentStatus.IN_REVIEW && doc.reviewerId === user?.id) {
+        toStatus = DocumentStatus.DRAFT;
+        returnToId = doc.preparedById ?? doc.createdById;
+        returnToRole = 'preparer';
+        updateData.preparerConfirmedAt = null;
+        updateData.preparedBySignedAt = null;
+      } else if (doc.status === DocumentStatus.PENDING_APPROVAL && doc.approverId === user?.id) {
+        toStatus = DocumentStatus.IN_REVIEW;
+        returnToId = doc.reviewerId;
+        returnToRole = 'reviewer';
+        updateData.reviewedBySignedAt = null;
+      } else if (doc.status === DocumentStatus.APPROVED && doc.hubStatus === DocumentHubStatus.PENDING_COO_APPROVAL && user?.email === COO_EMAIL) {
+        toStatus = DocumentStatus.PENDING_APPROVAL;
+        returnToId = doc.approverId;
+        returnToRole = 'approver';
+        updateData.approvedAt = null;
+        updateData.approvedBySignedAt = null;
+        updateData.hubStatus = null;
+        updateData.transferredToHubAt = null;
+      } else {
+        return res.status(403).json({ message: 'Only the person currently responsible for this document (reviewer, approver, or the COO in the Document Hub) can return it' });
+      }
+
+      // The reason must be written in the document itself, as comments
+      const comments = await storage.getDocumentComments(documentId);
+      const myOpenComments = comments.filter(c => c.authorId === user.id && c.status === DocumentCommentStatus.OPEN);
+      if (myOpenComments.length === 0) {
+        return res.status(400).json({ message: 'Add at least one comment in the document explaining what needs to change before returning it (select text, right-click, Comment)' });
+      }
+
+      const updated = await storage.updateDocument(documentId, {
+        ...updateData,
+        status: toStatus,
+        returnedAt: new Date(),
+        returnedById: user.id,
+        returnNote: note || null,
+      });
+
+      await storage.createWorkflowLog({
+        documentId,
+        fromStatus: doc.status,
+        toStatus,
+        assignedToId: returnToId,
+        actionById: user.id,
+        comments: `Returned for revision to ${returnToRole}${note ? `: ${note}` : ''}`,
+      });
+
+      if (returnToId) {
+        await storage.createNotification({
+          userId: returnToId,
+          title: 'Document Returned for Revision',
+          message: `${user.name} returned "${doc.documentCode} - ${doc.title}" to you with ${myOpenComments.length} comment${myOpenComments.length > 1 ? 's' : ''}.${note ? ` Note: ${note}` : ''}`,
+          urgencyLevel: UrgencyLevel.HIGH,
+          relatedDocumentId: documentId,
+        });
+      }
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.RETURN_FOR_REVISION,
+        entityType: 'document',
+        entityId: documentId,
+        previousValue: JSON.stringify({ status: doc.status, hubStatus: doc.hubStatus }),
+        newValue: JSON.stringify({ status: toStatus, returnedTo: returnToId, returnToRole, note, commentIds: myOpenComments.map(c => c.id) }),
+      });
+
+      res.json({ document: updated, returnedToId: returnToId, returnToRole });
+    } catch (err) {
+      console.error('Error returning document:', err);
+      res.status(500).json({ message: 'Failed to return document' });
     }
   });
 

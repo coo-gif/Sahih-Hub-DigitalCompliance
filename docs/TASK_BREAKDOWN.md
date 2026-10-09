@@ -104,11 +104,24 @@ Step 3: Completes the review, optionally choosing a new approver → `POST /api/
 Step 4: Status becomes `pending_approval` → the approver is notified --->
 Step 5: Audit log and live stat (`document_reviewed`).
 
-### 2.6 Feedback / correction loop
-Step 1: The reviewer or approver posts a comment, correction or suggestion → `POST /api/documents/:id/feedback` --->
-Step 2: The author sees the pending feedback on the document --->
-Step 3: The author fixes the content and marks the feedback addressed → `POST /api/feedback/:id/address` --->
-Step 4: Audit log.
+### 2.6 Inline comments with @mentions
+Step 1: Anyone who can view a document that isn't locked selects text in the editor, right-clicks and chooses **Comment**. This also works when the document is read-only --->
+Step 2: Typing `@` lists users. Picking one inserts `@Name` and assigns the comment to them. Several users can be mentioned --->
+Step 3: `POST /api/documents/:id/comments` stores the comment with the quoted text, its position, the assignees and the workflow stage. The document content itself is not changed --->
+Step 4: Mentioned users are notified and get a "Comment Assigned" task in My Tasks --->
+Step 5: The commented text is highlighted in the editor, and the Comments panel lists Open, Assigned-to-me and Resolved comments --->
+Step 6: The author, an assignee, an admin, the QM or the COO resolves the comment (`POST /api/document-comments/:id/resolve`). The author is notified. Open comments can be deleted only by their author.
+
+### 2.6a Return for revision (one step back)
+Step 1: The person currently responsible opens the document. That is the reviewer (In Review), the approver (Pending Approval) or the COO (awaiting final approval in the Hub) --->
+Step 2: They add at least one comment in the document explaining the reason (2.6). Returning is refused without one --->
+Step 3: They click **Return for Revision**, optionally add an overall note → `POST /api/documents/:id/return` --->
+Step 4: The document goes back one step and the signature for that step is cleared:
+  - reviewer → **Draft**, back to the preparer (or the creator if no preparer is set)
+  - approver → **In Review**, back to the reviewer
+  - COO → **Pending Approval**, back to the approver (the document leaves the Hub queue) --->
+Step 5: The person it goes back to is notified. A returned draft appears as a "Returned for Revision" task, and the document shows a banner with who returned it, when, the note and the open-comment count --->
+Step 6: A workflow log and an audit entry (`return_for_revision`) are written. When the document moves forward again, the return banner clears.
 
 ### 2.7 Approve (moves the document to the Document Hub)
 Step 1: The approver opens the "approve" task --->
@@ -357,7 +370,7 @@ TASK 0 Foundation ---> TASK 1 Identity ---> TASK 2 Document Control ---> TASK 3 
 | 1 | 2.7 → 2.8 | **Fixed.** Approval used to lock the document, so the follow-up "Lock & Transfer" always failed. Now approval moves the document to the Hub, and the COO gives final approval with a classification. | — |
 | 2 | 10.1 Step 3 | The lead status change reads `existingLead.status` and writes `status:`. The real column is `leadStatus`, so the new status is never saved and `previousStatus` is empty. `reason` is NOT NULL in the DB, but the code sends `null` when no reason is given. | `server/routes.ts` ~7312, ~7326 |
 | 3 | 10.1 / 10.2 / 10.3 uploads | The CRM pages call `POST /api/upload`, but no such route exists. Lead evidence, contract and proposal uploads fail. | `CrmLeads.tsx:279`, `CrmCustomers.tsx:134`, `CrmOpportunities.tsx:168` |
-| 4 | 2.4 / 2.5 | There is no "reject / send back to draft" for documents. Once a document is in review it can only move forward. Feedback (2.6) does not change status. | document workflow routes |
+| 4 | 2.4 / 2.5 | **Fixed.** Reviewer, approver and COO can now return a document one step back, with the reason written as comments in the document. | — |
 | 5 | 7.3 Buddy | The score is worked out from the `document_tasks` table, but nothing ever writes to it (`createDocumentTask` is never called). So every score is always 100% "flexing", and the poke/buzz endpoints work on empty data. | `storage.calculateUserCompliance` |
 | 6 | 2.x versions | `document_versions` is never written (`createDocumentVersion` is unused). Old approved versions are not archived, and status `obsolete` is never set. | storage / routes |
 | 7 | 6.2 | The audits and findings APIs exist, but `CertificationProcess.tsx` has no UI for them. | client |
