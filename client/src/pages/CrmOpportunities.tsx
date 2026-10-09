@@ -14,6 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { uploadToStorage } from "@/hooks/use-upload";
 import { Plus, Trash2, Pencil, DollarSign, Calendar, Target, FileText, Search, Upload, TrendingUp, CheckCircle, XCircle } from "lucide-react";
 import { format } from "date-fns";
 import type { Opportunity, Customer } from "@shared/schema";
@@ -162,21 +163,7 @@ export default function CrmOpportunities() {
 
   const uploadProposal = useMutation({
     mutationFn: async ({ opportunityId, file }: { opportunityId: number; file: File }) => {
-      const formData = new FormData();
-      formData.append("file", file);
-      
-      const uploadResponse = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
-      
-      if (!uploadResponse.ok) {
-        throw new Error("Failed to upload file");
-      }
-      
-      const { url } = await uploadResponse.json();
-      
+      const url = await uploadToStorage(file);
       return apiRequest("POST", `/api/opportunities/${opportunityId}/proposal`, {
         fileUrl: url,
         fileName: file.name,

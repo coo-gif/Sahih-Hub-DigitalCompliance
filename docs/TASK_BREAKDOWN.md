@@ -449,8 +449,8 @@ TASK 0 Foundation ---> TASK 1 Identity ---> TASK 2 Document Control ---> TASK 3 
 | # | Cycle | Problem | Where |
 |---|-------|---------|-------|
 | 1 | 2.7 → 2.8 | **Fixed.** Approval used to lock the document, so the follow-up "Lock & Transfer" always failed. Now approval moves the document to the Hub, and the COO gives final approval with a classification. | — |
-| 2 | 10.1 Step 3 | The lead status change reads `existingLead.status` and writes `status:`. The real column is `leadStatus`, so the new status is never saved and `previousStatus` is empty. `reason` is NOT NULL in the DB, but the code sends `null` when no reason is given. | `server/routes.ts` ~7312, ~7326 |
-| 3 | 10.1 / 10.2 / 10.3 uploads | The CRM pages call `POST /api/upload`, but no such route exists. Lead evidence, contract and proposal uploads fail. | `CrmLeads.tsx:279`, `CrmCustomers.tsx:134`, `CrmOpportunities.tsx:168` |
+| 2 | 10.1 Step 3 | **Fixed.** Lead status changes now save to `leadStatus` and record the previous status; a reason is required and the status must be a valid one. CRM audit entries now keep their text (it was written to a `description` field that does not exist). | — |
+| 3 | 10.1 / 10.2 / 10.3 uploads | **Fixed.** Lead evidence, contracts and proposals now upload to object storage (the same storage Bug Reports uses) instead of the missing `/api/upload`. Uploading and opening stored files needs a login. | — |
 | 4 | 2.4 / 2.5 | **Fixed.** Reviewer, approver and COO can now return a document one step back, with the reason written as comments in the document. | — |
 | 5 | 7.3 Buddy | The Buddy score still reads the unused `document_tasks` table. Performance reports now use the task ledger (7.2); the Buddy could be switched to it too. | `storage.calculateUserCompliance` |
 | 6 | 2.x versions | **Fixed.** Every COO approval records a version in `document_versions`; the previous one is stamped obsolete and kept (Records & Data Hive). | — |
