@@ -104,13 +104,12 @@ Step 3: Completes the review, optionally choosing a new approver → `POST /api/
 Step 4: Status becomes `pending_approval` → the approver is notified --->
 Step 5: Audit log and live stat (`document_reviewed`).
 
-### 2.6 Inline comments with @mentions
-Step 1: Anyone who can view a document that isn't locked selects text in the editor, right-clicks and chooses **Comment**. This also works when the document is read-only --->
-Step 2: Typing `@` lists users. Picking one inserts `@Name` and assigns the comment to them. Several users can be mentioned --->
-Step 3: `POST /api/documents/:id/comments` stores the comment with the quoted text, its position, the assignees and the workflow stage. The document content itself is not changed --->
-Step 4: Mentioned users are notified and get a "Comment Assigned" task in My Tasks --->
-Step 5: The commented text is highlighted in the editor, and the Comments panel lists Open, Assigned-to-me and Resolved comments --->
-Step 6: The author, an assignee, an admin, the QM or the COO resolves the comment (`POST /api/document-comments/:id/resolve`). The author is notified. Open comments can be deleted only by their author.
+### 2.6 Inline comments: tags and assignments
+Step 1: Anyone who can open a document selects text, right-clicks and chooses **Comment**. This works on drafts and on approved, locked documents --->
+Step 2: Typing `@` lists users. A tagged person is **notified only**. On documents that aren't locked, ticking **Assign** next to a tagged person also gives them a task with a target date --->
+Step 3: On a **locked** document the comment is for reference and discussion only. It is private to the author and the people tagged, it can't assign tasks, and the approved version is never changed --->
+Step 4: A tagged person's notifications about the document clear when they open it (`POST /api/documents/:id/seen`) --->
+Step 5: The commented text is highlighted. The Comments panel shows tags, assignments, private notes and change-request points. Comments can be resolved by the author, a tagged or assigned person, an admin, the QM or the COO.
 
 ### 2.6a Return for revision (one step back)
 Step 1: The person currently responsible opens the document. That is the reviewer (In Review), the approver (Pending Approval) or the COO (awaiting final approval in the Hub). A **Comment / Return** button is on their task in My Tasks, in the Dashboard task pop-up, in the Documents list menu, and in the Hub for the COO --->
@@ -146,6 +145,17 @@ Step 2: The COO changes it to **Under Revision**, **Obsolete** or **Quarantine**
 Step 3: Everyone with access, and the author, is notified, and an audit entry is written --->
 Step 4: Current and Under Revision documents stay readable. Obsolete and Quarantined documents are withdrawn: only the COO can open them, whatever their classification or access grants --->
 Step 5: The Documents list shows an Under Revision, Obsolete or Quarantine badge.
+
+### 2.8b Change request → revision → new version (approved documents)
+Step 1: Under an approved document (Documents list) a user has **View**, **Request Access** (if they have no access yet) and **Change Request** --->
+Step 2: In change-request mode the user highlights text, right-clicks → **Add to Change Request**, writes the change and picks the reason: self observation, standard deviation, audit finding, internal audit, external audit, feedback, legal change, or other (specify). Several points can be added; together they form a draft `CR-YYYY-NNN` --->
+Step 3: **Submit to COO** → the COO gets a "Change Request" task (default 2 days) and sees it in Document Hub → **Change Requests** --->
+Step 4a: **Reject** → the approved version stays valid, and the initiator is notified --->
+Step 4b: **Accept** → the COO picks who prepares the revision and by when. The approved version is recorded and stays in force for readers, while the document shows **Current · Under revision**. The preparer gets a Prepare task with the change-request points highlighted --->
+Step 5: The revision goes through prepare → review → approve → COO final approval as usual. At final approval the COO chooses a **new revision** (Ed.X Rev.Y+1) or a **new edition** (Ed.X+1 Rev.0) --->
+Step 6: The new version becomes current. The previous version is stamped **Obsolete** and kept. Every version stays available under **Version History** in the Hub. The change request becomes Implemented and an entry is added to the document's revision history.
+
+Locked documents are permanent: they can't be edited, deleted (nor can any document that was ever approved), or amended through the old revision-history route. Changes go through a change request; withdrawal is the COO's Obsolete status.
 
 ### 2.9 Reassign a workflow step
 Step 1: The current assignee, an admin or the QM opens the task --->
@@ -391,6 +401,18 @@ Step 3: Filter by year → the stats cards and table update.
 
 ---
 
+## TASK 11 – Records & Data Hive (COO, admins, QM)
+
+### 11.1 Change request & revision register
+Step 1: `/records` → **Change Requests & Revision History** lists every submitted change request: date, document, ref, edition, initiator, approver (COO), need of change, status and new version --->
+Step 2: **Form** opens the printable Change Request Form (`/records/change-requests/:id`): document, request, points with reasons, the COO's decision and the implementation. It can be printed or saved as PDF.
+
+### 11.2 List of obsolete documents
+Step 1: Every superseded version (with what replaced it and the change request), plus documents the COO withdrew as Obsolete. Retained and not for use.
+
+### 11.3 Document Master List
+Step 1: Every document with an approved version: ref, title, category, current version, approval date and approver, classification, status, next review date and how many versions are kept. It updates automatically each time a document is approved, and can be exported to CSV or printed.
+
 ## Recommended order to build / verify (dependency chain)
 
 TASK 0 Foundation ---> TASK 1 Identity ---> TASK 2 Document Control ---> TASK 3 Hub & Access ---> TASK 7 My Tasks / Records / Audit ---> TASK 4 HR ---> TASK 5 Trainings ---> TASK 6 Certification ---> TASK 8 Communication ---> TASK 9 DocuGenie ---> TASK 10 CRM
@@ -413,3 +435,4 @@ TASK 0 Foundation ---> TASK 1 Identity ---> TASK 2 Document Control ---> TASK 3 
 | 10 | **Security** | `init-users.ts` hard-codes the passwords for the HR, COO and CEO accounts and **resets them on every boot**. The session secret has a hard-coded fallback. | `server/init-users.ts`, `server/index.ts` |
 | 11 | Maintainability | COO and CEO powers are checked by fixed email strings in more than 40 places instead of by role. `routes.ts` is about 8,000 lines in one file. | `server/routes.ts` |
 | 12 | 7.2 reports page | **Fixed.** The Performance Reports list requested `/api/performance-reports/10/2026`, which isn't a real route, so it always showed "No reports". It now passes month and year as query parameters. | — |
+| 13 | Document deletion | **Fixed.** `DELETE /api/documents/:id` needed no login and could remove approved documents. It now needs a login and refuses any document that is locked, approved, under revision or has a recorded version. | — |

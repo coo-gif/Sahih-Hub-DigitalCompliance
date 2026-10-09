@@ -99,6 +99,7 @@ interface TiptapEditorProps {
   activeCommentId?: number | null;
   // Shows "Comment" in the right-click menu when set
   onRequestComment?: (selection: CommentSelection) => void;
+  commentLabel?: string; // right-click menu wording, e.g. "Add to Change Request"
   onCommentClick?: (commentId: number) => void;
   onEditorReady?: (editor: Editor) => void;
 }
@@ -122,6 +123,7 @@ export default function TiptapEditor({
   onRequestComment,
   onCommentClick,
   onEditorReady,
+  commentLabel = "Comment",
 }: TiptapEditorProps) {
   const { toast } = useToast();
   const onCommentClickRef = useRef(onCommentClick);
@@ -545,7 +547,7 @@ export default function TiptapEditor({
     }
     const text = textBetween(editor.state.doc, from, to);
     if (from === to || !text.trim()) {
-      toast({ title: "Select some text first", description: "Highlight the words you want to comment on, then right-click and choose Comment." });
+      toast({ title: "Select some text first", description: `Highlight the words first, then right-click and choose ${commentLabel}.` });
       return;
     }
     onRequestComment({ from, to, text });
@@ -977,7 +979,7 @@ export default function TiptapEditor({
             <>
               <ContextMenuItem onClick={requestComment} data-testid="context-menu-comment">
                 <MessageSquarePlus className="w-4 h-4 mr-2" />
-                Comment
+                {commentLabel}
               </ContextMenuItem>
               {editable && <ContextMenuSeparator />}
             </>

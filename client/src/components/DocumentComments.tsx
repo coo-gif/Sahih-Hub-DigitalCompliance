@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,10 @@ import {
 } from "@/components/ui/dialog";
 import { Check, Loader2, MessageSquare, Trash2, X } from "lucide-react";
 import { TargetDateField, TARGET_DAYS, defaultTargetInput, targetToIso } from "@/components/TargetDateField";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CHANGE_REASON_LABELS } from "@shared/schema";
 
 export interface DocComment {
   id: number;
@@ -26,6 +30,12 @@ export interface DocComment {
   anchorFrom: number;
   anchorTo: number;
   assigneeIds: number[];
+  mentionedIds: number[];
+  isPrivate: boolean;
+  kind: "comment" | "change_request";
+  changeRequestId: number | null;
+  reasonCategory: string | null;
+  reasonOther: string | null;
   documentStatus: string;
   status: "open" | "resolved";
   resolvedById: number | null;
@@ -53,10 +63,25 @@ interface CommentComposerProps {
   quotedText: string;
   users: CommentUser[];
   isPending: boolean;
-  onSubmit: (data: { content: string; assigneeIds: number[]; targetDate?: string }) => void;
+  // comment: @tags notify, "Assign" makes a task (not on locked documents)
+  // change_request: a point of a change request, with the reason for the change
+  mode?: "comment" | "change_request";
+  allowAssign?: boolean;
+  onSubmit: (data: {
+    content: string;
+    mentionedIds: number[];
+    assigneeIds: number[];
+    targetDate?: string;
+    reasonCategory?: string;
+    reasonOther?: string;
+  }) => void;
 }
 
-export function CommentComposer({ open, onOpenChange, quotedText, users, isPending, onSubmit }: CommentComposerProps) {
+export function CommentComposer({ open, onOpenChange, quotedText, users, isPending, onSubmit, mode = "comment", allowAssign = true }: CommentComposerProps) {
+  const [assignedIds, setAssignedIds] = useState<number[]>([]);
+  const [reasonCategory, setReasonCategory] = useState("");
+  const [reasonOther, setReasonOther] = useState("");
+  const isChangeRequest = mode === "change_request";
   const [content, setContent] = useState("");
   const [mentionedIds, setMentionedIds] = useState<number[]>([]);
   const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
@@ -72,16 +97,25 @@ export function CommentComposer({ open, onOpenChange, quotedText, users, isPendi
       .slice(0, 8);
   }, [mention, users]);
 
-  // A user stays assigned only while their @Name is still in the text
-  const assignees = users.filter(u => mentionedIds.includes(u.id) && content.includes(`@${u.name}`));
+  // A user stays tagged only while their @Name is still in the text; assigning is a separate choice
+  const tagged = users.filter(u => mentionedIds.includes(u.id) && content.includes(`@${u.name}`));
+  const assignees = allowAssign ? tagged.filter(u => assignedIds.includes(u.id)) : [];
 
   const reset = () => {
     setContent("");
     setMentionedIds([]);
+    setAssignedIds([]);
+    setReasonCategory("");
+    setReasonOther("");
     setMention(null);
     setHighlightIndex(0);
     setTarget(defaultTargetInput(TARGET_DAYS.comment));
   };
+
+  // Start every comment from a clean slate
+  useEffect(() => {
+    if (open) reset();
+  }, [open]);
 
   const updateMention = (text: string, caret: number) => {
     const next = getMentionQuery(text, caret);
@@ -108,6 +142,7 @@ export function CommentComposer({ open, onOpenChange, quotedText, users, isPendi
 
   const removeAssignee = (user: CommentUser) => {
     setMentionedIds(ids => ids.filter(id => id !== user.id));
+    setAssignedIds(ids => ids.filter(id => id !== user.id));
     setContent(c => c.split(`@${user.name}`).join(user.name));
   };
 
@@ -140,10 +175,14 @@ export function CommentComposer({ open, onOpenChange, quotedText, users, isPendi
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <MessageSquare className="w-5 h-5 text-primary" />
-            Add Comment
+            {isChangeRequest ? "Add to Change Request" : "Add Comment"}
           </DialogTitle>
           <DialogDescription>
-            Type @ to mention and assign people. Everyone you mention is notified and gets a task.
+            {isChangeRequest
+              ? "Explain what should change here and why. The approved version stays in force until the COO accepts the change."
+              : allowAssign
+                ? "Type @ to tag people: they are notified. Tick \"Assign\" to also give someone a task."
+                : "This document is approved and locked. Tag people with @ to notify them; only you and the people tagged can see this comment."}
           </DialogDescription>
         </DialogHeader>
 
@@ -159,7 +198,7 @@ export function CommentComposer({ open, onOpenChange, quotedText, users, isPendi
               ref={textareaRef}
               value={content}
               rows={4}
-              placeholder="e.g. @Nazif Ahammad please correct the clause reference here"
+              placeholder={isChangeRequest ? "What should change, and why" : "e.g. @Nazif Ahammad please see clause 5.2 here"}
               onChange={(e) => {
                 setContent(e.target.value);
                 updateMention(e.target.value, e.target.selectionStart);
@@ -192,26 +231,71 @@ export function CommentComposer({ open, onOpenChange, quotedText, users, isPendi
             )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-muted-foreground">Assigned to:</span>
-            {assignees.length === 0 ? (
-              <span className="text-muted-foreground italic">no one yet</span>
-            ) : (
-              assignees.map(user => (
-                <Badge key={user.id} variant="secondary" className="gap-1" data-testid={`assignee-chip-${user.id}`}>
-                  @{user.name}
-                  <button type="button" onClick={() => removeAssignee(user)} className="rounded-full hover:bg-muted">
-                    <X className="w-3 h-3" />
-                  </button>
-                </Badge>
-              ))
-            )}
-          </div>
+          {isChangeRequest ? (
+            <div className="grid gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="cr-reason">Reason for change <span className="text-red-500">*</span></Label>
+                <Select value={reasonCategory} onValueChange={setReasonCategory}>
+                  <SelectTrigger id="cr-reason" data-testid="select-cr-reason">
+                    <SelectValue placeholder="Choose the reason..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(CHANGE_REASON_LABELS).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {reasonCategory === "other" && (
+                <Input
+                  value={reasonOther}
+                  onChange={(e) => setReasonOther(e.target.value)}
+                  placeholder="Please specify"
+                  data-testid="input-cr-reason-other"
+                />
+              )}
+            </div>
+          ) : (
+            <div className="space-y-2 text-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-muted-foreground">Tagged:</span>
+                {tagged.length === 0 ? (
+                  <span className="text-muted-foreground italic">no one (type @ to tag)</span>
+                ) : (
+                  tagged.map(user => (
+                    <Badge key={user.id} variant="secondary" className="gap-2 py-1" data-testid={`tag-chip-${user.id}`}>
+                      @{user.name}
+                      {allowAssign && (
+                        <label className="flex items-center gap-1 text-xs font-normal cursor-pointer">
+                          <Checkbox
+                            checked={assignedIds.includes(user.id)}
+                            onCheckedChange={(checked) => setAssignedIds(ids => checked ? [...ids, user.id] : ids.filter(id => id !== user.id))}
+                            data-testid={`checkbox-assign-${user.id}`}
+                          />
+                          Assign
+                        </label>
+                      )}
+                      <button type="button" onClick={() => removeAssignee(user)} className="rounded-full hover:bg-muted">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </Badge>
+                  ))
+                )}
+              </div>
+              {tagged.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {assignees.length > 0
+                    ? `${assignees.map(u => u.name).join(", ")} will get a task. Others tagged are only notified.`
+                    : "Tagged people are notified. It is not a task unless you tick Assign."}
+                </p>
+              )}
+            </div>
+          )}
 
           {assignees.length > 0 && (
             <TargetDateField
               id="comment-target"
-              label="Mentioned people must act by"
+              label="Assigned people must act by"
               value={target}
               onChange={setTarget}
               defaultDays={TARGET_DAYS.comment}
@@ -226,14 +310,20 @@ export function CommentComposer({ open, onOpenChange, quotedText, users, isPendi
           <Button
             onClick={() => onSubmit({
               content: content.trim(),
+              mentionedIds: tagged.map(u => u.id),
               assigneeIds: assignees.map(u => u.id),
               targetDate: assignees.length > 0 ? targetToIso(target) : undefined,
+              reasonCategory: isChangeRequest ? reasonCategory : undefined,
+              reasonOther: isChangeRequest && reasonCategory === "other" ? reasonOther : undefined,
             })}
-            disabled={!content.trim() || isPending || (assignees.length > 0 && !target)}
+            disabled={
+              !content.trim() || isPending || (assignees.length > 0 && !target) ||
+              (isChangeRequest && (!reasonCategory || (reasonCategory === "other" && !reasonOther.trim())))
+            }
             data-testid="button-submit-comment"
           >
             {isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-            Comment
+            {isChangeRequest ? "Add to Change Request" : "Comment"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -322,7 +412,7 @@ export function CommentsPanel({ comments, users, currentUser, activeCommentId, o
           ) : (
             visible.map(comment => {
               const canResolve = comment.status === "open" && currentUser &&
-                (comment.authorId === currentUser.id || comment.assigneeIds.includes(currentUser.id) || isManager);
+                (comment.authorId === currentUser.id || comment.assigneeIds.includes(currentUser.id) || comment.mentionedIds.includes(currentUser.id) || isManager);
               const canDelete = comment.status === "open" && currentUser?.id === comment.authorId;
               return (
                 <Card
@@ -338,10 +428,24 @@ export function CommentsPanel({ comments, users, currentUser, activeCommentId, o
                     <p className="text-sm whitespace-pre-wrap break-words">
                       <CommentText content={comment.content} users={users} />
                     </p>
-                    {comment.assigneeIds.length > 0 && (
+                    {(comment.kind === "change_request" || comment.isPrivate) && (
                       <div className="flex flex-wrap gap-1">
-                        {comment.assigneeIds.map(id => (
-                          <Badge key={id} variant="outline" className="text-xs">@{nameOf(id)}</Badge>
+                        {comment.kind === "change_request" && (
+                          <Badge className="text-xs bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-200">
+                            Change request · {comment.reasonCategory === "other" ? comment.reasonOther : CHANGE_REASON_LABELS[comment.reasonCategory || ""] || "Reason not given"}
+                          </Badge>
+                        )}
+                        {comment.isPrivate && comment.kind !== "change_request" && (
+                          <Badge variant="outline" className="text-xs">Private: you and the people tagged</Badge>
+                        )}
+                      </div>
+                    )}
+                    {Array.from(new Set([...(comment.mentionedIds || []), ...comment.assigneeIds])).length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {Array.from(new Set([...(comment.mentionedIds || []), ...comment.assigneeIds])).map(id => (
+                          <Badge key={id} variant="outline" className={`text-xs ${comment.assigneeIds.includes(id) ? "border-primary text-primary" : ""}`}>
+                            @{nameOf(id)}{comment.assigneeIds.includes(id) ? " · assigned" : ""}
+                          </Badge>
                         ))}
                       </div>
                     )}

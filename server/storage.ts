@@ -101,6 +101,7 @@ export interface IStorage {
   getNotifications(userId?: number): Promise<Notification[]>;
   createNotification(notification: InsertNotification): Promise<Notification>;
   markNotificationRead(id: number): Promise<Notification>;
+  markDocumentNotificationsRead(userId: number, documentId: number): Promise<number>;
   markAllNotificationsRead(userId: number): Promise<number>;
 
   // Audit Logs
@@ -554,6 +555,17 @@ export class DatabaseStorage implements IStorage {
       .returning();
     return updated;
   }
+
+  // A tagged user opening the document has seen what they were tagged in
+  async markDocumentNotificationsRead(userId: number, documentId: number): Promise<number> {
+    const updated = await db.update(notifications)
+      .set({ isRead: true })
+      .where(and(eq(notifications.userId, userId), eq(notifications.relatedDocumentId, documentId), eq(notifications.isRead, false)))
+      .returning({ id: notifications.id });
+    return updated.length;
+  }
+
+
 
   async markAllNotificationsRead(userId: number): Promise<number> {
     const result = await db.update(notifications)

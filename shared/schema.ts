@@ -292,6 +292,7 @@ export const documents = pgTable("documents", {
   returnedAt: timestamp("returned_at"), // set when sent back a step; cleared when it moves forward again
   returnedById: integer("returned_by_id"),
   returnNote: text("return_note"),
+  activeChangeRequestId: integer("active_change_request_id"), // set while an accepted change request is being revised
   assignedStaffIds: integer("assigned_staff_ids").array(),
   assignedDepartments: text("assigned_departments").array(),
   createdAt: timestamp("created_at").defaultNow(),
@@ -367,7 +368,20 @@ export const documentVersions = pgTable("document_versions", {
   pdfUrl: text("pdf_url"),
   approvedById: integer("approved_by_id"),
   archivedAt: timestamp("archived_at").defaultNow(),
+  // Every approved version is kept as a controlled record; only one is current at a time
+  title: text("title"),
+  status: text("status").notNull().default("current"), // current | obsolete
+  classification: text("classification"),
+  approvedAt: timestamp("approved_at"),
+  obsoletedAt: timestamp("obsoleted_at"),
+  supersededByVersionId: integer("superseded_by_version_id"),
+  changeRequestId: integer("change_request_id"), // the change request that produced this version
 });
+
+export const DocumentVersionStatus = {
+  CURRENT: "current",
+  OBSOLETE: "obsolete",
+} as const;
 
 // ============================================
 // DOCUMENT FEEDBACK (Review Comments & Corrections)
@@ -418,6 +432,64 @@ export const taskRecords = pgTable("task_records", {
 
 export type TaskRecord = typeof taskRecords.$inferSelect;
 
+// ============================================
+// CHANGE REQUESTS (to an approved, locked document)
+// ============================================
+export const ChangeRequestStatus = {
+  DRAFT: "draft",           // being written by the initiator
+  SUBMITTED: "submitted",   // waiting for the COO
+  REJECTED: "rejected",     // the approved version stays valid
+  ACCEPTED: "accepted",     // document under revision
+  IMPLEMENTED: "implemented", // new version approved, old one obsolete
+} as const;
+
+export const ChangeReason = {
+  SELF_OBSERVATION: "self_observation",
+  STANDARD_DEVIATION: "standard_deviation",
+  AUDIT_FINDING: "audit_finding",
+  INTERNAL_AUDIT: "internal_audit",
+  EXTERNAL_AUDIT: "external_audit",
+  FEEDBACK: "feedback",
+  LEGAL_CHANGE: "legal_change",
+  OTHER: "other",
+} as const;
+
+export const CHANGE_REASON_LABELS: Record<string, string> = {
+  self_observation: "Self observation",
+  standard_deviation: "Standard deviation",
+  audit_finding: "Audit finding",
+  internal_audit: "Internal audit",
+  external_audit: "External audit",
+  feedback: "Feedback",
+  legal_change: "Legal change",
+  other: "Other",
+};
+
+export const changeRequests = pgTable("change_requests", {
+  id: serial("id").primaryKey(),
+  crNumber: text("cr_number").notNull().unique(), // CR-2026-001
+  documentId: integer("document_id").notNull(),
+  documentCode: text("document_code").notNull(),
+  documentTitle: text("document_title").notNull(),
+  editionNumber: integer("edition_number").notNull(), // version the change was raised against
+  revisionNumber: integer("revision_number").notNull(),
+  initiatorId: integer("initiator_id").notNull(),
+  status: text("status").notNull().default(ChangeRequestStatus.DRAFT),
+  summary: text("summary"),
+  submittedAt: timestamp("submitted_at"),
+  decidedById: integer("decided_by_id"),
+  decidedAt: timestamp("decided_at"),
+  decisionNote: text("decision_note"),
+  revisionPreparerId: integer("revision_preparer_id"),
+  implementedAt: timestamp("implemented_at"),
+  newEditionNumber: integer("new_edition_number"),
+  newRevisionNumber: integer("new_revision_number"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type ChangeRequest = typeof changeRequests.$inferSelect;
+
 // Who assigned a task and by when it must be completed. One row per task key (e.g. "review:12"),
 // overwritten each time the task is assigned or forwarded again.
 export const taskAssignments = pgTable("task_assignments", {
@@ -443,6 +515,7 @@ export const DEFAULT_TARGET_DAYS: Record<string, number> = {
   comment: 1,
   employee_review: 1,
   employee_approve: 1,
+  change_request: 2,
 };
 
 // ============================================
@@ -461,7 +534,13 @@ export const documentComments = pgTable("document_comments", {
   quotedText: text("quoted_text").notNull(), // the text the comment was made on
   anchorFrom: integer("anchor_from").notNull(), // editor positions at the time of commenting
   anchorTo: integer("anchor_to").notNull(),
-  assigneeIds: integer("assignee_ids").array().notNull().default(sql`'{}'::integer[]`),
+  assigneeIds: integer("assignee_ids").array().notNull().default(sql`'{}'::integer[]`), // "Assigned to": a task each
+  mentionedIds: integer("mentioned_ids").array().notNull().default(sql`'{}'::integer[]`), // @tagged: notified only
+  isPrivate: boolean("is_private").notNull().default(false), // on a locked document: only author and tagged people see it
+  kind: text("kind").notNull().default("comment"), // comment | change_request
+  changeRequestId: integer("change_request_id"),
+  reasonCategory: text("reason_category"),
+  reasonOther: text("reason_other"),
   documentStatus: text("document_status").notNull(), // workflow stage when the comment was made
   status: text("status").notNull().default(DocumentCommentStatus.OPEN),
   resolvedById: integer("resolved_by_id"),

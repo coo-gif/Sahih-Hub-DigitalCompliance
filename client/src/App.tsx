@@ -26,6 +26,8 @@ import CrmCustomers from "@/pages/CrmCustomers";
 import CrmOpportunities from "@/pages/CrmOpportunities";
 import CrmHistoricalData from "@/pages/CrmHistoricalData";
 import FormSubmit from "@/pages/FormSubmit";
+import RecordsHive from "@/pages/RecordsHive";
+import ChangeRequestForm from "@/pages/ChangeRequestForm";
 import Login from "@/pages/Login";
 import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/Layout";
@@ -77,6 +79,8 @@ function AuthenticatedRouter({ user, onLogout }: { user: User; onLogout: () => v
             <Route path="/crm/opportunities" component={CrmOpportunities} />
             <Route path="/crm/historical-data" component={CrmHistoricalData} />
             <Route path="/audit-log" component={AuditLog} />
+            <Route path="/records" component={RecordsHive} />
+            <Route path="/records/change-requests/:id" component={ChangeRequestForm} />
             <Route component={NotFound} />
           </Switch>
         </div>

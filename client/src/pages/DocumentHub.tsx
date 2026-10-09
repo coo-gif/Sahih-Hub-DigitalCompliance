@@ -18,6 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { HubChangeRequests, DocumentVersionsDialog } from "@/components/DocumentControl";
 import {
   Table,
   TableBody,
@@ -140,9 +141,17 @@ export default function DocumentHub() {
   
   const isCOO = currentUser?.email === COO_EMAIL;
   
-  const { data: approvedDocuments = [], isLoading: isLoadingDocs } = useQuery<Document[]>({
-    queryKey: ["/api/documents?status=approved"],
+  const { data: allDocuments = [], isLoading: isLoadingDocs } = useQuery<Document[]>({
+    queryKey: ["/api/documents"],
   });
+  // Approved or stored documents, plus documents being revised under an accepted change request
+  const approvedDocuments = allDocuments.filter(d => d.status === "approved" || d.isLocked || d.activeChangeRequestId);
+  const { data: submittedChangeRequests = [] } = useQuery<Array<{ id: number }>>({
+    queryKey: ["/api/change-requests?status=submitted"],
+    enabled: isCOO,
+  });
+  const [versionsFor, setVersionsFor] = useState<Document | null>(null);
+  const [versionChange, setVersionChange] = useState<"revision" | "edition">("revision");
   
   const { data: pendingRequests = [], isLoading: isLoadingRequests } = useQuery<DocumentAccessRequest[]>({
     queryKey: ["/api/document-access-requests?status=pending"],
@@ -164,8 +173,8 @@ export default function DocumentHub() {
   };
 
   const finalApprovalMutation = useMutation({
-    mutationFn: async ({ documentId, classification, userIds, comments }: { documentId: number; classification: string; userIds: number[]; comments?: string }) => {
-      const response = await apiRequest("POST", `/api/documents/${documentId}/hub-approve`, { classification, userIds, comments });
+    mutationFn: async ({ documentId, classification, userIds, comments, versionChange }: { documentId: number; classification: string; userIds: number[]; comments?: string; versionChange?: "revision" | "edition" }) => {
+      const response = await apiRequest("POST", `/api/documents/${documentId}/hub-approve`, { classification, userIds, comments, versionChange });
       return response.json() as Promise<{ accessGrantedTo: number }>;
     },
     onSuccess: (data) => {
@@ -325,7 +334,9 @@ export default function DocumentHub() {
     doc.documentCode.toLowerCase().includes(searchQuery.toLowerCase());
 
   const awaitingFinalApproval = approvedDocuments.filter(doc => doc.hubStatus === DocumentHubStatus.PENDING_COO_APPROVAL);
-  const filteredDocuments = approvedDocuments.filter(doc => doc.hubStatus !== DocumentHubStatus.PENDING_COO_APPROVAL && matchesSearch(doc));
+  // A document under revision stays in the master list (its approved version is still in force)
+  const filteredDocuments = approvedDocuments.filter(doc =>
+    (doc.hubStatus !== DocumentHubStatus.PENDING_COO_APPROVAL || doc.activeChangeRequestId) && matchesSearch(doc));
   
   if (!isCOO) {
     return (
@@ -372,6 +383,13 @@ export default function DocumentHub() {
             <TabsTrigger value="master-list" data-testid="tab-master-list">
               <FileText className="h-4 w-4 mr-2" />
               Document Master List
+            </TabsTrigger>
+            <TabsTrigger value="change-requests" data-testid="tab-change-requests">
+              <Tag className="h-4 w-4 mr-2" />
+              Change Requests
+              {submittedChangeRequests.length > 0 && (
+                <Badge variant="destructive" className="ml-2">{submittedChangeRequests.length}</Badge>
+              )}
             </TabsTrigger>
             <TabsTrigger value="access-requests" data-testid="tab-access-requests">
               <Clock className="h-4 w-4 mr-2" />
@@ -456,6 +474,8 @@ export default function DocumentHub() {
                                 size="sm"
                                 onClick={() => {
                                   setSelectedDocument(doc);
+                                  setSelectedClassification(doc.classification || "");
+                                  setVersionChange("revision");
                                   setShowFinalApprovalDialog(true);
                                 }}
                                 data-testid={`button-final-approve-${doc.id}`}
@@ -580,6 +600,10 @@ export default function DocumentHub() {
                                       Download PDF
                                     </DropdownMenuItem>
                                   )}
+                                  <DropdownMenuItem onClick={() => setVersionsFor(doc)} data-testid={`button-versions-${doc.id}`}>
+                                    <FileText className="h-4 w-4 mr-2" />
+                                    Version History
+                                  </DropdownMenuItem>
                                   {doc.isLocked && (
                                     <DropdownMenuItem
                                       onClick={() => {
@@ -616,7 +640,11 @@ export default function DocumentHub() {
                               </DropdownMenu>
                             </TableCell>
                             <TableCell>
-                              {doc.isLocked ? (
+                              {doc.activeChangeRequestId ? (
+                                <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" data-testid={`status-under-revision-${doc.id}`}>
+                                  Current · Under revision
+                                </Badge>
+                              ) : doc.isLocked ? (
                                 <Select
                                   value={doc.lifecycleStatus || "current"}
                                   onValueChange={(value) => changeLifecycle(doc, value)}
@@ -650,6 +678,10 @@ export default function DocumentHub() {
             </Card>
           </TabsContent>
           
+          <TabsContent value="change-requests" className="space-y-4">
+            <HubChangeRequests />
+          </TabsContent>
+
           <TabsContent value="access-requests" className="space-y-4">
             <Card>
               <CardHeader>
@@ -978,6 +1010,12 @@ export default function DocumentHub() {
           </DialogContent>
         </Dialog>
 
+        <DocumentVersionsDialog
+          documentId={versionsFor?.id ?? null}
+          title={versionsFor ? `${versionsFor.documentCode} - ${versionsFor.title}` : ""}
+          onClose={() => setVersionsFor(null)}
+        />
+
         <Dialog open={!!pendingLifecycle} onOpenChange={(open) => { if (!open) { setPendingLifecycle(null); setLifecycleReason(""); } }}>
           <DialogContent className="max-w-md">
             <DialogHeader>
@@ -1031,6 +1069,22 @@ export default function DocumentHub() {
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-2">
+              {selectedDocument?.activeChangeRequestId && (
+                <div className="rounded-md border border-blue-200 bg-blue-50 dark:bg-blue-900/20 p-3 space-y-2" data-testid="version-change">
+                  <Label className="text-sm font-medium block">This is a revision. Number the new version as:</Label>
+                  <RadioGroup value={versionChange} onValueChange={(v) => setVersionChange(v as "revision" | "edition")} className="space-y-1">
+                    <Label htmlFor="vc-revision" className="flex items-center gap-2 font-normal cursor-pointer">
+                      <RadioGroupItem value="revision" id="vc-revision" data-testid="radio-version-revision" />
+                      New revision: Ed.{selectedDocument.editionNumber} Rev.{(selectedDocument.revisionNumber ?? 0) + 1}
+                    </Label>
+                    <Label htmlFor="vc-edition" className="flex items-center gap-2 font-normal cursor-pointer">
+                      <RadioGroupItem value="edition" id="vc-edition" data-testid="radio-version-edition" />
+                      New edition: Ed.{(selectedDocument.editionNumber ?? 1) + 1} Rev.0
+                    </Label>
+                  </RadioGroup>
+                  <p className="text-xs text-muted-foreground">The version now in force will be stamped obsolete and kept in the records.</p>
+                </div>
+              )}
               <div>
                 <Label className="text-sm font-medium mb-2 block">Classification</Label>
               <RadioGroup
@@ -1130,6 +1184,7 @@ export default function DocumentHub() {
                       classification: selectedClassification,
                       userIds: selectedClassification === "public_information" ? [] : selectedUserIds,
                       comments: decisionNote || undefined,
+                      versionChange: selectedDocument.activeChangeRequestId ? versionChange : undefined,
                     });
                   }
                 }}

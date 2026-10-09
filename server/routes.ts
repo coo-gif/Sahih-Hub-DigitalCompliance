@@ -102,6 +102,7 @@ import {
 } from "./gmail-oauth";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { collectOpenTasks, TASK_TYPE_LABELS, type OpenTask } from "./task-sources";
+import { registerDocumentControlRoutes, presentForReader, recordApprovedVersion } from "./document-control";
 import {
   reconcileTasks, scheduleReconcile, getOpenTaskRecords, computeTaskMetrics, monthRange, refreshPerformanceReports,
   parseTargetDate, setTaskTarget, getTaskTarget, TargetDateError,
@@ -491,6 +492,9 @@ export async function registerRoutes(
   // Register object storage routes for file uploads
   registerObjectStorageRoutes(app);
 
+  // Change requests, version records and the Records & Data Hive
+  registerDocumentControlRoutes(app, { requireAuth, canViewDocument });
+
   // ============================================
   // AUTHENTICATION ROUTES
   // ============================================
@@ -810,14 +814,16 @@ export async function registerRoutes(
     
     // COO gets full access to all documents
     if (currentUser?.email === COO_EMAIL) {
-      return res.json(docs);
+      return res.json(docs.map(d => ({ ...d, viewerHasAccess: true })));
     }
     
-    // For other users, filter out locked/approved documents unless they have explicit access
-    const filteredDocs = await Promise.all(docs.map(async (doc) => {
+    // For other users, filter out locked/approved documents unless they have explicit access.
+    // A document under revision is shown to readers as its approved version still in force.
+    const filteredDocs = await Promise.all(docs.map(async (rawDoc) => {
+      const doc = currentUser ? await presentForReader(rawDoc, currentUser) : rawDoc;
       // Non-locked and non-approved docs are always visible
       if (!doc.isLocked && doc.status !== DocumentStatus.APPROVED) {
-        return doc;
+        return { ...doc, viewerHasAccess: true };
       }
       
       // For locked/approved docs, check if user has explicit access
@@ -825,7 +831,7 @@ export async function registerRoutes(
       
       // If user has access or is part of the workflow (creator, reviewer, approver), show full doc
       if (!isWithdrawnDocument(doc) && (hasAccess || doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId)) {
-        return doc;
+        return { ...doc, viewerHasAccess: true };
       }
       
       // Otherwise, return metadata only (no content) to allow access requests
@@ -834,6 +840,7 @@ export async function registerRoutes(
         content: null,
         fileUrl: null,
         finalPdfUrl: null,
+        viewerHasAccess: false,
       };
     }));
     
@@ -845,8 +852,8 @@ export async function registerRoutes(
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid document ID' });
     }
-    const doc = await storage.getDocument(id);
-    if (!doc) {
+    const rawDoc = await storage.getDocument(id);
+    if (!rawDoc) {
       return res.status(404).json({ message: 'Document not found' });
     }
     
@@ -854,6 +861,8 @@ export async function registerRoutes(
     const userId = getCurrentUserId(req);
     const currentUser = await storage.getUser(userId);
     const COO_EMAIL = 'coo@sahihcertify.com';
+    // While under revision, readers see the approved version still in force
+    const doc = currentUser ? await presentForReader(rawDoc, currentUser) : rawDoc;
     
     // COO gets full access
     if (currentUser?.email === COO_EMAIL) {
@@ -1018,11 +1027,16 @@ export async function registerRoutes(
     }
   });
 
-  app.delete(api.documents.delete.path, async (req, res) => {
+  app.delete(api.documents.delete.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     const existing = await storage.getDocument(id);
     if (!existing) {
       return res.status(404).json({ message: 'Document not found' });
+    }
+    // Anything that was ever approved is a controlled record and is kept for good
+    const versions = await storage.getDocumentVersions(id);
+    if (existing.isLocked || existing.status === DocumentStatus.APPROVED || existing.activeChangeRequestId || versions.length > 0) {
+      return res.status(403).json({ message: 'Approved documents are permanent records and cannot be deleted. Raise a change request, or ask the COO to mark it Obsolete.' });
     }
 
     await storage.deleteDocument(id);
@@ -4376,7 +4390,17 @@ export async function registerRoutes(
       if (!user || !(await canViewDocument(doc, user))) {
         return res.status(403).json({ message: 'You do not have access to this document' });
       }
-      res.json(await storage.getDocumentComments(documentId));
+      const isCoo = user.email === COO_EMAIL;
+      const inWorkflow = [doc.createdById, doc.preparedById, doc.reviewerId, doc.approverId].includes(user.id);
+      const visible = (await storage.getDocumentComments(documentId)).filter(c => {
+        const involved = c.authorId === user.id || c.mentionedIds.includes(user.id) || c.assigneeIds.includes(user.id);
+        // Change-request points: the initiator and the COO; the people revising see the accepted request's points
+        if (c.kind === 'change_request') return involved || isCoo || (inWorkflow && c.changeRequestId === doc.activeChangeRequestId);
+        // Comments on a locked document are private to the author and the people tagged
+        if (c.isPrivate) return involved;
+        return true;
+      });
+      res.json(visible);
     } catch (err) {
       console.error('Error fetching document comments:', err);
       res.status(500).json({ message: 'Failed to fetch comments' });
@@ -4392,7 +4416,8 @@ export async function registerRoutes(
         quotedText: z.string().min(1, 'Select the text you are commenting on'),
         anchorFrom: z.number().int().nonnegative(),
         anchorTo: z.number().int().positive(),
-        assigneeIds: z.array(z.number().int().positive()).optional().default([]),
+        mentionedIds: z.array(z.number().int().positive()).optional().default([]), // tagged: notified only
+        assigneeIds: z.array(z.number().int().positive()).optional().default([]), // assigned: becomes a task
         targetDate: z.string().optional(),
       }).safeParse(req.body);
       if (!parseResult.success) {
@@ -4407,14 +4432,19 @@ export async function registerRoutes(
       if (!user || !(await canViewDocument(doc, user))) {
         return res.status(403).json({ message: 'You do not have access to this document' });
       }
-      if (doc.isLocked) {
-        return res.status(400).json({ message: 'This document is stored in the Document Hub and can no longer be commented on' });
+      // A locked document is a permanent record: comments on it are for reference and discussion only,
+      // visible to the author and the people tagged, and never create tasks
+      if (doc.isLocked && input.assigneeIds.length > 0) {
+        return res.status(400).json({ message: 'Comments on an approved document cannot assign tasks. Tag people to notify them, or raise a change request.' });
       }
 
-      const assigneeIds: number[] = [];
-      for (const id of Array.from(new Set(input.assigneeIds))) {
-        if (await storage.getUser(id)) assigneeIds.push(id);
-      }
+      const validUsers = async (ids: number[]) => {
+        const out: number[] = [];
+        for (const id of Array.from(new Set(ids))) if (await storage.getUser(id)) out.push(id);
+        return out;
+      };
+      const assigneeIds = await validUsers(input.assigneeIds);
+      const mentionedIds = (await validUsers([...input.mentionedIds, ...assigneeIds]));
 
       const commentTarget = assigneeIds.length > 0 ? parseTargetDate(input.targetDate, 'comment') : null;
       const comment = await storage.createDocumentComment({
@@ -4425,19 +4455,22 @@ export async function registerRoutes(
         anchorFrom: input.anchorFrom,
         anchorTo: input.anchorTo,
         assigneeIds,
+        mentionedIds,
+        isPrivate: !!doc.isLocked,
         documentStatus: doc.status,
       });
 
       if (commentTarget) {
         await setTaskTarget(`comment:${comment.id}`, { initiatorId: user.id, targetDate: commentTarget });
       }
-      for (const assigneeId of assigneeIds) {
-        if (assigneeId === user.id) continue;
+      for (const taggedId of mentionedIds) {
+        if (taggedId === user.id) continue;
+        const assigned = assigneeIds.includes(taggedId);
         await storage.createNotification({
-          userId: assigneeId,
-          title: 'You were mentioned in a document comment',
-          message: `${user.name} commented on "${doc.documentCode} - ${doc.title}": ${input.content.slice(0, 200)}`,
-          urgencyLevel: UrgencyLevel.MEDIUM,
+          userId: taggedId,
+          title: assigned ? 'A comment was assigned to you' : 'You were tagged in a document comment',
+          message: `${user.name} ${assigned ? 'assigned you a comment' : 'tagged you'} on "${doc.documentCode} - ${doc.title}": ${input.content.slice(0, 200)}`,
+          urgencyLevel: assigned ? UrgencyLevel.MEDIUM : UrgencyLevel.LOW,
           relatedDocumentId: documentId,
         });
       }
@@ -4447,7 +4480,7 @@ export async function registerRoutes(
         action: AuditAction.CREATE,
         entityType: 'document_comment',
         entityId: comment.id,
-        newValue: JSON.stringify({ documentId, quotedText: input.quotedText, content: input.content, assigneeIds }),
+        newValue: JSON.stringify({ documentId, quotedText: input.quotedText, content: input.content, mentionedIds, assigneeIds, private: !!doc.isLocked }),
       });
 
       res.status(201).json(comment);
@@ -4456,6 +4489,13 @@ export async function registerRoutes(
       console.error('Error creating document comment:', err);
       res.status(500).json({ message: 'Failed to add comment' });
     }
+  });
+
+  // Opening a document marks the reader's notifications about it (tags, assignments) as read
+  app.post('/api/documents/:id/seen', requireAuth, async (req, res) => {
+    const user = (req as any).user;
+    const count = await storage.markDocumentNotificationsRead(user.id, Number(req.params.id));
+    res.json({ cleared: count });
   });
 
   app.post('/api/document-comments/:id/resolve', requireAuth, async (req, res) => {
@@ -4468,6 +4508,7 @@ export async function registerRoutes(
       }
       const canResolve = comment.authorId === user?.id ||
         comment.assigneeIds.includes(user?.id) ||
+        comment.mentionedIds.includes(user?.id) ||
         user?.email === COO_EMAIL ||
         user?.role === UserRole.ADMIN ||
         user?.role === UserRole.QUALITY_MANAGER;
@@ -4658,11 +4699,13 @@ export async function registerRoutes(
         classification: classificationSchema,
         userIds: z.array(z.number().int().positive()).optional().default([]),
         comments: z.string().optional(),
+        // for a revised document: new revision (Rev+1) or new edition (Ed+1, Rev.0)
+        versionChange: z.enum(['revision', 'edition']).optional(),
       }).safeParse(req.body);
       if (!parseResult.success) {
         return res.status(400).json({ message: 'Please choose a classification for the document', errors: parseResult.error.errors });
       }
-      const { classification, userIds, comments } = parseResult.data;
+      const { classification, userIds, comments, versionChange } = parseResult.data;
 
       const currentUserId = getCurrentUserId(req);
       const currentUser = await storage.getUser(currentUserId);
@@ -4678,6 +4721,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: 'Only approved documents awaiting final approval can be stored in the Document Hub' });
       }
 
+      // Record this as the current approved version; a previous version becomes obsolete (and is kept)
+      const version = await recordApprovedVersion(document, currentUserId, versionChange, classification);
       const updated = await storage.updateDocument(documentId, {
         isLocked: true,
         hubStatus: DocumentHubStatus.STORED,
@@ -4685,7 +4730,11 @@ export async function registerRoutes(
         classification,
         hubApprovedById: currentUserId,
         hubApprovedAt: new Date(),
-      });
+        editionNumber: version.editionNumber,
+        revisionNumber: version.revisionNumber,
+        versionNumber: version.versionNumber,
+        activeChangeRequestId: null,
+      } as any);
 
       const accessGrantedTo: number[] = [];
       for (const userId of userIds) {
@@ -4722,7 +4771,7 @@ export async function registerRoutes(
         entityType: 'document',
         entityId: documentId,
         previousValue: JSON.stringify({ hubStatus: document.hubStatus, isLocked: document.isLocked }),
-        newValue: JSON.stringify({ hubStatus: DocumentHubStatus.STORED, isLocked: true, classification, grantedAccessTo: accessGrantedTo, comments }),
+        newValue: JSON.stringify({ hubStatus: DocumentHubStatus.STORED, isLocked: true, classification, grantedAccessTo: accessGrantedTo, comments, version: version.versionNumber, supersedes: version.previousVersion }),
       });
 
       res.json({ document: updated, accessGrantedTo: accessGrantedTo.length });
@@ -7180,6 +7229,10 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
 
   app.post('/api/documents/:documentId/revision-history', requireAuth, async (req, res) => {
     try {
+      const lockedDoc = await storage.getDocument(Number(req.params.documentId));
+      if (lockedDoc?.isLocked) {
+        return res.status(403).json({ message: 'This document is approved and locked. Raise a change request instead.' });
+      }
       const documentId = parseInt(req.params.documentId);
       const { description, reason, preparedById, reviewedById, approvedById, amendmentDate } = req.body;
       
@@ -7215,6 +7268,11 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
 
   app.patch('/api/revision-history/:id', requireAuth, async (req, res) => {
     try {
+      const entryForLock = await storage.getRevisionHistoryById(Number(req.params.id));
+      const lockedDoc = entryForLock ? await storage.getDocument(entryForLock.documentId) : undefined;
+      if (lockedDoc?.isLocked) {
+        return res.status(403).json({ message: 'This document is approved and locked. Raise a change request instead.' });
+      }
       const id = parseInt(req.params.id);
       const { description, reason, preparedById, reviewedById, approvedById, amendmentDate, status } = req.body;
       
@@ -7270,6 +7328,11 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
 
   app.delete('/api/revision-history/:id', requireAuth, async (req, res) => {
     try {
+      const entryForLock = await storage.getRevisionHistoryById(Number(req.params.id));
+      const lockedDoc = entryForLock ? await storage.getDocument(entryForLock.documentId) : undefined;
+      if (lockedDoc?.isLocked) {
+        return res.status(403).json({ message: 'This document is approved and locked. Raise a change request instead.' });
+      }
       const id = parseInt(req.params.id);
       await storage.deleteRevisionHistory(id);
       res.json({ success: true });

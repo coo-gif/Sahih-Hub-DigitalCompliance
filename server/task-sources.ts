@@ -6,6 +6,7 @@ import {
   DocumentStatus, DocumentHubStatus, DocumentCommentStatus, EmployeeRecordStatus, TaskStatus,
   TrainingAssignmentStatus, MonthlyReportStatus, BugReportStatus, LeadStatus, CertificationApplicationStatus,
   AuditStatus, RevisionHistoryStatus, DocuGenieFormStatus, UserRole, taskAssignments, DEFAULT_TARGET_DAYS,
+  changeRequests, ChangeRequestStatus,
 } from "@shared/schema";
 
 const COO_EMAIL = 'coo@sahihcertify.com';
@@ -37,6 +38,7 @@ export const TASK_SLA_HOURS: Record<string, number> = {
   lead_update: 48,
   amendment_approval: 72,
   form_fill: 7 * 24,
+  change_request: DEFAULT_TARGET_DAYS.change_request * 24,
   certification_audit: 7 * 24,
 };
 
@@ -63,6 +65,7 @@ export const TASK_TYPE_LABELS: Record<string, string> = {
   certification_audit: 'Certification Audit',
   amendment_approval: 'Amendment Approval',
   form_fill: 'Form to Fill',
+  change_request: 'Change Request',
 };
 
 // Tasks offered to a group (any admin / QM). Whoever acts completes it; the others are "closed by a colleague".
@@ -465,6 +468,21 @@ export async function collectOpenTasks(): Promise<TaskSnapshot> {
       description: form.description || 'Fill in and submit this form.',
       link: form.shareToken ? `/form/${form.shareToken}` : '/docugenie', assignedAt: assigned,
       dueAt: form.expiresAt ?? due(assigned, 'form_fill'), entityType: 'docugenie_form', entityId: form.id,
+    });
+  }
+
+  // ---- Change requests waiting for the COO's decision ----
+  const allChangeRequests = await db.select().from(changeRequests);
+  for (const cr of allChangeRequests) {
+    exists('change_request', cr.id);
+    if (cr.status !== ChangeRequestStatus.SUBMITTED || !coo) continue;
+    const assigned = at(cr.submittedAt, cr.createdAt);
+    tasks.push({
+      key: `change_request:${cr.id}`, userId: coo.id, taskType: 'change_request', initiatorId: cr.initiatorId,
+      title: `${cr.documentCode} - ${cr.documentTitle}`, reference: cr.crNumber,
+      description: `${userName.get(cr.initiatorId) || 'A user'} asked to change this approved document.${cr.summary ? ` "${cr.summary.slice(0, 160)}"` : ''} Accept or reject it.`,
+      link: '/document-hub', assignedAt: assigned, dueAt: due(assigned, 'change_request'),
+      entityType: 'change_request', entityId: cr.id, documentId: cr.documentId,
     });
   }
 

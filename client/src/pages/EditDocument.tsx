@@ -28,7 +28,7 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { ArrowLeft, FileText, Save, Eye, Maximize2, Minimize2, Wand2, Loader2, Check, X, Lightbulb, ChevronRight, Plus, Minus, History, Trash2, MessageSquare, Undo2, Lock } from "lucide-react";
+import { ArrowLeft, FileText, Save, Eye, Maximize2, Minimize2, Wand2, Loader2, Check, X, Lightbulb, ChevronRight, Plus, Minus, History, Trash2, MessageSquare, Undo2, Lock, FilePen, Send } from "lucide-react";
 import DOMPurify from "dompurify";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -97,34 +97,62 @@ export default function EditDocument() {
     }
   }, [openComments.length, commentsAutoOpened]);
 
+  // ---- Change request (on an approved, locked document) ----
+  const [crMode, setCrMode] = useState(() => new URLSearchParams(window.location.search).get("mode") === "change-request");
+  const [crSummary, setCrSummary] = useState("");
+  const crDraftKey = `/api/documents/${documentId}/change-requests/mine`;
+  const { data: crDraft } = useQuery<{ id: number; crNumber: string; points: Array<{ id: number }> } | null>({
+    queryKey: [crDraftKey],
+    enabled: !!documentId,
+  });
+
+  // Opening the document clears the reader's notifications about it (tags, assignments)
+  useEffect(() => {
+    if (!documentId) return;
+    apiRequest("POST", `/api/documents/${documentId}/seen`, {})
+      .then(() => queryClient.invalidateQueries({ queryKey: ['/api/notifications'] }))
+      .catch(() => {});
+  }, [documentId]);
+
   const invalidateComments = () => {
     queryClient.invalidateQueries({ queryKey: [commentsKey] });
     queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
   };
 
   const addCommentMutation = useMutation({
-    mutationFn: async (data: { content: string; assigneeIds: number[]; targetDate?: string }) => {
+    mutationFn: async (data: { content: string; mentionedIds: number[]; assigneeIds: number[]; targetDate?: string; reasonCategory?: string; reasonOther?: string }) => {
       if (!commentSelection) throw new Error("No text selected");
+      const anchor = { quotedText: commentSelection.text, anchorFrom: commentSelection.from, anchorTo: commentSelection.to };
+      if (crMode) {
+        const res = await apiRequest("POST", `/api/documents/${documentId}/change-requests/items`, {
+          ...anchor, content: data.content, reasonCategory: data.reasonCategory, reasonOther: data.reasonOther,
+        });
+        const body = await res.json();
+        return body.point as DocComment;
+      }
       const res = await apiRequest("POST", commentsKey, {
+        ...anchor,
         content: data.content,
+        mentionedIds: data.mentionedIds,
         assigneeIds: data.assigneeIds,
         targetDate: data.targetDate,
-        quotedText: commentSelection.text,
-        anchorFrom: commentSelection.from,
-        anchorTo: commentSelection.to,
       });
       return res.json() as Promise<DocComment>;
     },
     onSuccess: (comment) => {
       invalidateComments();
+      queryClient.invalidateQueries({ queryKey: [crDraftKey] });
       setCommentSelection(null);
       setShowComments(true);
       setActiveCommentId(comment.id);
+      const tagged = comment.mentionedIds?.length ?? 0;
       toast({
-        title: "Comment added",
-        description: comment.assigneeIds.length > 0
-          ? `${comment.assigneeIds.length} mentioned user${comment.assigneeIds.length > 1 ? 's were' : ' was'} notified.`
-          : undefined,
+        title: comment.kind === "change_request" ? "Added to your change request" : "Comment added",
+        description: comment.kind === "change_request"
+          ? "Add more points, then submit it to the COO."
+          : tagged > 0
+            ? `${tagged} tagged ${tagged > 1 ? "people were" : "person was"} notified${comment.assigneeIds.length ? `; ${comment.assigneeIds.length} got a task` : ""}.`
+            : undefined,
       });
     },
     onError: (error: any) => {
@@ -159,7 +187,35 @@ export default function EditDocument() {
 
   // ---- Workflow: who may edit, comment or return ----
   const canEdit = !!document && !document.isLocked && document.status !== "approved";
-  const canComment = !!document && !document.isLocked;
+  // Anyone who can open the document can comment; on a locked document comments are private notes and tags
+  const canComment = !!document;
+  const isWithdrawn = document?.lifecycleStatus === "obsolete" || document?.lifecycleStatus === "quarantine";
+  const isUnderRevision = !!document && (document.lifecycleStatus === "under_revision" || !!document.activeChangeRequestId);
+  const canRaiseChangeRequest = !!document && !!document.isLocked && document.hubStatus === "stored" && !isUnderRevision && !isWithdrawn;
+  const submitCrMutation = useMutation({
+    mutationFn: async () => {
+      if (!crDraft) throw new Error("Add at least one point first");
+      const res = await apiRequest("POST", `/api/change-requests/${crDraft.id}/submit`, { summary: crSummary || undefined });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [crDraftKey] });
+      invalidateComments();
+      setCrMode(false);
+      setCrSummary("");
+      toast({ title: `${crDraft?.crNumber} submitted to the COO`, description: "The approved version stays valid until the COO decides." });
+    },
+    onError: (error: any) => toast({ title: "Could not submit", description: error.message, variant: "destructive" }),
+  });
+  const discardCrMutation = useMutation({
+    mutationFn: async () => { if (crDraft) await apiRequest("DELETE", `/api/change-requests/${crDraft.id}`); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [crDraftKey] });
+      invalidateComments();
+      setCrMode(false);
+      setCrSummary("");
+    },
+  });
   const userName = (id: number | null | undefined) => users?.find(u => u.id === id)?.name || "Unknown user";
   const returnTarget = (() => {
     if (!document || !currentUser) return null;
@@ -213,6 +269,7 @@ export default function EditDocument() {
       setShowComments(true);
     },
     onEditorReady: setEditorInstance,
+    commentLabel: crMode ? "Add to Change Request" : "Comment",
   };
 
   // Fetch revision history for this document
@@ -491,6 +548,17 @@ export default function EditDocument() {
             Comments
             {openComments.length > 0 && <Badge className="ml-2" variant="destructive">{openComments.length}</Badge>}
           </Button>
+          {canRaiseChangeRequest && !crMode && (
+            <Button
+              variant="outline"
+              className="border-orange-400 text-orange-700 hover:bg-orange-50 dark:text-orange-300"
+              onClick={() => { setCrMode(true); setShowComments(true); }}
+              data-testid="button-raise-change-request"
+            >
+              <FilePen className="w-4 h-4 mr-2" />
+              {crDraft ? `Continue ${crDraft.crNumber}` : "Change Request"}
+            </Button>
+          )}
           {returnTarget && (
             <Button
               variant="outline"
@@ -542,6 +610,51 @@ export default function EditDocument() {
         <div className={`flex-1 overflow-y-auto transition-all ${showAISuggestions ? 'pr-0' : ''}`}>
         <div className="p-6 max-w-5xl mx-auto">
           <div className="grid gap-6">
+            {crMode && canRaiseChangeRequest && (
+              <div className="rounded-lg border border-orange-300 bg-orange-50 dark:bg-orange-900/20 dark:border-orange-700 p-4 space-y-3" data-testid="banner-change-request">
+                <div className="flex items-start gap-3">
+                  <FilePen className="w-5 h-5 text-orange-600 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm space-y-1">
+                    <p className="font-semibold text-orange-900 dark:text-orange-200">
+                      Change request {crDraft ? crDraft.crNumber : "(new)"}: {crDraft?.points.length ?? 0} point{(crDraft?.points.length ?? 0) === 1 ? "" : "s"}
+                    </p>
+                    <p className="text-orange-800 dark:text-orange-300">
+                      Highlight the text that should change, right-click and choose <strong>Add to Change Request</strong>, then give the reason.
+                      The approved version stays valid until the COO accepts the change.
+                    </p>
+                  </div>
+                </div>
+                <Textarea
+                  value={crSummary}
+                  onChange={(e) => setCrSummary(e.target.value)}
+                  placeholder="Overall summary of the change (optional)"
+                  rows={2}
+                  data-testid="input-cr-summary"
+                />
+                <div className="flex flex-wrap gap-2 justify-end">
+                  <Button variant="ghost" onClick={() => setCrMode(false)}>Close</Button>
+                  {crDraft && (
+                    <Button variant="outline" onClick={() => discardCrMutation.mutate()} disabled={discardCrMutation.isPending} data-testid="button-discard-cr">
+                      Discard draft
+                    </Button>
+                  )}
+                  <Button
+                    onClick={() => submitCrMutation.mutate()}
+                    disabled={!crDraft || crDraft.points.length === 0 || submitCrMutation.isPending}
+                    className="bg-orange-600 hover:bg-orange-700 text-white"
+                    data-testid="button-submit-cr"
+                  >
+                    {submitCrMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
+                    Submit to COO
+                  </Button>
+                </div>
+              </div>
+            )}
+            {isUnderRevision && document.isLocked && (
+              <div className="rounded-lg border border-blue-300 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-700 p-4 text-sm text-blue-900 dark:text-blue-200" data-testid="banner-under-revision">
+                <strong>Current, under revision.</strong> A change request was accepted. This approved version (Ed.{document.editionNumber} Rev.{document.revisionNumber}) stays in force until the new version is approved.
+              </div>
+            )}
             {document.returnedAt && (
               <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 p-4 flex gap-3" data-testid="banner-returned">
                 <Undo2 className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
@@ -1085,6 +1198,8 @@ export default function EditDocument() {
         users={users || []}
         isPending={addCommentMutation.isPending}
         onSubmit={(data) => addCommentMutation.mutate(data)}
+        mode={crMode ? "change_request" : "comment"}
+        allowAssign={!document.isLocked}
       />
 
       <Dialog open={showReturnDialog} onOpenChange={setShowReturnDialog}>

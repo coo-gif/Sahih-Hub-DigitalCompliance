@@ -130,6 +130,9 @@ export default function Documents() {
   // Only COO has automatic access; others need explicit grant
   const hasAccessToDocument = (doc: Document): boolean => {
     if (isCOO) return true;
+    // The server says whether this reader can open the document (access grant, classification, workflow role)
+    const fromServer = (doc as Document & { viewerHasAccess?: boolean }).viewerHasAccess;
+    if (fromServer !== undefined) return fromServer;
     if (doc.lifecycleStatus === "obsolete" || doc.lifecycleStatus === "quarantine") return false;
     if (doc.hubStatus === DocumentHubStatus.STORED && doc.classification === DocumentClassification.PUBLIC_INFORMATION) return true;
     return myDocumentAccess.some((access: any) => access.documentId === doc.id && !access.isRevoked);
@@ -520,7 +523,7 @@ export default function Documents() {
                           className={`mt-1 block w-fit ${doc.lifecycleStatus === "quarantine" ? "text-red-700 border-red-300" : doc.lifecycleStatus === "obsolete" ? "text-slate-600 border-slate-300" : "text-blue-700 border-blue-300"}`}
                           data-testid={`badge-lifecycle-${doc.id}`}
                         >
-                          {doc.lifecycleStatus === "under_revision" ? "Under Revision" : doc.lifecycleStatus === "obsolete" ? "Obsolete" : "Quarantine"}
+                          {doc.lifecycleStatus === "under_revision" ? "Current · Under Revision" : doc.lifecycleStatus === "obsolete" ? "Obsolete" : "Quarantine"}
                         </Badge>
                       )}
                       {doc.hubStatus === DocumentHubStatus.PENDING_COO_APPROVAL && (
@@ -619,16 +622,32 @@ export default function Documents() {
                         
                         {(doc.isLocked || doc.status === "approved") && (
                           <>
-                            {hasAccessToDocument(doc) ? (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleViewPdf(doc)}
-                                data-testid={`button-view-pdf-${doc.id}`}
-                              >
-                                <FileDown className="w-4 h-4 mr-1" />
-                                View PDF
-                              </Button>
+                            {(hasAccessToDocument(doc) || doc.createdById === currentUser?.id || doc.reviewerId === currentUser?.id || doc.approverId === currentUser?.id) ? (
+                              <>
+                                {doc.finalPdfUrl && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleViewPdf(doc)}
+                                    data-testid={`button-view-pdf-${doc.id}`}
+                                  >
+                                    <FileDown className="w-4 h-4 mr-1" />
+                                    PDF
+                                  </Button>
+                                )}
+                                {doc.isLocked && doc.hubStatus === "stored" && !doc.activeChangeRequestId &&
+                                  !["under_revision", "obsolete", "quarantine"].includes(doc.lifecycleStatus || "") && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="border-orange-300 text-orange-700 dark:text-orange-300"
+                                    onClick={() => navigate(`/documents/${doc.id}/edit?mode=change-request`)}
+                                    data-testid={`button-change-request-${doc.id}`}
+                                  >
+                                    Change Request
+                                  </Button>
+                                )}
+                              </>
                             ) : hasPendingAccessRequest(doc.id) ? (
                               <Badge variant="secondary" className="bg-amber-100 text-amber-700" data-testid={`badge-pending-access-${doc.id}`}>
                                 <Clock className="w-3 h-3 mr-1" />

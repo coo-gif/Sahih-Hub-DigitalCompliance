@@ -32,7 +32,8 @@ import {
   GraduationCap,
   Sparkles,
   UserPlus,
-  TrendingUp
+  TrendingUp,
+  Archive,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -69,6 +70,12 @@ const navItems: NavItem[] = [
     label: "Document Hub", 
     icon: Lock,
     canAccess: (user) => user.email === 'coo@sahihcertify.com'
+  },
+  {
+    href: "/records",
+    label: "Records & Data Hive",
+    icon: Archive,
+    canAccess: (user) => user.role === 'admin' || user.role === 'quality_manager' || user.email === 'coo@sahihcertify.com'
   },
   { href: "/tasks", label: "My Tasks", icon: ClipboardList },
   { href: "/email", label: "Email", icon: Mail, showBadge: 'email' },
