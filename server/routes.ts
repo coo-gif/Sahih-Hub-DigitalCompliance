@@ -491,7 +491,7 @@ export async function registerRoutes(
   });
 
   // Register object storage routes for file uploads
-  registerObjectStorageRoutes(app);
+  registerObjectStorageRoutes(app, requireAuth);
 
   // Change requests, version records and the Records & Data Hive
   registerDocumentControlRoutes(app, { requireAuth, canViewDocument });
@@ -1092,7 +1092,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.documents.update.path, async (req, res) => {
+  app.put(api.documents.update.path, requireAuth, async (req, res) => {
     try {
       const input = api.documents.update.input.parse(req.body);
       const id = Number(req.params.id);
@@ -4051,28 +4051,36 @@ export async function registerRoutes(
   // ============================================
   // DOCUMENT ACCESS REQUESTS
   // ============================================
-  app.get(api.documentAccessRequests.list.path, async (req, res) => {
+  // Who may see every access request / access grant (others only see their own)
+  const seesAllDocumentAccess = async (req: Request) => {
+    const user = await storage.getUser(getCurrentUserId(req));
+    return !!user && (user.email === COO_EMAIL || user.role === UserRole.ADMIN || user.role === UserRole.QUALITY_MANAGER);
+  };
+
+  app.get(api.documentAccessRequests.list.path, requireAuth, async (req, res) => {
     const documentId = req.query.documentId ? Number(req.query.documentId) : undefined;
-    const requesterId = req.query.requesterId ? Number(req.query.requesterId) : undefined;
+    const requesterId = (await seesAllDocumentAccess(req))
+      ? (req.query.requesterId ? Number(req.query.requesterId) : undefined)
+      : getCurrentUserId(req);
     const status = req.query.status as string | undefined;
     
     const requests = await storage.getDocumentAccessRequests({ documentId, requesterId, status });
     res.json(requests);
   });
 
-  app.get(api.documentAccessRequests.get.path, async (req, res) => {
+  app.get(api.documentAccessRequests.get.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid request ID' });
     }
     const request = await storage.getDocumentAccessRequest(id);
-    if (!request) {
+    if (!request || (request.requesterId !== getCurrentUserId(req) && !(await seesAllDocumentAccess(req)))) {
       return res.status(404).json({ message: 'Access request not found' });
     }
     res.json(request);
   });
 
-  app.post(api.documentAccessRequests.create.path, async (req, res) => {
+  app.post(api.documentAccessRequests.create.path, requireAuth, async (req, res) => {
     try {
       const input = api.documentAccessRequests.create.input.parse(req.body);
       const userId = getCurrentUserId(req);
@@ -4143,7 +4151,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.documentAccessRequests.approve.path, async (req, res) => {
+  app.post(api.documentAccessRequests.approve.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -4215,7 +4223,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.documentAccessRequests.reject.path, async (req, res) => {
+  app.post(api.documentAccessRequests.reject.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -4283,15 +4291,17 @@ export async function registerRoutes(
   // ============================================
   // DOCUMENT ACCESS
   // ============================================
-  app.get(api.documentAccess.list.path, async (req, res) => {
+  app.get(api.documentAccess.list.path, requireAuth, async (req, res) => {
     const documentId = req.query.documentId ? Number(req.query.documentId) : undefined;
-    const userId = req.query.userId ? Number(req.query.userId) : undefined;
+    const userId = (await seesAllDocumentAccess(req))
+      ? (req.query.userId ? Number(req.query.userId) : undefined)
+      : getCurrentUserId(req);
     
     const accessList = await storage.getDocumentAccess({ documentId, userId });
     res.json(accessList);
   });
 
-  app.get(api.documentAccess.check.path, async (req, res) => {
+  app.get(api.documentAccess.check.path, requireAuth, async (req, res) => {
     const documentId = Number(req.params.id);
     if (isNaN(documentId)) {
       return res.status(400).json({ message: 'Invalid document ID' });
@@ -4326,7 +4336,7 @@ export async function registerRoutes(
     res.json({ hasAccess });
   });
 
-  app.post(api.documentAccess.grant.path, async (req, res) => {
+  app.post(api.documentAccess.grant.path, requireAuth, async (req, res) => {
     try {
       const documentId = Number(req.params.id);
       if (isNaN(documentId)) {
@@ -4381,7 +4391,7 @@ export async function registerRoutes(
   });
 
   // Grant access to multiple users at once
-  app.post(api.documentAccess.grantMultiple.path, async (req, res) => {
+  app.post(api.documentAccess.grantMultiple.path, requireAuth, async (req, res) => {
     try {
       const documentId = Number(req.params.id);
       if (isNaN(documentId)) {
@@ -4454,7 +4464,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.documentAccess.revoke.path, async (req, res) => {
+  app.post(api.documentAccess.revoke.path, requireAuth, async (req, res) => {
     try {
       const documentId = Number(req.params.id);
       if (isNaN(documentId)) {
@@ -7888,7 +7898,7 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         action: AuditAction.CREATE,
         entityType: 'lead',
         entityId: lead.id,
-        description: `Created new lead: ${lead.leadName}`,
+        newValue: `Created new lead: ${lead.leadName}`,
       });
 
       res.status(201).json(lead);
@@ -7926,7 +7936,7 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         action: AuditAction.UPDATE,
         entityType: 'lead',
         entityId: leadId,
-        description: `Updated lead: ${updatedLead?.leadName}`,
+        newValue: `Updated lead: ${updatedLead?.leadName}`,
       });
 
       res.json(updatedLead);
@@ -7955,7 +7965,7 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         action: AuditAction.DELETE,
         entityType: 'lead',
         entityId: leadId,
-        description: `Deleted lead: ${existingLead.leadName}`,
+        newValue: `Deleted lead: ${existingLead.leadName}`,
       });
 
       res.json({ success: true });
@@ -7997,8 +8007,11 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
       const leadId = parseInt(req.params.id);
       const { newStatus, reason, evidenceUrl, evidenceFileName } = req.body;
       
-      if (!newStatus) {
-        return res.status(400).json({ message: "New status is required" });
+      if (!newStatus || !(Object.values(LeadStatus) as string[]).includes(newStatus)) {
+        return res.status(400).json({ message: "Choose a valid new status" });
+      }
+      if (typeof reason !== 'string' || !reason.trim()) {
+        return res.status(400).json({ message: "Give a reason for the status change" });
       }
       
       const existingLead = await storage.getLead(leadId);
@@ -8006,24 +8019,22 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         return res.status(404).json({ message: "Lead not found" });
       }
       
-      const previousStatus = existingLead.status;
+      // The column is leadStatus (reading .status gave undefined, and writing status: was ignored)
+      const previousStatus = existingLead.leadStatus;
       
       // Create status history entry
       await storage.createLeadStatusHistory({
         leadId,
         previousStatus,
         newStatus,
-        reason: reason || null,
+        reason: reason.trim(),
         evidenceUrl: evidenceUrl || null,
         evidenceFileName: evidenceFileName || null,
         changedById: user.id,
       });
       
       // Update the lead status
-      const updatedLead = await storage.updateLead(leadId, {
-        status: newStatus,
-        updatedAt: new Date(),
-      });
+      const updatedLead = await storage.updateLead(leadId, { leadStatus: newStatus });
       
       // Log audit trail
       await storage.createAuditLog({
@@ -8031,7 +8042,7 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         action: AuditAction.UPDATE,
         entityType: 'lead',
         entityId: leadId,
-        description: `Changed lead status from "${previousStatus}" to "${newStatus}" for: ${existingLead.leadName}`,
+        newValue: `Changed lead status from "${previousStatus}" to "${newStatus}" for: ${existingLead.leadName}`,
       });
       
       res.json(updatedLead);
@@ -8116,7 +8127,7 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         action: AuditAction.CREATE,
         entityType: 'lead_update_request',
         entityId: updateRequest.id,
-        description: `Requested update on lead: ${existingLead.leadName}`,
+        newValue: `Requested update on lead: ${existingLead.leadName}`,
       });
       
       res.json(updateRequest);
@@ -8143,7 +8154,7 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         action: AuditAction.UPDATE,
         entityType: 'lead_update_request',
         entityId: requestId,
-        description: `Resolved lead update request`,
+        newValue: `Resolved lead update request`,
       });
       
       res.json(resolved);
@@ -8212,7 +8223,7 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         action: AuditAction.CREATE,
         entityType: 'customer',
         entityId: customer.id,
-        description: `Created new customer: ${customer.customerName}`,
+        newValue: `Created new customer: ${customer.customerName}`,
       });
 
       res.status(201).json(customer);
@@ -8253,7 +8264,7 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         action: AuditAction.UPDATE,
         entityType: 'customer',
         entityId: customerId,
-        description: `Updated customer: ${updatedCustomer?.customerName}`,
+        newValue: `Updated customer: ${updatedCustomer?.customerName}`,
       });
 
       res.json(updatedCustomer);
@@ -8286,7 +8297,7 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         action: AuditAction.DELETE,
         entityType: 'customer',
         entityId: customerId,
-        description: `Deleted customer: ${existingCustomer.customerName}`,
+        newValue: `Deleted customer: ${existingCustomer.customerName}`,
       });
 
       res.json({ success: true });
@@ -8324,7 +8335,7 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         action: AuditAction.UPDATE,
         entityType: 'customer',
         entityId: customerId,
-        description: `Uploaded contract file for customer: ${existingCustomer.customerName}`,
+        newValue: `Uploaded contract file for customer: ${existingCustomer.customerName}`,
       });
 
       res.json(updatedCustomer);
@@ -8395,7 +8406,7 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         action: AuditAction.CREATE,
         entityType: 'opportunity',
         entityId: opportunity.id,
-        description: `Created new opportunity: ${opportunity.opportunityName}`,
+        newValue: `Created new opportunity: ${opportunity.opportunityName}`,
       });
 
       res.status(201).json(opportunity);
@@ -8437,7 +8448,7 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         action: AuditAction.UPDATE,
         entityType: 'opportunity',
         entityId: opportunityId,
-        description: `Updated opportunity: ${updatedOpportunity?.opportunityName}`,
+        newValue: `Updated opportunity: ${updatedOpportunity?.opportunityName}`,
       });
 
       res.json(updatedOpportunity);
@@ -8470,7 +8481,7 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         action: AuditAction.DELETE,
         entityType: 'opportunity',
         entityId: opportunityId,
-        description: `Deleted opportunity: ${existingOpportunity.opportunityName}`,
+        newValue: `Deleted opportunity: ${existingOpportunity.opportunityName}`,
       });
 
       res.json({ success: true });
@@ -8508,7 +8519,7 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         action: AuditAction.UPDATE,
         entityType: 'opportunity',
         entityId: opportunityId,
-        description: `Uploaded proposal file for opportunity: ${existingOpportunity.opportunityName}`,
+        newValue: `Uploaded proposal file for opportunity: ${existingOpportunity.opportunityName}`,
       });
 
       res.json(updatedOpportunity);
@@ -8577,7 +8588,7 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         action: AuditAction.CREATE,
         entityType: 'historical_data',
         entityId: data.id,
-        description: `Created historical data entry for ${validatedData.month} ${validatedData.year}`,
+        newValue: `Created historical data entry for ${validatedData.month} ${validatedData.year}`,
       });
 
       res.status(201).json(data);
@@ -8611,7 +8622,7 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         action: AuditAction.UPDATE,
         entityType: 'historical_data',
         entityId: entryId,
-        description: `Updated historical data entry for ${existingEntry.month} ${existingEntry.year}`,
+        newValue: `Updated historical data entry for ${existingEntry.month} ${existingEntry.year}`,
       });
 
       res.json(updatedEntry);
@@ -8644,7 +8655,7 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         action: AuditAction.DELETE,
         entityType: 'historical_data',
         entityId: entryId,
-        description: `Deleted historical data entry for ${existingEntry.month} ${existingEntry.year}`,
+        newValue: `Deleted historical data entry for ${existingEntry.month} ${existingEntry.year}`,
       });
 
       res.json({ success: true });

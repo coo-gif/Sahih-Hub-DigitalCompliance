@@ -17,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
+import { uploadToStorage } from "@/hooks/use-upload";
 import { Plus, Trash2, Pencil, Phone, Building2, User, Calendar, MessageSquare, Search, Filter, Users, History, Eye, FileText, Upload, Bell, ArrowRight } from "lucide-react";
 import { format } from "date-fns";
 import type { Lead, User as UserType, LeadStatusHistory, LeadUpdateRequest } from "@shared/schema";
@@ -272,22 +273,13 @@ export default function CrmLeads() {
     let evidenceFileName = undefined;
     
     if (evidenceFile) {
-      const formData = new FormData();
-      formData.append('file', evidenceFile);
-      
+      // Stop if the evidence can't be stored, rather than changing the status without it
       try {
-        const response = await fetch('/api/upload', {
-          method: 'POST',
-          body: formData,
-          credentials: 'include',
-        });
-        const result = await response.json();
-        if (result.url) {
-          evidenceUrl = result.url;
-          evidenceFileName = evidenceFile.name;
-        }
-      } catch (error) {
-        console.error("Error uploading evidence:", error);
+        evidenceUrl = await uploadToStorage(evidenceFile);
+        evidenceFileName = evidenceFile.name;
+      } catch (error: any) {
+        toast({ title: "Evidence upload failed", description: error.message, variant: "destructive" });
+        return;
       }
     }
     
