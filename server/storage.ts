@@ -51,6 +51,7 @@ import {
   BugReportStatus,
 } from "@shared/schema";
 import { eq, desc, and, lt, gt, or, sql } from "drizzle-orm";
+import { computeTaskMetrics, reportFieldsFromMetrics } from "./task-ledger";
 import bcrypt from "bcrypt";
 
 const SALT_ROUNDS = 10;
@@ -1702,25 +1703,8 @@ export class DatabaseStorage implements IStorage {
       log.entityType === 'document' && log.action === 'approve'
     ).length;
 
-    // Get task metrics
-    const allTasks = await db.select().from(documentTasks)
-      .where(eq(documentTasks.assignedToId, userId));
-
-    const tasksCompleted = allTasks.filter(task => 
-      task.status === 'completed' && 
-      task.completedAt && 
-      task.completedAt >= startDate && 
-      task.completedAt <= endDate
-    ).length;
-    
-    const tasksOverdue = allTasks.filter(task => 
-      task.status === 'overdue' || 
-      (task.targetDate && new Date(task.targetDate) < new Date() && task.status !== 'completed')
-    ).length;
-    
-    const tasksPending = allTasks.filter(task => 
-      task.status === 'pending' || task.status === 'assigned' || task.status === 'in_progress'
-    ).length;
+    // Task performance from the task ledger
+    const taskMetrics = await computeTaskMetrics(userId, startDate, endDate);
 
     // Create the report
     const [report] = await db.insert(monthlyPerformanceReports).values({
@@ -1733,9 +1717,7 @@ export class DatabaseStorage implements IStorage {
       documentsCreated,
       documentsReviewed,
       documentsApproved,
-      tasksCompleted,
-      tasksOverdue,
-      tasksPending,
+      ...reportFieldsFromMetrics(taskMetrics),
       status: MonthlyReportStatus.DRAFT,
     }).returning();
 
@@ -1839,35 +1821,13 @@ export class DatabaseStorage implements IStorage {
       new Date(doc.approvedAt) <= endDate
     ).length;
 
-    // Get task metrics from document_tasks table
-    const allTasks = await db.select().from(documentTasks)
-      .where(eq(documentTasks.assignedToId, userId));
-
-    const tasksCompleted = allTasks.filter(task => 
-      task.status === 'completed' && 
-      task.completedAt && 
-      task.completedAt >= startDate && 
-      task.completedAt <= endDate
-    ).length;
-    
-    const tasksOverdue = allTasks.filter(task => 
-      task.status === 'overdue' || 
-      (task.targetDate && new Date(task.targetDate) < new Date() && task.status !== 'completed')
-    ).length;
-    
-    const tasksPending = allTasks.filter(task => 
-      task.status === 'pending' || task.status === 'assigned' || task.status === 'in_progress'
-    ).length;
-    
+    // Task figures are filled from the task ledger (see task-ledger.ts)
     // Update the report with live stats
     await db.update(monthlyPerformanceReports)
       .set({ 
         documentsCreated,
         documentsReviewed,
         documentsApproved,
-        tasksCompleted,
-        tasksOverdue,
-        tasksPending,
         updatedAt: new Date()
       })
       .where(eq(monthlyPerformanceReports.id, existingReport.id));

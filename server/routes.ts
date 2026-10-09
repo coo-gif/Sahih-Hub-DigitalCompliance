@@ -7,6 +7,7 @@ import {
   DocumentHubStatus,
   DocumentClassification,
   DocumentCommentStatus,
+  DocumentLifecycleStatus,
   AuditAction,
   UrgencyLevel,
   UserRole,
@@ -100,6 +101,8 @@ import {
   sendEmailWithAttachments
 } from "./gmail-oauth";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
+import { collectOpenTasks, TASK_TYPE_LABELS, type OpenTask } from "./task-sources";
+import { reconcileTasks, scheduleReconcile, getOpenTaskRecords, computeTaskMetrics, monthRange, refreshPerformanceReports } from "./task-ledger";
 
 async function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) {
@@ -122,15 +125,22 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
 const COO_EMAIL = 'coo@sahihcertify.com';
 
 // Documents the COO stored in the Hub as public information are readable by every signed-in user
-function isPublicHubDocument(doc: { hubStatus?: string | null; classification?: string | null }): boolean {
-  return doc.hubStatus === DocumentHubStatus.STORED && doc.classification === DocumentClassification.PUBLIC_INFORMATION;
+function isPublicHubDocument(doc: { hubStatus?: string | null; classification?: string | null; lifecycleStatus?: string | null }): boolean {
+  return doc.hubStatus === DocumentHubStatus.STORED && doc.classification === DocumentClassification.PUBLIC_INFORMATION && !isWithdrawnDocument(doc);
+}
+
+// Obsolete and quarantined documents are withdrawn from use: only the COO can open them
+function isWithdrawnDocument(doc: { lifecycleStatus?: string | null }): boolean {
+  return doc.lifecycleStatus === DocumentLifecycleStatus.OBSOLETE || doc.lifecycleStatus === DocumentLifecycleStatus.QUARANTINE;
 }
 
 // Same visibility rule as the documents list: unlocked, unapproved documents are open to everyone;
 // approved or locked ones need the COO, a workflow role, public classification or an access grant.
 async function canViewDocument(doc: Document, user: { id: number; email: string }): Promise<boolean> {
   if (!doc.isLocked && doc.status !== DocumentStatus.APPROVED) return true;
-  if (user.email === COO_EMAIL || isPublicHubDocument(doc)) return true;
+  if (user.email === COO_EMAIL) return true;
+  if (isWithdrawnDocument(doc)) return false;
+  if (isPublicHubDocument(doc)) return true;
   if (doc.createdById === user.id || doc.preparedById === user.id || doc.reviewerId === user.id || doc.approverId === user.id) return true;
   return storage.hasDocumentAccess(doc.id, user.id);
 }
@@ -357,6 +367,16 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+
+  // Any successful change may create, move or finish someone's task: record it in the task ledger
+  app.use('/api', (req, res, next) => {
+    if (req.method !== 'GET') {
+      res.on('finish', () => {
+        if (res.statusCode < 400) scheduleReconcile();
+      });
+    }
+    next();
+  });
 
   // Register object storage routes for file uploads
   registerObjectStorageRoutes(app);
@@ -694,7 +714,7 @@ export async function registerRoutes(
       const hasAccess = isPublicHubDocument(doc) || await storage.hasDocumentAccess(doc.id, userId);
       
       // If user has access or is part of the workflow (creator, reviewer, approver), show full doc
-      if (hasAccess || doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId) {
+      if (!isWithdrawnDocument(doc) && (hasAccess || doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId)) {
         return doc;
       }
       
@@ -739,7 +759,7 @@ export async function registerRoutes(
     const hasAccess = isPublicHubDocument(doc) || await storage.hasDocumentAccess(doc.id, userId);
     
     // If user has access or is part of the workflow
-    if (hasAccess || doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId) {
+    if (!isWithdrawnDocument(doc) && (hasAccess || doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId)) {
       return res.json(doc);
     }
     
@@ -975,199 +995,73 @@ export async function registerRoutes(
   app.get('/api/my-tasks', requireAuth, async (req, res) => {
     try {
       const userId = getCurrentUserId(req);
-      const currentUser = await storage.getUser(userId);
-      const allDocs = await storage.getDocuments();
-      const allUsers = await storage.getUsers();
-      const userMap = new Map(allUsers.map(u => [u.id, u.name]));
-      const tasks: any[] = [];
+      const { tasks } = await collectOpenTasks();
+      const mine = tasks.filter(t => t.userId === userId);
+      // Due dates come from the task record once it exists, so they do not move
+      const records = new Map((await getOpenTaskRecords(userId)).map(r => [r.taskKey, r]));
 
-      for (const doc of allDocs) {
-        // Get reviewer and approver names
-        const reviewerName = doc.reviewerId ? userMap.get(doc.reviewerId) : null;
-        const approverName = doc.approverId ? userMap.get(doc.approverId) : null;
-        
-        // Review task: User is reviewer and document is in_review
-        if (doc.reviewerId === userId && doc.status === DocumentStatus.IN_REVIEW) {
-          tasks.push({
-            id: doc.id * 1000 + 1,
-            documentId: doc.id,
-            documentCode: doc.documentCode,
-            title: doc.title,
-            taskType: 'review',
-            status: 'pending',
-            createdAt: doc.updatedAt || doc.createdAt,
-            dueDate: doc.nextReviewDate,
-            reviewerId: doc.reviewerId,
-            reviewerName,
-            approverId: doc.approverId,
-            approverName,
-            reviewCompleted: false,
-            approveCompleted: false,
-          });
+      // Several comments on the same document are shown as one task
+      const shown: OpenTask[] = [];
+      const commentCounts = new Map<number, number>();
+      for (const t of mine) {
+        if (t.taskType === 'comment' && t.documentId) {
+          commentCounts.set(t.documentId, (commentCounts.get(t.documentId) || 0) + 1);
+          if (commentCounts.get(t.documentId)! > 1) continue;
         }
-
-        // Approve task: User is approver and document is pending_approval
-        if (doc.approverId === userId && doc.status === DocumentStatus.PENDING_APPROVAL) {
-          tasks.push({
-            id: doc.id * 1000 + 2,
-            documentId: doc.id,
-            documentCode: doc.documentCode,
-            title: doc.title,
-            taskType: 'approve',
-            status: 'pending',
-            createdAt: doc.updatedAt || doc.createdAt,
-            dueDate: doc.nextReviewDate,
-            reviewerId: doc.reviewerId,
-            reviewerName,
-            approverId: doc.approverId,
-            approverName,
-            reviewCompleted: true,
-            approveCompleted: false,
-          });
-        }
+        shown.push(t);
       }
 
-      // Revise task: a draft that was returned to this user as its preparer
-      for (const doc of allDocs) {
-        if (doc.status === DocumentStatus.DRAFT && doc.returnedAt && (doc.preparedById ?? doc.createdById) === userId) {
-          tasks.push({
-            id: doc.id * 1000 + 7,
-            documentId: doc.id,
-            documentCode: doc.documentCode,
-            title: doc.title,
-            taskType: 'revise',
-            status: 'pending',
-            createdAt: doc.returnedAt,
-            dueDate: null,
-            returnedByName: doc.returnedById ? userMap.get(doc.returnedById) : null,
-            returnNote: doc.returnNote,
-          });
-        }
-      }
-
-      // Comment task: open document comments where this user was @mentioned (one task per document)
-      const assignedComments = await storage.getOpenCommentsAssignedTo(userId);
-      const commentsByDoc = new Map<number, number>();
-      for (const c of assignedComments) {
-        commentsByDoc.set(c.documentId, (commentsByDoc.get(c.documentId) || 0) + 1);
-      }
-      for (const [documentId, count] of Array.from(commentsByDoc.entries())) {
-        const doc = allDocs.find(d => d.id === documentId);
-        if (!doc || doc.isLocked) continue; // stored documents are final; leftover comments are history
-        tasks.push({
-          id: doc.id * 1000 + 8,
-          documentId: doc.id,
-          documentCode: doc.documentCode,
-          title: doc.title,
-          taskType: 'comment',
+      const now = Date.now();
+      const result = shown.map((t, index) => {
+        const record = records.get(t.key);
+        const assignedAt = record?.assignedAt ?? t.assignedAt;
+        const dueAt = record ? record.dueAt : t.dueAt;
+        const commentCount = t.taskType === 'comment' && t.documentId ? commentCounts.get(t.documentId) : undefined;
+        return {
+          ...t.extra,
+          id: index + 1,
+          taskKey: t.key,
+          taskType: t.taskType,
+          typeLabel: TASK_TYPE_LABELS[t.taskType] || t.taskType,
+          title: t.title,
+          reference: t.reference,
+          description: commentCount && commentCount > 1
+            ? `You were mentioned in ${commentCount} open comments on this document.`
+            : t.description,
+          link: t.link,
+          documentId: t.documentId,
           status: 'pending',
-          createdAt: assignedComments.find(c => c.documentId === documentId)?.createdAt,
-          dueDate: null,
-          commentCount: count,
-        });
-      }
-
-      // Add employee review/approval tasks
-      const allEmployees = await storage.getEmployees();
-      for (const emp of allEmployees) {
-        // Get supervisor name if available
-        let supervisorName: string | null = null;
-        if (emp.supervisorId) {
-          const supervisor = allEmployees.find(e => e.id === emp.supervisorId);
-          supervisorName = supervisor?.name || null;
-        }
-        
-        // Employee review task: User is reviewer and employee is in_review
-        if (emp.reviewerId === userId && emp.workflowStatus === EmployeeRecordStatus.IN_REVIEW) {
-          tasks.push({
-            id: emp.id * 1000 + 5,
-            employeeId: emp.id,
-            employeeName: emp.name,
-            employeeEmail: emp.email,
-            employeePhone: emp.phone || null,
-            employeeJobTitle: emp.jobTitle,
-            employeeDepartment: emp.department,
-            employeeSupervisorName: supervisorName,
-            title: `Review Employee Record: ${emp.name}`,
-            taskType: 'employee_review',
-            status: 'pending',
-            createdAt: emp.submittedForReviewAt || emp.createdAt,
-            dueDate: null,
-          });
-        }
-        
-        // Employee approval task: User is approver and employee is pending_approval
-        if (emp.approverId === userId && emp.workflowStatus === EmployeeRecordStatus.PENDING_APPROVAL) {
-          tasks.push({
-            id: emp.id * 1000 + 6,
-            employeeId: emp.id,
-            employeeName: emp.name,
-            employeeEmail: emp.email,
-            employeePhone: emp.phone || null,
-            employeeJobTitle: emp.jobTitle,
-            employeeDepartment: emp.department,
-            employeeSupervisorName: supervisorName,
-            title: `Approve Employee Record: ${emp.name}`,
-            taskType: 'employee_approve',
-            status: 'pending',
-            createdAt: emp.submittedForApprovalAt || emp.createdAt,
-            dueDate: null,
-          });
-        }
-      }
-
-      // Add pending download requests for Admin and Quality Manager
-      if (currentUser && (currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.QUALITY_MANAGER)) {
-        const pendingDownloadRequests = await storage.getDownloadRequests({ status: DownloadRequestStatus.PENDING });
-        
-        for (const request of pendingDownloadRequests) {
-          const doc = await storage.getDocument(request.documentId);
-          if (doc) {
-            tasks.push({
-              id: request.id * 1000 + 3, // Use different multiplier to avoid ID conflicts
-              documentId: doc.id,
-              documentCode: doc.documentCode,
-              title: doc.title,
-              taskType: 'download_approval',
-              status: 'pending',
-              createdAt: request.createdAt,
-              dueDate: null,
-              downloadRequestId: request.id,
-              requesterId: request.requesterId,
-              reason: request.reason,
-            });
-          }
-        }
-        
-        // Add pending document access requests
-        const pendingAccessRequests = await storage.getDocumentAccessRequests({ status: 'pending' });
-        
-        for (const request of pendingAccessRequests) {
-          const doc = await storage.getDocument(request.documentId);
-          const requester = await storage.getUser(request.requesterId);
-          if (doc) {
-            tasks.push({
-              id: request.id * 1000 + 4, // Use different multiplier to avoid ID conflicts
-              documentId: doc.id,
-              documentCode: doc.documentCode,
-              title: doc.title,
-              taskType: 'access_approval',
-              status: 'pending',
-              createdAt: request.createdAt,
-              dueDate: null,
-              accessRequestId: request.id,
-              requesterId: request.requesterId,
-              requesterName: requester?.name || 'Unknown User',
-              reason: request.requestReason,
-            });
-          }
-        }
-      }
-
-      res.json(tasks);
+          createdAt: assignedAt,
+          dueDate: dueAt,
+          isOverdue: !!dueAt && dueAt.getTime() < now,
+          commentCount,
+        };
+      });
+      result.sort((a, b) => (a.dueDate?.getTime() ?? Infinity) - (b.dueDate?.getTime() ?? Infinity));
+      res.json(result);
     } catch (err) {
       console.error('Error fetching my tasks:', err);
       res.status(500).json({ message: 'Failed to fetch tasks' });
+    }
+  });
+
+  // Task performance for one person and month (own figures, or anyone's for admins)
+  app.get('/api/task-performance', requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const userId = req.query.userId ? Number(req.query.userId) : user.id;
+      if (userId !== user.id && user.role !== UserRole.ADMIN) {
+        return res.status(403).json({ message: 'You can only view your own task performance' });
+      }
+      const now = new Date();
+      const month = req.query.month ? Number(req.query.month) : now.getMonth() + 1;
+      const year = req.query.year ? Number(req.query.year) : now.getFullYear();
+      await reconcileTasks();
+      const { start, end } = monthRange(month, year);
+      res.json({ userId, month, year, ...(await computeTaskMetrics(userId, start, end)) });
+    } catch (err) {
+      console.error('Error computing task performance:', err);
+      res.status(500).json({ message: 'Failed to compute task performance' });
     }
   });
 
@@ -2184,7 +2078,7 @@ export async function registerRoutes(
       const hasAccess = isPublicHubDocument(doc) || await storage.hasDocumentAccess(doc.id, userId);
       const isWorkflowMember = doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId;
       
-      if (!hasAccess && !isWorkflowMember) {
+      if (isWithdrawnDocument(doc) || (!hasAccess && !isWorkflowMember)) {
         return res.status(403).json({ message: 'Access denied. This document is locked.' });
       }
     }
@@ -2888,7 +2782,7 @@ export async function registerRoutes(
       const hasAccess = isPublicHubDocument(doc) || await storage.hasDocumentAccess(doc.id, userId);
       const isWorkflowMember = doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId;
       
-      if (!hasAccess && !isWorkflowMember) {
+      if (isWithdrawnDocument(doc) || (!hasAccess && !isWorkflowMember)) {
         return res.status(403).json({ message: 'Access denied. This document is locked.' });
       }
     }
@@ -3056,7 +2950,7 @@ export async function registerRoutes(
       const hasAccess = isPublicHubDocument(doc) || await storage.hasDocumentAccess(doc.id, userId);
       const isWorkflowMember = doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId;
       
-      if (!hasAccess && !isWorkflowMember) {
+      if (isWithdrawnDocument(doc) || (!hasAccess && !isWorkflowMember)) {
         return res.status(403).json({ message: 'Access denied. This document is locked.' });
       }
     }
@@ -4042,7 +3936,7 @@ export async function registerRoutes(
     }
     
     // For approved (locked) documents, check explicit access grant from COO
-    const hasAccess = isPublicHubDocument(document) || await storage.hasDocumentAccess(documentId, userId);
+    const hasAccess = !isWithdrawnDocument(document) && (isPublicHubDocument(document) || await storage.hasDocumentAccess(documentId, userId));
     res.json({ hasAccess });
   });
 
@@ -4534,6 +4428,7 @@ export async function registerRoutes(
       const updated = await storage.updateDocument(documentId, {
         isLocked: true,
         hubStatus: DocumentHubStatus.STORED,
+        lifecycleStatus: DocumentLifecycleStatus.CURRENT,
         classification,
         hubApprovedById: currentUserId,
         hubApprovedAt: new Date(),
@@ -4628,6 +4523,68 @@ export async function registerRoutes(
     } catch (err) {
       console.error('Error changing document classification:', err);
       res.status(500).json({ message: 'Failed to change classification' });
+    }
+  });
+
+  // COO sets the lifecycle status of a stored document: current, under revision, obsolete or quarantine
+  app.post('/api/documents/:id/lifecycle-status', requireAuth, async (req, res) => {
+    try {
+      const documentId = Number(req.params.id);
+      const parseResult = z.object({
+        lifecycleStatus: z.enum([
+          DocumentLifecycleStatus.CURRENT,
+          DocumentLifecycleStatus.UNDER_REVISION,
+          DocumentLifecycleStatus.OBSOLETE,
+          DocumentLifecycleStatus.QUARANTINE,
+        ]),
+        reason: z.string().optional(),
+      }).safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ message: 'Invalid status' });
+      }
+      const { lifecycleStatus, reason } = parseResult.data;
+
+      const user = (req as any).user;
+      if (user?.email !== COO_EMAIL) {
+        return res.status(403).json({ message: 'Only the COO can change the status of a stored document' });
+      }
+      const document = await storage.getDocument(documentId);
+      if (!document) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+      if (!document.isLocked) {
+        return res.status(400).json({ message: 'Only documents stored in the Document Hub have a status' });
+      }
+
+      const updated = await storage.updateDocument(documentId, { lifecycleStatus });
+
+      // Tell everyone who can open it, so nobody keeps using an obsolete or quarantined copy
+      const accessList = (await storage.getDocumentAccess({ documentId })).filter(a => !a.isRevoked);
+      const label = lifecycleStatus.replace(/_/g, ' ');
+      for (const userId of Array.from(new Set([...accessList.map(a => a.userId), document.createdById]))) {
+        if (userId === user.id) continue;
+        await storage.createNotification({
+          userId,
+          title: 'Document Status Changed',
+          message: `"${document.documentCode} - ${document.title}" is now ${label}.${reason ? ` Reason: ${reason}` : ''}`,
+          urgencyLevel: lifecycleStatus === DocumentLifecycleStatus.QUARANTINE ? UrgencyLevel.HIGH : UrgencyLevel.MEDIUM,
+          relatedDocumentId: documentId,
+        });
+      }
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.UPDATE,
+        entityType: 'document',
+        entityId: documentId,
+        previousValue: JSON.stringify({ lifecycleStatus: document.lifecycleStatus }),
+        newValue: JSON.stringify({ lifecycleStatus, reason }),
+      });
+
+      res.json(updated);
+    } catch (err) {
+      console.error('Error changing document status:', err);
+      res.status(500).json({ message: 'Failed to change document status' });
     }
   });
 
@@ -4910,6 +4867,9 @@ export async function registerRoutes(
         status: req.query.status as string | undefined,
       };
       
+      // Bring the task ledger and draft reports up to date before showing them
+      await reconcileTasks();
+      await refreshPerformanceReports();
       const reports = await storage.getMonthlyPerformanceReports(filters);
       
       // Enrich with user names

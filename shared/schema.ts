@@ -154,6 +154,14 @@ export const DocumentClassification = {
   LEGAL: "legal",
 } as const;
 
+// Lifecycle status of a document stored in the Hub (set by the COO)
+export const DocumentLifecycleStatus = {
+  CURRENT: "current",
+  UNDER_REVISION: "under_revision",
+  OBSOLETE: "obsolete",
+  QUARANTINE: "quarantine",
+} as const;
+
 export const DocumentImportance = {
   LOW: "low",
   MEDIUM: "medium",
@@ -277,6 +285,7 @@ export const documents = pgTable("documents", {
   isLocked: boolean("is_locked").default(false),
   hubStatus: text("hub_status"), // null until approved, then pending_coo_approval -> stored
   classification: text("classification"), // set by the COO on final approval
+  lifecycleStatus: text("lifecycle_status"), // current / under_revision / obsolete / quarantine, once stored
   transferredToHubAt: timestamp("transferred_to_hub_at"),
   hubApprovedById: integer("hub_approved_by_id"),
   hubApprovedAt: timestamp("hub_approved_at"),
@@ -374,6 +383,39 @@ export const documentFeedback = pgTable("document_feedback", {
   createdAt: timestamp("created_at").defaultNow(),
   addressedAt: timestamp("addressed_at"),
 });
+
+// ============================================
+// TASK RECORDS (ledger of every task anyone was assigned, for performance reporting)
+// ============================================
+export const TaskRecordStatus = {
+  OPEN: "open",
+  COMPLETED: "completed",
+  TRANSFERRED: "transferred", // reassigned to someone else
+  CLOSED_BY_OTHER: "closed_by_other", // a shared task another person handled
+  CANCELLED: "cancelled", // the source was deleted, cancelled or withdrawn
+} as const;
+
+export const taskRecords = pgTable("task_records", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  taskKey: text("task_key").notNull(),
+  taskType: text("task_type").notNull(),
+  title: text("title").notNull(),
+  reference: text("reference"),
+  link: text("link"),
+  entityType: text("entity_type").notNull(),
+  entityId: integer("entity_id").notNull(),
+  assignedAt: timestamp("assigned_at").notNull(),
+  dueAt: timestamp("due_at"),
+  status: text("status").notNull().default(TaskRecordStatus.OPEN),
+  closedAt: timestamp("closed_at"),
+  minutesTaken: integer("minutes_taken"),
+  minutesAllowed: integer("minutes_allowed"),
+  completedOnTime: boolean("completed_on_time"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type TaskRecord = typeof taskRecords.$inferSelect;
 
 // ============================================
 // DOCUMENT COMMENTS (inline comments anchored to selected text, with @mentioned assignees)
@@ -679,6 +721,21 @@ export const monthlyPerformanceReports = pgTable("monthly_performance_reports", 
   tasksCompleted: integer("tasks_completed").default(0),
   tasksOverdue: integer("tasks_overdue").default(0),
   tasksPending: integer("tasks_pending").default(0),
+
+  // Task performance, filled automatically from the task ledger
+  tasksAssigned: integer("tasks_assigned").default(0),
+  tasksCompletedOnTime: integer("tasks_completed_on_time").default(0),
+  tasksCompletedLate: integer("tasks_completed_late").default(0),
+  tasksTransferred: integer("tasks_transferred").default(0), // reassigned away or handled by a colleague
+  reworkCount: integer("rework_count").default(0), // documents returned to this person for revision
+  totalTaskMinutes: integer("total_task_minutes").default(0), // time from assignment to completion, summed
+  avgTurnaroundMinutes: integer("avg_turnaround_minutes"),
+  avgDelayMinutes: integer("avg_delay_minutes"), // average lateness of late tasks
+  onTimeRate: integer("on_time_rate"), // %
+  completionRate: integer("completion_rate"), // % of tasks due this month that were completed
+  efficiencyPercent: integer("efficiency_percent"), // time allowed / time taken
+  performanceScore: integer("performance_score"), // 0-100
+  taskBreakdown: text("task_breakdown"), // JSON per task type
   
   // Workflow status
   status: text("status").notNull().default(MonthlyReportStatus.DRAFT),

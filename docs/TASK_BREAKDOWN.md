@@ -140,6 +140,13 @@ Step 4: `POST /api/documents/:id/hub-approve` (COO only). The document is locked
 Step 5: Access is granted to the chosen users. They, the creator and the approver are notified, and an audit log entry is written --->
 Step 6: The document appears in the Hub master list with its classification. Public Information documents can be read by every signed-in user. The other three classifications can be read only by people granted access. The COO can change the classification later (`POST /api/documents/:id/classification`).
 
+### 2.8a Document status in the Hub (COO)
+Step 1: A stored document starts as **Current**. The Status column is the last column of the Hub's Document Master List --->
+Step 2: The COO changes it to **Under Revision**, **Obsolete** or **Quarantine** (`POST /api/documents/:id/lifecycle-status`). Obsolete and Quarantine ask for confirmation and an optional reason --->
+Step 3: Everyone with access, and the author, is notified, and an audit entry is written --->
+Step 4: Current and Under Revision documents stay readable. Obsolete and Quarantined documents are withdrawn: only the COO can open them, whatever their classification or access grants --->
+Step 5: The Documents list shows an Under Revision, Obsolete or Quarantine badge.
+
 ### 2.9 Reassign a workflow step
 Step 1: The current assignee, an admin or the QM opens the task --->
 Step 2: Chooses a new preparer, reviewer or approver and gives a reason → `POST /api/documents/:id/reassign` --->
@@ -251,19 +258,31 @@ Step 4: Lay out and print the certificate in `CertificateDesigner` (left and rig
 
 ## TASK 7 – Tasks, Performance & Records
 
-### 7.1 My Tasks (unified inbox)
-Step 1: `GET /api/my-tasks` collects document review and approve tasks, employee review and approve tasks, and, for admins and the QM, download and access approvals --->
-Step 2: They are shown on the Dashboard and `/tasks` --->
-Step 3: The user acts on a task, which runs the matching cycle (2.5, 2.7, 3.1, 3.3, 4.1) --->
-Step 4: The list refreshes.
+### 7.1 My Tasks (everything assigned to anyone)
+Step 1: `server/task-sources.ts` collects every open assignment in the system, each with an assigned date and a due date. Sources without their own due date get a default time allowance (`TASK_SLA_HOURS`):
+  - Documents: prepare, review, approve, COO final approval in the Hub, revise (returned), @mention comments, amendment approvals
+  - Access: download requests (any admin or QM), access requests (COO)
+  - HR: employee review and approval, tasks assigned to an employee, trainings. Employees are matched to their login by `userId`, or else by the same email
+  - Reports: performance report review (COO) and approval (CEO)
+  - Bug reports: fix (assignee, or the COO if unassigned), then verify and close (COO)
+  - CRM: lead follow-ups (on the follow-up date), lead update requests
+  - Certification: assigned auditor and lead auditor, certification audits
+  - DocuGenie forms assigned to someone --->
+Step 2: `GET /api/my-tasks` returns the signed-in user's tasks, soonest due first, with Overdue flags --->
+Step 3: My Tasks and the Dashboard show every type. Review, approval and request tasks keep their own buttons; every other task has **Open**, which goes to the page where the work is done --->
+Step 4: The task disappears from the list once the work is done.
 
-### 7.2 Monthly performance report
-Step 1: An admin generates a report for user, month and year → `POST /api/performance-reports/generate`. It counts active hours, documents created, reviewed and approved, and tasks --->
-Step 2: While it is in `draft`, the counts update live (`updateLiveReportStats`) --->
-Step 3: The admin submits it to the COO → `/submit` (`in_review`) --->
-Step 4: The COO reviews it with comments → `/review` (`pending_approval`) --->
-Step 5: The CEO approves it → `/approve`. Either the COO or the CEO can reject it → `/reject` --->
-Step 6: The approved report PDF is saved.
+### 7.2 Task ledger → individual performance (automatic)
+Step 1: After every successful change, and every minute, `server/task-ledger.ts` reconciles open tasks against the `task_records` table. A record opens when a task first appears in someone's list, with its assigned and due dates --->
+Step 2: When a task leaves a person's list, the record closes as:
+  - **completed**, with time taken and on time or late
+  - **transferred**, if it was reassigned
+  - **closed by other**, for a shared task someone else handled (decided from the audit log)
+  - **cancelled**, if the source was deleted or withdrawn --->
+Step 3: For any person and month, `computeTaskMetrics` works out: tasks assigned, completed, on time and late; on-time rate; completion rate; efficiency (time allowed ÷ time taken); total and average time; average delay; open and overdue; rework (documents returned to them); reassigned or handled by others; a breakdown by task type; and a **Performance Score** (on-time 50%, completion 30%, efficiency 20%) --->
+Step 4: Everyone with a task this month automatically gets a draft monthly performance report. Draft reports refresh every 5 minutes and whenever the reports page is opened --->
+Step 5: The admin submits the report → the COO reviews it (a task for the COO) → the CEO approves it (a task for the CEO). Figures stop changing once the report is submitted --->
+Step 6: The Performance Reports page shows On Time, Efficiency, Overdue and Score in the table, with all task figures and the per-type breakdown in the report detail. My Tasks shows the user's own completed count and on-time rate for the month.
 
 ### 7.3 Compliance Buddy (avatar)
 Step 1: `GET /api/buddy/status` / `system-status` work out the compliance score from tasks --->
@@ -371,10 +390,11 @@ TASK 0 Foundation ---> TASK 1 Identity ---> TASK 2 Document Control ---> TASK 3 
 | 2 | 10.1 Step 3 | The lead status change reads `existingLead.status` and writes `status:`. The real column is `leadStatus`, so the new status is never saved and `previousStatus` is empty. `reason` is NOT NULL in the DB, but the code sends `null` when no reason is given. | `server/routes.ts` ~7312, ~7326 |
 | 3 | 10.1 / 10.2 / 10.3 uploads | The CRM pages call `POST /api/upload`, but no such route exists. Lead evidence, contract and proposal uploads fail. | `CrmLeads.tsx:279`, `CrmCustomers.tsx:134`, `CrmOpportunities.tsx:168` |
 | 4 | 2.4 / 2.5 | **Fixed.** Reviewer, approver and COO can now return a document one step back, with the reason written as comments in the document. | — |
-| 5 | 7.3 Buddy | The score is worked out from the `document_tasks` table, but nothing ever writes to it (`createDocumentTask` is never called). So every score is always 100% "flexing", and the poke/buzz endpoints work on empty data. | `storage.calculateUserCompliance` |
+| 5 | 7.3 Buddy | The Buddy score still reads the unused `document_tasks` table. Performance reports now use the task ledger (7.2); the Buddy could be switched to it too. | `storage.calculateUserCompliance` |
 | 6 | 2.x versions | `document_versions` is never written (`createDocumentVersion` is unused). Old approved versions are not archived, and status `obsolete` is never set. | storage / routes |
 | 7 | 6.2 | The audits and findings APIs exist, but `CertificationProcess.tsx` has no UI for them. | client |
 | 8 | 7.3 push | Push subscriptions are stored, but no web-push sender exists, so no push is ever delivered. | buddy routes |
 | 9 | **Security** | 51 routes have no `requireAuth`. Among them: create, update and delete **users** (anyone could create an admin), documents CRUD, employees workflow, document-access grant and approve, dashboard and audit logs. `GET /api/notifications` returns **all users'** notifications. | `server/routes.ts` 431–4092 |
 | 10 | **Security** | `init-users.ts` hard-codes the passwords for the HR, COO and CEO accounts and **resets them on every boot**. The session secret has a hard-coded fallback. | `server/init-users.ts`, `server/index.ts` |
 | 11 | Maintainability | COO and CEO powers are checked by fixed email strings in more than 40 places instead of by role. `routes.ts` is about 8,000 lines in one file. | `server/routes.ts` |
+| 12 | 7.2 reports page | **Fixed.** The Performance Reports list requested `/api/performance-reports/10/2026`, which isn't a real route, so it always showed "No reports". It now passes month and year as query parameters. | — |

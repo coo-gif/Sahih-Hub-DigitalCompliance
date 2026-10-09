@@ -1,5 +1,5 @@
 import { useDashboardStats, useComplianceAlerts, useRecentActivity } from "@/hooks/use-dashboard";
-import { useMyTasks, useCompleteTask } from "@/hooks/use-tasks";
+import { useMyTasks, useCompleteTask, SPECIAL_TASK_TYPES } from "@/hooks/use-tasks";
 import { useUsers, useActiveUsers, useActivityHeartbeat } from "@/hooks/use-users";
 import { useAuth } from "@/hooks/use-auth";
 import { useApproveEmployee, useRejectEmployee, useSubmitEmployeeForApproval } from "@/hooks/use-employees";
@@ -978,9 +978,9 @@ export default function Dashboard() {
   };
 
   const handleOpenTask = (task: MyTask) => {
-    // Returned documents and comment assignments are handled inside the document itself
-    if (task.taskType === 'revise' || task.taskType === 'comment') {
-      navigate(`/documents/${task.documentId}/edit`);
+    // Tasks without their own dialog are done on their own page
+    if (!SPECIAL_TASK_TYPES.has(task.taskType)) {
+      navigate(task.link || `/documents/${task.documentId}/edit`);
       return;
     }
     setSelectedTask(task);
@@ -1279,7 +1279,7 @@ export default function Dashboard() {
               <div className="space-y-3">
                 {myTasks.map((task, idx) => (
                   <div 
-                    key={`${task.documentId}-${task.taskType}`} 
+                    key={task.taskKey || `${task.documentId}-${task.taskType}`} 
                     className="p-4 rounded-xl border-2 border-primary/20 hover:border-primary hover:shadow-xl cursor-pointer transition-all group bg-white dark:bg-card"
                     style={{ animation: `slideIn 0.3s ease-out ${idx * 0.1}s backwards` }}
                     onClick={() => handleOpenTask(task)}
@@ -1292,9 +1292,9 @@ export default function Dashboard() {
                         </div>
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-bold text-lg" data-testid={`text-task-code-${task.documentId}`}>{task.documentCode}</p>
+                            <p className="font-bold text-lg" data-testid={`text-task-code-${task.documentId}`}>{task.documentCode || task.reference}</p>
                             <Badge className={`${getTaskBadgeColor(task.taskType)} font-semibold`} data-testid={`badge-task-type-${task.documentId}`}>
-                              {task.taskType.charAt(0).toUpperCase() + task.taskType.slice(1)}
+                              {task.typeLabel || task.taskType.charAt(0).toUpperCase() + task.taskType.slice(1)}
                             </Badge>
                           </div>
                           <p className="text-sm text-muted-foreground" data-testid={`text-task-title-${task.documentId}`}>{task.title}</p>
@@ -3026,7 +3026,7 @@ export default function Dashboard() {
               <div className="space-y-3">
                 {myTasks.map((task, idx) => (
                   <div 
-                    key={`focus-${task.documentId}-${task.taskType}`}
+                    key={`focus-${task.taskKey || `${task.documentId}-${task.taskType}`}`}
                     className="p-4 rounded-lg border hover:border-primary cursor-pointer transition-all group"
                     onClick={() => {
                       setShowTasksFocusDialog(false);
@@ -3040,9 +3040,9 @@ export default function Dashboard() {
                         </div>
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-medium">{task.documentCode}</p>
+                            <p className="font-medium">{task.documentCode || task.reference}</p>
                             <Badge className={`${getTaskBadgeColor(task.taskType)} text-xs`}>
-                              {task.taskType.charAt(0).toUpperCase() + task.taskType.slice(1)}
+                              {task.typeLabel || task.taskType.charAt(0).toUpperCase() + task.taskType.slice(1)}
                             </Badge>
                           </div>
                           <p className="text-sm text-muted-foreground">{task.title}</p>

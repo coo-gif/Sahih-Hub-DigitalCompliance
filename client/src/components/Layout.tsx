@@ -218,7 +218,7 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 lg:pl-64 flex flex-col min-h-screen">
+      <main className="flex-1 min-w-0 lg:pl-64 flex flex-col min-h-screen">
         {/* Header */}
         <header className="h-20 bg-card border-b border-border sticky top-0 z-40 px-4 lg:px-6 flex items-center justify-between gap-4 shadow-sm">
           <div className="flex items-center gap-3 lg:hidden">

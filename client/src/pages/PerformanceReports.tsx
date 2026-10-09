@@ -24,6 +24,78 @@ import {
   User
 } from "lucide-react";
 import { format } from "date-fns";
+import { formatMinutes } from "@/hooks/use-tasks";
+
+const percent = (value: number | null | undefined) => (value === null || value === undefined ? "-" : `${value}%`);
+const scoreColor = (value: number | null | undefined) =>
+  value === null || value === undefined ? "text-muted-foreground"
+    : value >= 85 ? "text-green-600" : value >= 65 ? "text-amber-600" : "text-red-600";
+
+function TaskPerformanceSection({ report }: { report: PerformanceReport }) {
+  let breakdown: Record<string, { label: string; completed: number; onTime: number; late: number; open: number; avgMinutes: number | null }> = {};
+  try {
+    breakdown = report.taskBreakdown ? JSON.parse(report.taskBreakdown) : {};
+  } catch {
+    breakdown = {};
+  }
+  const metrics: Array<{ label: string; value: string; hint: string; className?: string }> = [
+    { label: "Performance Score", value: report.performanceScore === null ? "-" : `${report.performanceScore}/100`, hint: "On-time 50%, completion 30%, efficiency 20%", className: scoreColor(report.performanceScore) },
+    { label: "Tasks Assigned", value: String(report.tasksAssigned ?? 0), hint: "New this month" },
+    { label: "Tasks Completed", value: String(report.tasksCompleted ?? 0), hint: `${report.tasksCompletedOnTime ?? 0} on time, ${report.tasksCompletedLate ?? 0} late`, className: "text-green-600" },
+    { label: "On-time Rate", value: percent(report.onTimeRate), hint: "Completed by the due date", className: scoreColor(report.onTimeRate) },
+    { label: "Completion Rate", value: percent(report.completionRate), hint: "Tasks due this month that were done", className: scoreColor(report.completionRate) },
+    { label: "Efficiency", value: percent(report.efficiencyPercent), hint: "Time allowed ÷ time taken (100% = on schedule)", className: scoreColor(report.efficiencyPercent) },
+    { label: "Total Time on Tasks", value: formatMinutes(report.totalTaskMinutes ?? 0), hint: "Assignment to completion, all tasks" },
+    { label: "Average Turnaround", value: formatMinutes(report.avgTurnaroundMinutes), hint: "Per completed task" },
+    { label: "Average Delay", value: formatMinutes(report.avgDelayMinutes), hint: "How late the late tasks were" },
+    { label: "Open / Overdue", value: `${report.tasksPending ?? 0} / ${report.tasksOverdue ?? 0}`, hint: "At the end of the month (or now)", className: (report.tasksOverdue ?? 0) > 0 ? "text-red-600" : undefined },
+    { label: "Returned for Rework", value: String(report.reworkCount ?? 0), hint: "Documents sent back to this person" },
+    { label: "Reassigned / Handled by Others", value: String(report.tasksTransferred ?? 0), hint: "Not counted in the rates" },
+  ];
+  const rows = Object.values(breakdown).sort((a, b) => (b.completed + b.open) - (a.completed + a.open));
+  return (
+    <div className="space-y-3" data-testid="section-task-performance">
+      <h4 className="font-semibold">Task Performance</h4>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        {metrics.map(m => (
+          <div key={m.label} className="rounded-md border p-3" data-testid={`metric-${m.label.toLowerCase().replace(/[^a-z]+/g, "-")}`}>
+            <p className="text-xs text-muted-foreground">{m.label}</p>
+            <p className={`text-xl font-bold ${m.className || ""}`}>{m.value}</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">{m.hint}</p>
+          </div>
+        ))}
+      </div>
+      {rows.length > 0 && (
+        <div className="rounded-md border overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50">
+              <tr className="text-left">
+                <th className="p-2 font-medium">Task type</th>
+                <th className="p-2 font-medium text-center">Completed</th>
+                <th className="p-2 font-medium text-center">On time</th>
+                <th className="p-2 font-medium text-center">Late</th>
+                <th className="p-2 font-medium text-center">Open</th>
+                <th className="p-2 font-medium text-center">Avg time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.label} className="border-t">
+                  <td className="p-2">{r.label}</td>
+                  <td className="p-2 text-center">{r.completed}</td>
+                  <td className="p-2 text-center text-green-600">{r.onTime}</td>
+                  <td className="p-2 text-center text-red-600">{r.late}</td>
+                  <td className="p-2 text-center">{r.open}</td>
+                  <td className="p-2 text-center">{formatMinutes(r.avgMinutes)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface PerformanceReport {
   id: number;
@@ -39,6 +111,19 @@ interface PerformanceReport {
   tasksCompleted: number;
   tasksOverdue: number;
   tasksPending: number;
+  tasksAssigned: number | null;
+  tasksCompletedOnTime: number | null;
+  tasksCompletedLate: number | null;
+  tasksTransferred: number | null;
+  reworkCount: number | null;
+  totalTaskMinutes: number | null;
+  avgTurnaroundMinutes: number | null;
+  avgDelayMinutes: number | null;
+  onTimeRate: number | null;
+  completionRate: number | null;
+  efficiencyPercent: number | null;
+  performanceScore: number | null;
+  taskBreakdown: string | null;
   status: string;
   reviewerId: number | null;
   reviewedAt: string | null;
@@ -86,7 +171,7 @@ export default function PerformanceReports() {
   const isCEO = currentUser?.email === "ceo@sahihcertify.com";
 
   const { data: reports, isLoading, dataUpdatedAt, refetch } = useQuery<PerformanceReport[]>({
-    queryKey: ["/api/performance-reports", selectedMonth, selectedYear],
+    queryKey: [`/api/performance-reports?month=${selectedMonth}&year=${selectedYear}`],
     enabled: isAdmin || isCOO || isCEO,
     refetchInterval: 30000, // Auto-refresh every 30 seconds for live updates
     refetchOnWindowFocus: true,
@@ -106,7 +191,7 @@ export default function PerformanceReports() {
       return await apiRequest("POST", "/api/performance-reports/generate", { month, year });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/performance-reports"] });
+      queryClient.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("/api/performance-reports") });
       toast({ title: "Reports generated successfully" });
       setShowGenerateDialog(false);
     },
@@ -120,7 +205,7 @@ export default function PerformanceReports() {
       return await apiRequest("POST", `/api/performance-reports/${id}/submit`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/performance-reports"] });
+      queryClient.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("/api/performance-reports") });
       toast({ title: "Report submitted for review" });
     },
   });
@@ -130,7 +215,7 @@ export default function PerformanceReports() {
       return await apiRequest("POST", `/api/performance-reports/${id}/review`, { comments });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/performance-reports"] });
+      queryClient.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("/api/performance-reports") });
       toast({ title: "Report reviewed and sent for approval" });
       setShowReviewDialog(false);
       setSelectedReport(null);
@@ -142,7 +227,7 @@ export default function PerformanceReports() {
       return await apiRequest("POST", `/api/performance-reports/${id}/approve`, { comments });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/performance-reports"] });
+      queryClient.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("/api/performance-reports") });
       toast({ title: "Report approved and added to user records" });
       setShowReviewDialog(false);
       setSelectedReport(null);
@@ -154,7 +239,7 @@ export default function PerformanceReports() {
       return await apiRequest("POST", `/api/performance-reports/${id}/reject`, { comments });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/performance-reports"] });
+      queryClient.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("/api/performance-reports") });
       toast({ title: "Report rejected" });
       setShowReviewDialog(false);
       setSelectedReport(null);
@@ -195,7 +280,7 @@ export default function PerformanceReports() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 min-w-0">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Monthly Performance Reports</h1>
@@ -288,11 +373,13 @@ export default function PerformanceReports() {
                   <TableHead>User</TableHead>
                   <TableHead>Period</TableHead>
                   <TableHead className="text-center">Active Hours</TableHead>
-                  <TableHead className="text-center">Online Hours</TableHead>
                   <TableHead className="text-center">Docs Created</TableHead>
                   <TableHead className="text-center">Docs Reviewed</TableHead>
                   <TableHead className="text-center">Tasks Done</TableHead>
+                  <TableHead className="text-center">On Time</TableHead>
+                  <TableHead className="text-center">Efficiency</TableHead>
                   <TableHead className="text-center">Overdue</TableHead>
+                  <TableHead className="text-center">Score</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
@@ -318,11 +405,15 @@ export default function PerformanceReports() {
                       </div>
                     </TableCell>
                     <TableCell className="text-center font-medium">{report.totalActiveHours}h</TableCell>
-                    <TableCell className="text-center font-medium">{report.totalOnlineHours}h</TableCell>
                     <TableCell className="text-center">{report.documentsCreated}</TableCell>
                     <TableCell className="text-center">{report.documentsReviewed}</TableCell>
                     <TableCell className="text-center text-green-600">{report.tasksCompleted}</TableCell>
+                    <TableCell className={`text-center ${scoreColor(report.onTimeRate)}`}>{percent(report.onTimeRate)}</TableCell>
+                    <TableCell className={`text-center ${scoreColor(report.efficiencyPercent)}`}>{percent(report.efficiencyPercent)}</TableCell>
                     <TableCell className="text-center text-red-600">{report.tasksOverdue}</TableCell>
+                    <TableCell className={`text-center font-semibold ${scoreColor(report.performanceScore)}`} data-testid={`report-score-${report.id}`}>
+                      {report.performanceScore ?? "-"}
+                    </TableCell>
                     <TableCell>{getStatusBadge(report.status)}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
@@ -426,7 +517,7 @@ export default function PerformanceReports() {
       </Dialog>
 
       <Dialog open={showReviewDialog} onOpenChange={setShowReviewDialog}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Performance Report Details</DialogTitle>
             <DialogDescription>
@@ -486,32 +577,7 @@ export default function PerformanceReports() {
                 </Card>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm text-green-600">Tasks Completed</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-3xl font-bold text-green-600">{selectedReport.tasksCompleted}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm text-red-600">Tasks Overdue</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-3xl font-bold text-red-600">{selectedReport.tasksOverdue}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm text-yellow-600">Tasks Pending</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-3xl font-bold text-yellow-600">{selectedReport.tasksPending}</p>
-                  </CardContent>
-                </Card>
-              </div>
+              <TaskPerformanceSection report={selectedReport} />
 
               {(selectedReport.status === "in_review" && isCOO) ||
               (selectedReport.status === "pending_approval" && isCEO) ? (

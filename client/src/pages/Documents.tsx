@@ -127,6 +127,7 @@ export default function Documents() {
   // Only COO has automatic access; others need explicit grant
   const hasAccessToDocument = (doc: Document): boolean => {
     if (isCOO) return true;
+    if (doc.lifecycleStatus === "obsolete" || doc.lifecycleStatus === "quarantine") return false;
     if (doc.hubStatus === DocumentHubStatus.STORED && doc.classification === DocumentClassification.PUBLIC_INFORMATION) return true;
     return myDocumentAccess.some((access: any) => access.documentId === doc.id && !access.isRevoked);
   };
@@ -506,6 +507,15 @@ export default function Documents() {
                          doc.status === "pending_approval" ? "Pending Approval" :
                          doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
                       </Badge>
+                      {(doc.lifecycleStatus === "under_revision" || doc.lifecycleStatus === "obsolete" || doc.lifecycleStatus === "quarantine") && (
+                        <Badge
+                          variant="outline"
+                          className={`mt-1 block w-fit ${doc.lifecycleStatus === "quarantine" ? "text-red-700 border-red-300" : doc.lifecycleStatus === "obsolete" ? "text-slate-600 border-slate-300" : "text-blue-700 border-blue-300"}`}
+                          data-testid={`badge-lifecycle-${doc.id}`}
+                        >
+                          {doc.lifecycleStatus === "under_revision" ? "Under Revision" : doc.lifecycleStatus === "obsolete" ? "Obsolete" : "Quarantine"}
+                        </Badge>
+                      )}
                       {doc.hubStatus === DocumentHubStatus.PENDING_COO_APPROVAL && (
                         <Badge variant="outline" className="mt-1 block w-fit text-amber-700 border-amber-300" data-testid={`badge-awaiting-coo-${doc.id}`}>
                           Awaiting COO final approval

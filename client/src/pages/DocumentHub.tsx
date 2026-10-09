@@ -17,6 +17,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -101,6 +102,13 @@ const classificationOptions = [
   },
 ] as const;
 
+const lifecycleOptions = [
+  { value: "current", label: "Current", className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" },
+  { value: "under_revision", label: "Under Revision", className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" },
+  { value: "obsolete", label: "Obsolete", className: "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300" },
+  { value: "quarantine", label: "Quarantine", className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" },
+] as const;
+
 function ClassificationBadge({ classification }: { classification: string | null }) {
   const option = classificationOptions.find(o => o.value === classification);
   if (!option) {
@@ -126,6 +134,9 @@ export default function DocumentHub() {
   const [showFinalApprovalDialog, setShowFinalApprovalDialog] = useState(false);
   const [showClassificationDialog, setShowClassificationDialog] = useState(false);
   const [selectedClassification, setSelectedClassification] = useState<string>("");
+  // Obsolete and quarantine withdraw a document from use, so they are confirmed with a reason
+  const [pendingLifecycle, setPendingLifecycle] = useState<{ doc: Document; status: string } | null>(null);
+  const [lifecycleReason, setLifecycleReason] = useState("");
   
   const isCOO = currentUser?.email === COO_EMAIL;
   
@@ -190,6 +201,32 @@ export default function DocumentHub() {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
+
+  const lifecycleMutation = useMutation({
+    mutationFn: async ({ documentId, lifecycleStatus, reason }: { documentId: number; lifecycleStatus: string; reason?: string }) => {
+      return apiRequest("POST", `/api/documents/${documentId}/lifecycle-status`, { lifecycleStatus, reason });
+    },
+    onSuccess: (_data, { lifecycleStatus }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/documents?status=approved"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
+      setPendingLifecycle(null);
+      setLifecycleReason("");
+      const label = lifecycleOptions.find(o => o.value === lifecycleStatus)?.label;
+      toast({ title: "Status updated", description: `Document marked as ${label}. Users with access were notified.` });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const changeLifecycle = (doc: Document, status: string) => {
+    if (status === doc.lifecycleStatus) return;
+    if (status === "obsolete" || status === "quarantine") {
+      setPendingLifecycle({ doc, status });
+    } else {
+      lifecycleMutation.mutate({ documentId: doc.id, lifecycleStatus: status });
+    }
+  };
 
   const approveRequestMutation = useMutation({
     mutationFn: async ({ requestId, note }: { requestId: number; note?: string }) => {
@@ -476,6 +513,7 @@ export default function DocumentHub() {
                         <TableHead>Approved</TableHead>
                         <TableHead>Users with Access</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
+                        <TableHead>Status</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -576,6 +614,31 @@ export default function DocumentHub() {
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
+                            </TableCell>
+                            <TableCell>
+                              {doc.isLocked ? (
+                                <Select
+                                  value={doc.lifecycleStatus || "current"}
+                                  onValueChange={(value) => changeLifecycle(doc, value)}
+                                  disabled={lifecycleMutation.isPending}
+                                >
+                                  <SelectTrigger
+                                    className={`h-8 w-[150px] text-xs font-medium border-0 ${lifecycleOptions.find(o => o.value === (doc.lifecycleStatus || "current"))?.className}`}
+                                    data-testid={`select-lifecycle-${doc.id}`}
+                                  >
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {lifecycleOptions.map(option => (
+                                      <SelectItem key={option.value} value={option.value} data-testid={`lifecycle-option-${option.value}`}>
+                                        {option.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <span className="text-sm text-muted-foreground">-</span>
+                              )}
                             </TableCell>
                           </TableRow>
                         );
@@ -910,6 +973,47 @@ export default function DocumentHub() {
               </Button>
               <Button onClick={() => setShowAccessListDialog(false)}>
                 Done
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={!!pendingLifecycle} onOpenChange={(open) => { if (!open) { setPendingLifecycle(null); setLifecycleReason(""); } }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>
+                Mark as {lifecycleOptions.find(o => o.value === pendingLifecycle?.status)?.label}?
+              </DialogTitle>
+              <DialogDescription>
+                "{pendingLifecycle?.doc.documentCode} - {pendingLifecycle?.doc.title}" will be withdrawn from use. Only you (COO) will be able to open it. Everyone with access is notified.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Label htmlFor="lifecycle-reason">Reason (optional)</Label>
+              <Textarea
+                id="lifecycle-reason"
+                value={lifecycleReason}
+                onChange={(e) => setLifecycleReason(e.target.value)}
+                placeholder={pendingLifecycle?.status === "quarantine" ? "e.g. Suspected error in clause 5, under investigation" : "e.g. Superseded by SOP-001 Ed.3"}
+                data-testid="input-lifecycle-reason"
+              />
+            </div>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => { setPendingLifecycle(null); setLifecycleReason(""); }}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => pendingLifecycle && lifecycleMutation.mutate({
+                  documentId: pendingLifecycle.doc.id,
+                  lifecycleStatus: pendingLifecycle.status,
+                  reason: lifecycleReason || undefined,
+                })}
+                disabled={lifecycleMutation.isPending}
+                data-testid="button-confirm-lifecycle"
+              >
+                {lifecycleMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Confirm
               </Button>
             </DialogFooter>
           </DialogContent>
