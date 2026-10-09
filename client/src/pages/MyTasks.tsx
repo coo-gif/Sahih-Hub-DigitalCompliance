@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Clock, AlertTriangle, CheckCircle2, FileText, Target, Eye, Send, ThumbsUp, UserCheck, Download, X, Lock, Unlock, RefreshCw } from "lucide-react";
+import { Clock, AlertTriangle, CheckCircle2, FileText, Target, Eye, Send, ThumbsUp, UserCheck, Download, X, Lock, Unlock, RefreshCw, MessageSquare } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useMyTasks, useCompleteTask, MyTask } from "@/hooks/use-tasks";
@@ -597,6 +597,17 @@ export default function MyTasks() {
                           <Eye className="h-4 w-4" />
                           View Document
                         </Button>
+                        {(task.taskType === 'review' || task.taskType === 'approve') && (
+                          <Button
+                            variant="outline"
+                            onClick={() => navigate(`/documents/${task.documentId}/edit`)}
+                            className="gap-1"
+                            data-testid={`button-comment-return-${task.id}`}
+                          >
+                            <MessageSquare className="h-4 w-4" />
+                            Comment / Return
+                          </Button>
+                        )}
                         {(task.taskType === 'review' || task.taskType === 'approve') && (
                           <Button 
                             variant="outline"

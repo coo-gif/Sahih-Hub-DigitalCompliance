@@ -2432,12 +2432,22 @@ export default function Dashboard() {
                   </Button>
                 </Link>
               ) : (
-                <Link href={`/documents/${selectedTask?.documentId}/edit`} className="flex-1">
-                  <Button variant="outline" className="w-full">
-                    <FileText className="w-4 h-4 mr-2" />
-                    View Document
-                  </Button>
-                </Link>
+                <>
+                  <Link href={`/documents/${selectedTask?.documentId}/edit`} className="flex-1">
+                    <Button variant="outline" className="w-full">
+                      <FileText className="w-4 h-4 mr-2" />
+                      View Document
+                    </Button>
+                  </Link>
+                  {(selectedTask?.taskType === 'review' || selectedTask?.taskType === 'approve') && (
+                    <Link href={`/documents/${selectedTask?.documentId}/edit`} className="flex-1">
+                      <Button variant="outline" className="w-full" data-testid="button-task-comment-return">
+                        <MessageSquare className="w-4 h-4 mr-2" />
+                        Comment / Return
+                      </Button>
+                    </Link>
+                  )}
+                </>
               )}
             </div>
           </div>

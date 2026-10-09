@@ -58,7 +58,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, MoreHorizontal, Pencil, Trash2, AlertCircle, Eye, FileText, Calendar, Clock, FileDown, Loader2, Send, Lock, Unlock, UserCog, Shield, Users } from "lucide-react";
+import { Plus, MoreHorizontal, Pencil, Trash2, AlertCircle, Eye, FileText, Calendar, Clock, FileDown, Loader2, Send, Lock, Unlock, UserCog, Shield, Users, MessageSquare } from "lucide-react";
 import { format } from "date-fns";
 import type { Document } from "@shared/schema";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
@@ -647,6 +647,18 @@ export default function Documents() {
                               <DropdownMenuItem onClick={() => handleGeneratePdf(doc)}>
                                 <FileDown className="w-4 h-4 mr-2" /> Generate PDF
                               </DropdownMenuItem>
+                            )}
+                            {((doc.status === "in_review" && doc.reviewerId === currentUser?.id) ||
+                              (doc.status === "pending_approval" && doc.approverId === currentUser?.id)) && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => navigate(`/documents/${doc.id}/edit`)}
+                                  data-testid={`button-comment-return-${doc.id}`}
+                                >
+                                  <MessageSquare className="w-4 h-4 mr-2" /> Comment / Return
+                                </DropdownMenuItem>
+                              </>
                             )}
                             {(doc.status === "in_review" || doc.status === "pending_approval") && isAdminOrQM && (
                               <>

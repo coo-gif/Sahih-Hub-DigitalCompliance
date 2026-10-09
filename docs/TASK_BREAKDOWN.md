@@ -113,7 +113,7 @@ Step 5: The commented text is highlighted in the editor, and the Comments panel 
 Step 6: The author, an assignee, an admin, the QM or the COO resolves the comment (`POST /api/document-comments/:id/resolve`). The author is notified. Open comments can be deleted only by their author.
 
 ### 2.6a Return for revision (one step back)
-Step 1: The person currently responsible opens the document. That is the reviewer (In Review), the approver (Pending Approval) or the COO (awaiting final approval in the Hub) --->
+Step 1: The person currently responsible opens the document. That is the reviewer (In Review), the approver (Pending Approval) or the COO (awaiting final approval in the Hub). A **Comment / Return** button is on their task in My Tasks, in the Dashboard task pop-up, in the Documents list menu, and in the Hub for the COO --->
 Step 2: They add at least one comment in the document explaining the reason (2.6). Returning is refused without one --->
 Step 3: They click **Return for Revision**, optionally add an overall note → `POST /api/documents/:id/return` --->
 Step 4: The document goes back one step and the signature for that step is cleared:
