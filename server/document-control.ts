@@ -274,6 +274,14 @@ export function registerDocumentControlRoutes(app: Express, helpers: DocumentCon
   const { requireAuth } = helpers;
   const userOf = (req: Request) => (req as any).user as AuthedUser;
 
+  // Every :id in these routes is a number; reject anything else before it reaches the database
+  app.use(['/api/documents/:id/links', '/api/documents/:id/versions', '/api/documents/:id/change-requests',
+    '/api/change-requests/:id', '/api/document-links/:id'], (req, res, next) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ message: 'Invalid ID' });
+    next();
+  });
+
   // ---- Change request: my draft for a document ----
   app.get('/api/documents/:id/change-requests/mine', requireAuth, async (req, res) => {
     const user = userOf(req);
