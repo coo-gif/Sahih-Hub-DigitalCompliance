@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import TiptapEditor from "@/components/TiptapEditor";
+import { DriveImportPanel, AssociatedProceduresPicker, type ImportedDriveFile } from "@/components/DocumentSources";
 import {
   Select,
   SelectContent,
@@ -28,7 +29,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { ArrowLeft, FileText, Save, Eye, Send, Users, Building, Maximize2, Minimize2 } from "lucide-react";
+import { ArrowLeft, FileText, Save, Eye, Send, Users, Building, Maximize2, Minimize2, Keyboard, HardDrive, Link2 } from "lucide-react";
 import DOMPurify from "dompurify";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
 
@@ -52,6 +53,11 @@ export default function NewDocument() {
   const [selectedStaffIds, setSelectedStaffIds] = useState<number[]>([]);
   const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // How the document is added: typed in, or imported from Google Drive (back from Google's consent screen = Drive)
+  const [source, setSource] = useState<"manual" | "google_drive">(() =>
+    new URLSearchParams(window.location.search).get("drive") ? "google_drive" : "manual");
+  const [importedFile, setImportedFile] = useState<ImportedDriveFile | null>(null);
+  const [linkedDocumentIds, setLinkedDocumentIds] = useState<number[]>([]);
 
   const [formData, setFormData] = useState({
     documentCode: "",
@@ -83,6 +89,19 @@ export default function NewDocument() {
     );
   };
 
+  const handleImported = (file: ImportedDriveFile) => {
+    setImportedFile(file);
+    setFormData(prev => ({ ...prev, content: file.html, title: prev.title || file.title }));
+  };
+
+  // Where the document came from and the procedures it refers to, sent with either create action
+  const sourceFields = () => ({
+    linkedDocumentIds: linkedDocumentIds.length > 0 ? linkedDocumentIds : undefined,
+    sourceType: source === "google_drive" && importedFile ? "google_drive" : "manual",
+    sourceFileName: source === "google_drive" && importedFile ? importedFile.fileName : undefined,
+    sourceFileUrl: source === "google_drive" && importedFile?.webViewLink ? importedFile.webViewLink : undefined,
+  });
+
   const handleCreateAsDraft = async () => {
     try {
       await createMutation.mutateAsync({
@@ -97,6 +116,7 @@ export default function NewDocument() {
         assignedDepartments: selectedDepartments.length > 0 ? selectedDepartments : undefined,
         preparedById: effectivePreparerId,
         prepareTargetDate: targetToIso(prepareTarget),
+        ...sourceFields(),
       } as any);
       toast({
         title: preparedByMe ? "Document saved as draft" : "Document assigned to the preparer",
@@ -133,6 +153,7 @@ export default function NewDocument() {
         assignedDepartments: selectedDepartments.length > 0 ? selectedDepartments : undefined,
         preparedById: currentUser?.id,
         prepareTargetDate: targetToIso(prepareTarget),
+        ...sourceFields(),
       } as any);
       await apiRequest('POST', `/api/documents/${doc.id}/confirm-preparation`, {});
       await submitForReviewMutation.mutateAsync({
@@ -172,13 +193,44 @@ export default function NewDocument() {
           <div className="grid gap-6">
           <Card>
             <CardHeader>
+              <CardTitle>How do you want to add this document?</CardTitle>
+              <CardDescription>Type it in, or bring in the content of a file from your Google Drive and complete the details.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3" role="radiogroup">
+                {([
+                  { value: "manual", icon: Keyboard, title: "Add manually", text: "Enter every field and write the content in the editor." },
+                  { value: "google_drive", icon: HardDrive, title: "Import from Google Drive", text: "Connect Drive, choose a file and its content is pasted into the editor." },
+                ] as const).map(option => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={source === option.value}
+                    onClick={() => setSource(option.value)}
+                    className={`text-left rounded-lg border p-4 transition-colors ${source === option.value ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:bg-muted/50"}`}
+                    data-testid={`source-${option.value}`}
+                  >
+                    <div className="font-medium flex items-center gap-2"><option.icon className="h-4 w-4" /> {option.title}</div>
+                    <p className="text-sm text-muted-foreground mt-1">{option.text}</p>
+                  </button>
+                ))}
+              </div>
+              {source === "google_drive" && (
+                <DriveImportPanel imported={importedFile} onImported={handleImported} />
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle>Document Details</CardTitle>
               <CardDescription>Basic information about the document</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="documentCode">Document Code *</Label>
+                  <Label htmlFor="documentCode">Doc Ref No. *</Label>
                   <Input
                     id="documentCode"
                     placeholder="e.g., SOP-001"
@@ -188,7 +240,7 @@ export default function NewDocument() {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="category">Category</Label>
+                  <Label htmlFor="category">Document Type</Label>
                   <Select value={formData.category} onValueChange={(v) => setFormData({ ...formData, category: v })}>
                     <SelectTrigger id="category" data-testid="select-category">
                       <SelectValue placeholder="Select category" />
@@ -205,7 +257,7 @@ export default function NewDocument() {
                 </div>
               </div>
               <div>
-                <Label htmlFor="title">Title *</Label>
+                <Label htmlFor="title">Document Name *</Label>
                 <Input
                   id="title"
                   placeholder="Document title"
@@ -234,6 +286,22 @@ export default function NewDocument() {
                   data-testid="input-next-review-date"
                 />
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Link2 className="w-5 h-5" />
+                Associated Procedures
+              </CardTitle>
+              <CardDescription>
+                Link the procedures this document refers to. When one of them is revised, this document is flagged
+                and its owner gets a task to check it still fits.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <AssociatedProceduresPicker value={linkedDocumentIds} onChange={setLinkedDocumentIds} />
             </CardContent>
           </Card>
 
@@ -320,7 +388,11 @@ export default function NewDocument() {
             <CardHeader className="flex flex-row items-center justify-between gap-2">
               <div>
                 <CardTitle>Document Content</CardTitle>
-                <CardDescription>Write the document content using the rich text editor</CardDescription>
+                <CardDescription>
+                  {importedFile && source === "google_drive"
+                    ? `Imported from ${importedFile.fileName}. Check and tidy the content before saving.`
+                    : "Write the document content using the rich text editor"}
+                </CardDescription>
               </div>
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" onClick={() => setShowPreviewDialog(true)} data-testid="button-preview">

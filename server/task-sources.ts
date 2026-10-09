@@ -6,7 +6,7 @@ import {
   DocumentStatus, DocumentHubStatus, DocumentCommentStatus, EmployeeRecordStatus, TaskStatus,
   TrainingAssignmentStatus, MonthlyReportStatus, BugReportStatus, LeadStatus, CertificationApplicationStatus,
   AuditStatus, RevisionHistoryStatus, DocuGenieFormStatus, UserRole, taskAssignments, DEFAULT_TARGET_DAYS,
-  changeRequests, ChangeRequestStatus,
+  changeRequests, ChangeRequestStatus, documentLinks,
 } from "@shared/schema";
 
 const COO_EMAIL = 'coo@sahihcertify.com';
@@ -39,6 +39,7 @@ export const TASK_SLA_HOURS: Record<string, number> = {
   amendment_approval: 72,
   form_fill: 7 * 24,
   change_request: DEFAULT_TARGET_DAYS.change_request * 24,
+  link_review: DEFAULT_TARGET_DAYS.link_review * 24,
   certification_audit: 7 * 24,
 };
 
@@ -66,6 +67,7 @@ export const TASK_TYPE_LABELS: Record<string, string> = {
   amendment_approval: 'Amendment Approval',
   form_fill: 'Form to Fill',
   change_request: 'Change Request',
+  link_review: 'Linked Procedure Changed',
 };
 
 // Tasks offered to a group (any admin / QM). Whoever acts completes it; the others are "closed by a colleague".
@@ -485,6 +487,25 @@ export async function collectOpenTasks(): Promise<TaskSnapshot> {
       entityType: 'change_request', entityId: cr.id, documentId: cr.documentId,
     });
   }
+
+  // ---- A procedure this document refers to got a new version: the owner checks this document ----
+  const flaggedLinks = (await db.select().from(documentLinks)).filter(l => l.needsReview);
+  for (const link of flaggedLinks) {
+    exists('document_link', link.id);
+    const doc = docById.get(link.documentId);
+    const linked = docById.get(link.linkedDocumentId);
+    if (!doc || !linked) continue;
+    const assigned = at(link.flaggedAt);
+    tasks.push({
+      key: `link_review:${link.id}`, userId: doc.preparedById ?? doc.createdById, taskType: 'link_review', initiatorId: null,
+      title: doc.title, reference: doc.documentCode,
+      description: `${link.flagNote || `${linked.documentCode} changed`}. Check whether this document needs updating, then confirm the review (or raise a change request).`,
+      link: `/documents/${doc.id}/edit`, assignedAt: assigned, dueAt: due(assigned, 'link_review'),
+      entityType: 'document_link', entityId: link.id, documentId: doc.id,
+    });
+  }
+  // links that no longer exist were removed (not reviewed): treat their tasks as cancelled
+  for (const link of await db.select({ id: documentLinks.id }).from(documentLinks)) exists('document_link', link.id);
 
   // A target date set when the task was assigned or forwarded overrides everything else
   const assignments = new Map((await db.select().from(taskAssignments)).map(a => [a.taskKey, a]));

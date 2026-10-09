@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import TiptapEditor, { AISuggestion, type CommentSelection } from "@/components/TiptapEditor";
 import { CommentComposer, CommentsPanel, type DocComment } from "@/components/DocumentComments";
+import { AssociatedProceduresCard } from "@/components/DocumentSources";
 import { locateComment } from "@/lib/comment-highlights";
 import { useAuth } from "@/hooks/use-auth";
 import { TargetDateField, TARGET_DAYS, defaultTargetInput, targetToIso } from "@/components/TargetDateField";
@@ -192,6 +193,12 @@ export default function EditDocument() {
   const isWithdrawn = document?.lifecycleStatus === "obsolete" || document?.lifecycleStatus === "quarantine";
   const isUnderRevision = !!document && (document.lifecycleStatus === "under_revision" || !!document.activeChangeRequestId);
   const canRaiseChangeRequest = !!document && !!document.isLocked && document.hubStatus === "stored" && !isUnderRevision && !isWithdrawn;
+  // Associated procedures: the people working on a draft change them; the COO, admins and the QM at any time
+  const isDocManager = !!currentUser && (currentUser.email === "coo@sahihcertify.com" || currentUser.role === "admin" || currentUser.role === "quality_manager");
+  const isWorkflowMember = !!document && !!currentUser &&
+    [document.createdById, document.preparedById, document.reviewerId, document.approverId].includes(currentUser.id);
+  const canEditLinks = isDocManager || (isWorkflowMember && !document?.isLocked);
+  const canConfirmLinkReview = isDocManager || (!!document && !!currentUser && [document.createdById, document.preparedById].includes(currentUser.id));
   const submitCrMutation = useMutation({
     mutationFn: async () => {
       if (!crDraft) throw new Error("Add at least one point first");
@@ -883,6 +890,15 @@ export default function EditDocument() {
               )}
             </CardContent>
           </Card>
+
+          {document && (
+            <AssociatedProceduresCard
+              documentId={document.id}
+              canEdit={canEditLinks}
+              canConfirmReview={canConfirmLinkReview}
+              onRaiseChangeRequest={canRaiseChangeRequest ? () => { setCrMode(true); setShowComments(true); } : undefined}
+            />
+          )}
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2">

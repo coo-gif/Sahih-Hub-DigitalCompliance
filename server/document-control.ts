@@ -4,7 +4,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "./db";
 import { storage } from "./storage";
 import {
-  documents, documentVersions, documentComments, changeRequests, users,
+  documents, documentVersions, documentComments, changeRequests, users, documentLinks,
   DocumentStatus, DocumentHubStatus, DocumentLifecycleStatus, DocumentVersionStatus, ChangeRequestStatus,
   CHANGE_REASON_LABELS, AuditAction, UrgencyLevel, UserRole,
   type Document, type DocumentVersion, type ChangeRequest,
@@ -133,6 +133,13 @@ export async function recordApprovedVersion(doc: Document, cooId: number, versio
     }
   }
 
+  if (previous) {
+    const [cr] = doc.activeChangeRequestId
+      ? await db.select({ crNumber: changeRequests.crNumber }).from(changeRequests).where(eq(changeRequests.id, doc.activeChangeRequestId))
+      : [];
+    await flagDocumentsLinkedTo(doc, versionLabel(editionNumber, revisionNumber), previous.versionNumber, cr?.crNumber ?? null);
+  }
+
   return {
     editionNumber,
     revisionNumber,
@@ -173,6 +180,52 @@ async function closeChangeRequestPoints(changeRequestId: number, userId: number)
   await db.update(documentComments)
     .set({ status: 'resolved', resolvedById: userId, resolvedAt: new Date() })
     .where(and(eq(documentComments.changeRequestId, changeRequestId), eq(documentComments.status, 'open')));
+}
+
+// ============================================
+// Associated procedures
+// ============================================
+const docVersionLabel = (d: { editionNumber: number; revisionNumber: number }) => versionLabel(d.editionNumber, d.revisionNumber);
+
+// Replace the set of procedures a document is linked to; new links remember the procedure's current version
+export async function setDocumentLinks(documentId: number, linkedDocumentIds: number[], userId: number) {
+  const wanted = Array.from(new Set(linkedDocumentIds.filter(id => id !== documentId)));
+  const existing = await db.select().from(documentLinks).where(eq(documentLinks.documentId, documentId));
+  const toRemove = existing.filter(l => !wanted.includes(l.linkedDocumentId)).map(l => l.id);
+  if (toRemove.length) await db.delete(documentLinks).where(inArray(documentLinks.id, toRemove));
+  const toAdd = wanted.filter(id => !existing.some(l => l.linkedDocumentId === id));
+  if (toAdd.length) {
+    const targets = await db.select().from(documents).where(inArray(documents.id, toAdd));
+    if (targets.length) {
+      await db.insert(documentLinks).values(targets.map(t => ({
+        documentId,
+        linkedDocumentId: t.id,
+        linkedVersion: docVersionLabel(t),
+        createdById: userId,
+      })));
+    }
+  }
+}
+
+// A procedure got a new approved version: every document linked to it is flagged for review
+async function flagDocumentsLinkedTo(doc: Document, newVersion: string, previousVersion: string | null, crNumber: string | null) {
+  const now = new Date();
+  const links = await db.select().from(documentLinks).where(eq(documentLinks.linkedDocumentId, doc.id));
+  if (links.length === 0) return;
+  const note = `${doc.documentCode} changed${previousVersion ? ` from ${previousVersion}` : ''} to ${newVersion}${crNumber ? ` (${crNumber})` : ''}`;
+  await db.update(documentLinks).set({ needsReview: true, flaggedAt: now, flagNote: note })
+    .where(eq(documentLinks.linkedDocumentId, doc.id));
+  const linking = await db.select().from(documents).where(inArray(documents.id, links.map(l => l.documentId)));
+  for (const d of linking) {
+    const ownerId = d.preparedById ?? d.createdById;
+    await storage.createNotification({
+      userId: ownerId,
+      title: 'Associated Procedure Changed',
+      message: `${note}. "${d.documentCode} - ${d.title}" refers to it: check whether it needs updating.`,
+      urgencyLevel: UrgencyLevel.MEDIUM,
+      relatedDocumentId: d.id,
+    });
+  }
 }
 
 async function nextCrNumber(): Promise<string> {
@@ -462,6 +515,71 @@ export function registerDocumentControlRoutes(app: Express, helpers: DocumentCon
       console.error('Error deciding change request:', err);
       res.status(500).json({ message: 'Failed to record the decision' });
     }
+  });
+
+  // ---- Associated procedures: what this document links to, and what links to it ----
+  app.get('/api/documents/:id/links', requireAuth, async (req, res) => {
+    const documentId = Number(req.params.id);
+    const outgoing = await db.select().from(documentLinks).where(eq(documentLinks.documentId, documentId));
+    const incoming = await db.select().from(documentLinks).where(eq(documentLinks.linkedDocumentId, documentId));
+    const ids = Array.from(new Set([...outgoing.map(l => l.linkedDocumentId), ...incoming.map(l => l.documentId)]));
+    const docs = ids.length ? await db.select().from(documents).where(inArray(documents.id, ids)) : [];
+    const status = (d: Document) => d.activeChangeRequestId ? 'under_revision'
+      : d.lifecycleStatus && d.isLocked ? d.lifecycleStatus
+      : d.isLocked ? 'current' : d.status;
+    const summary = (d: Document | undefined) => d ? {
+      documentId: d.id, documentCode: d.documentCode, title: d.title, category: d.category,
+      currentVersion: docVersionLabel(d), status: status(d),
+    } : null;
+    res.json({
+      linksTo: outgoing.map(l => ({
+        linkId: l.id, ...summary(docs.find(d => d.id === l.linkedDocumentId)),
+        linkedVersion: l.linkedVersion, needsReview: l.needsReview, flaggedAt: l.flaggedAt, flagNote: l.flagNote, reviewedAt: l.reviewedAt,
+      })).filter(l => l.documentId),
+      linkedFrom: incoming.map(l => ({
+        linkId: l.id, ...summary(docs.find(d => d.id === l.documentId)), needsReview: l.needsReview,
+      })).filter(l => l.documentId),
+    });
+  });
+
+  app.put('/api/documents/:id/links', requireAuth, async (req, res) => {
+    const user = userOf(req);
+    const parsed = z.object({ linkedDocumentIds: z.array(z.number().int().positive()).max(100) }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: 'Invalid list of procedures' });
+    const doc = await storage.getDocument(Number(req.params.id));
+    if (!doc) return res.status(404).json({ message: 'Document not found' });
+    const inWorkflow = [doc.createdById, doc.preparedById, doc.reviewerId, doc.approverId].includes(user.id);
+    // Links are reference data: the people working on a draft, or the COO / admins / QM at any time
+    if (!(isManager(user) || (inWorkflow && !doc.isLocked))) {
+      return res.status(403).json({ message: 'Only the people working on this document (or the COO, an admin or the QM) can change its associated procedures' });
+    }
+    await setDocumentLinks(doc.id, parsed.data.linkedDocumentIds, user.id);
+    await storage.createAuditLog({
+      userId: user.id, action: AuditAction.UPDATE, entityType: 'document', entityId: doc.id,
+      newValue: JSON.stringify({ associatedProcedures: parsed.data.linkedDocumentIds }),
+    });
+    res.json({ success: true });
+  });
+
+  // The owner confirms the document still fits the changed procedure (or after updating it)
+  app.post('/api/document-links/:id/reviewed', requireAuth, async (req, res) => {
+    const user = userOf(req);
+    const [link] = await db.select().from(documentLinks).where(eq(documentLinks.id, Number(req.params.id)));
+    if (!link) return res.status(404).json({ message: 'Link not found' });
+    const [doc] = await db.select().from(documents).where(eq(documents.id, link.documentId));
+    const [linked] = await db.select().from(documents).where(eq(documents.id, link.linkedDocumentId));
+    if (!doc || !linked) return res.status(404).json({ message: 'Document not found' });
+    if (!(isManager(user) || [doc.createdById, doc.preparedById].includes(user.id))) {
+      return res.status(403).json({ message: 'Only the document owner, the COO, an admin or the QM can confirm this review' });
+    }
+    await db.update(documentLinks).set({
+      needsReview: false, reviewedAt: new Date(), reviewedById: user.id, linkedVersion: docVersionLabel(linked),
+    }).where(eq(documentLinks.id, link.id));
+    await storage.createAuditLog({
+      userId: user.id, action: AuditAction.COMPLETE_TASK, entityType: 'document_link', entityId: link.id,
+      newValue: JSON.stringify({ documentId: doc.id, linkedDocumentId: linked.id, reviewedAgainst: docVersionLabel(linked), note: req.body?.note }),
+    });
+    res.json({ success: true });
   });
 
   // ---- All versions of a document (current and obsolete) ----

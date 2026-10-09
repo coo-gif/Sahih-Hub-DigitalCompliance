@@ -222,6 +222,10 @@ export const api = {
         assignedStaffIds: z.array(z.number()).optional(),
         assignedDepartments: z.array(z.string()).optional(),
         prepareTargetDate: z.string().optional(), // ISO; when the preparer must finish
+        linkedDocumentIds: z.array(z.number()).optional(), // associated procedures
+        sourceType: z.enum(['manual', 'google_drive']).optional(),
+        sourceFileName: z.string().optional(),
+        sourceFileUrl: z.string().optional(),
       }),
       responses: {
         201: z.custom<typeof documents.$inferSelect>(),

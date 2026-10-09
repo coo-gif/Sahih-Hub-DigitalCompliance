@@ -102,7 +102,11 @@ import {
 } from "./gmail-oauth";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { collectOpenTasks, TASK_TYPE_LABELS, type OpenTask } from "./task-sources";
-import { registerDocumentControlRoutes, presentForReader, recordApprovedVersion } from "./document-control";
+import { registerDocumentControlRoutes, presentForReader, recordApprovedVersion, setDocumentLinks } from "./document-control";
+import {
+  getDriveAuthUrl, saveUserDriveTokens, getDriveConnection, disconnectUserDrive, listDriveFiles, importDriveFile,
+  DriveNotConnectedError, UnsupportedFileError,
+} from "./google-drive";
 import {
   reconcileTasks, scheduleReconcile, getOpenTaskRecords, computeTaskMetrics, monthRange, refreshPerformanceReports,
   parseTargetDate, setTaskTarget, getTaskTarget, TargetDateError,
@@ -526,7 +530,11 @@ export async function registerRoutes(
       await storage.updateUser(user.id, { lastLogin: new Date() } as any);
       await storage.updateUserActivity(user.id);
       
-      const { passwordHash, ...userWithoutPassword } = user;
+      // Never send the password hash or Google (Gmail / Drive) tokens to the browser
+      const {
+        passwordHash, gmailAccessToken, gmailRefreshToken, driveAccessToken, driveRefreshToken,
+        ...userWithoutPassword
+      } = user;
       res.json({ user: userWithoutPassword });
     } catch (err) {
       console.error('Login error:', err);
@@ -915,7 +923,15 @@ export async function registerRoutes(
         approverId: input.approvedById || null,
         assignedStaffIds: input.assignedStaffIds || null,
         assignedDepartments: input.assignedDepartments || null,
-      });
+        sourceType: input.sourceType || 'manual',
+        sourceFileName: input.sourceFileName || null,
+        sourceFileUrl: input.sourceFileUrl || null,
+        sourceImportedAt: input.sourceType === 'google_drive' ? new Date() : null,
+      } as any);
+
+      if (input.linkedDocumentIds?.length) {
+        await setDocumentLinks(doc.id, input.linkedDocumentIds, getCurrentUserId(req));
+      }
 
       // Audit log
       await storage.createAuditLog({
@@ -6836,6 +6852,14 @@ Limit to the top 10 most important suggestions.`
       const redirectUri = `${protocol}://${host}/api/gmail/callback`;
       
       const tokens = await exchangeCodeForTokens(code as string, redirectUri);
+
+      // The same Google callback also completes the Google Drive connection (document import)
+      const driveState = stateData as { purpose?: string; returnTo?: string };
+      if (driveState.purpose === 'drive') {
+        await saveUserDriveTokens(userId, tokens.access_token!, tokens.refresh_token, tokens.expiry_date);
+        const returnTo = typeof driveState.returnTo === 'string' && /^\/(?![\/\\])/.test(driveState.returnTo) ? driveState.returnTo : '/documents/new';
+        return res.redirect(`${returnTo}${returnTo.includes('?') ? '&' : '?'}drive=connected`);
+      }
       
       await saveUserGmailTokens(
         userId,
@@ -6851,6 +6875,77 @@ Limit to the top 10 most important suggestions.`
     }
   });
   
+  // ============================================
+  // GOOGLE DRIVE (import documents)
+  // ============================================
+  app.get('/api/drive/status', requireAuth, async (req, res) => {
+    const userId = getCurrentUserId(req);
+    const connection = await getDriveConnection(userId);
+    res.json({
+      configured: isGoogleOAuthConfigured(),
+      connected: !!connection?.driveAccessToken,
+      connectedAt: connection?.driveConnectedAt ?? null,
+    });
+  });
+
+  app.get('/api/drive/connect', requireAuth, async (req, res) => {
+    try {
+      if (!isGoogleOAuthConfigured()) {
+        return res.status(400).json({ message: 'Google is not set up yet. An admin needs to add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.' });
+      }
+      const userId = getCurrentUserId(req);
+      const protocol = req.headers['x-forwarded-proto'] || 'https';
+      const host = req.headers['x-forwarded-host'] || req.headers.host;
+      const redirectUri = `${protocol}://${host}/api/gmail/callback`;
+      const crypto = await import('crypto');
+      const token = crypto.randomBytes(32).toString('hex');
+      const returnTo = typeof req.query.returnTo === 'string' && /^\/(?![\/\\])/.test(req.query.returnTo) ? req.query.returnTo : '/documents/new';
+      const state = Buffer.from(JSON.stringify({ userId, token, purpose: 'drive', returnTo })).toString('base64');
+      (req.session as any).oauthState = token;
+      await new Promise<void>((resolve, reject) => req.session.save(err => (err ? reject(err) : resolve())));
+      res.json({ authUrl: getDriveAuthUrl(redirectUri, state) });
+    } catch (error: any) {
+      console.error('Drive connect error:', error);
+      res.status(500).json({ message: error.message || 'Failed to start Google Drive connection' });
+    }
+  });
+
+  app.post('/api/drive/disconnect', requireAuth, async (req, res) => {
+    await disconnectUserDrive(getCurrentUserId(req));
+    res.json({ success: true });
+  });
+
+  const driveError = (res: Response, err: any) => {
+    if (err instanceof DriveNotConnectedError || err?.response?.status === 401 || err?.message === 'invalid_grant') {
+      return res.status(409).json({ code: 'not_connected', message: 'Connect Google Drive first' });
+    }
+    if (err instanceof UnsupportedFileError) {
+      return res.status(415).json({ code: 'unsupported', message: err.message });
+    }
+    if (err?.response?.status === 403) {
+      return res.status(403).json({ message: 'Google refused access to this file. Check the Drive API is enabled and the file is shared with you.' });
+    }
+    console.error('Google Drive error:', err);
+    return res.status(500).json({ message: 'Google Drive request failed' });
+  };
+
+  app.get('/api/drive/files', requireAuth, async (req, res) => {
+    try {
+      const search = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : undefined;
+      res.json(await listDriveFiles(getCurrentUserId(req), search || undefined));
+    } catch (err) {
+      driveError(res, err);
+    }
+  });
+
+  app.post('/api/drive/files/:fileId/import', requireAuth, async (req, res) => {
+    try {
+      res.json(await importDriveFile(getCurrentUserId(req), req.params.fileId));
+    } catch (err) {
+      driveError(res, err);
+    }
+  });
+
   // Disconnect Gmail
   app.post('/api/gmail/disconnect', requireAuth, async (req, res) => {
     try {

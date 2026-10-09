@@ -73,12 +73,30 @@ Step 5: The user uploads a signature → `PUT /api/users/:id/signature`. This si
 Document lifecycle: **Draft → In Review → Pending Approval → Approved (locked) → Document Hub**. Version is shown as `Ed.X Rev.Y`.
 
 ### 2.1 Create a draft document
-Step 1: `/documents/new` → enter code (e.g. SOP-001), title, category (policy/manual/sop/format/JD/training assessment) and importance --->
-Step 2: Write the content in the Tiptap editor (tables, images, links) --->
-Step 3: Choose the signatories (Prepared by / Reviewed by / Approved by), assigned staff or departments, and the next review date --->
-Step 4: `POST /api/documents` → status `draft` (the code must be unique) --->
-Step 5: Workflow log, audit log and live performance stat (`document_created`) are written --->
-Step 6: The document appears in the `/documents` list.
+Step 1: `/documents/new` → choose how to add it: **Add manually** or **Import from Google Drive** (see 2.1a) --->
+Step 2: Enter the Doc Ref No. (e.g. SOP-001), Document Name and Document Type (policy/manual/sop/format/JD/training assessment) --->
+Step 3: Write the content in the Tiptap editor (tables, images, links), or check the imported content --->
+Step 4: Link the **Associated Procedures** this document refers to (see 2.1b) --->
+Step 5: Choose the signatories (Prepared by / Reviewed by / Approved by), assigned staff or departments, and the next review date --->
+Step 6: `POST /api/documents` → status `draft` (the code must be unique). It also stores `sourceType` (`manual` / `google_drive`), the Drive file name and link, and `linkedDocumentIds` --->
+Step 7: Workflow log, audit log and live performance stat (`document_created`) are written --->
+Step 8: The document appears in the `/documents` list.
+
+### 2.1a Import from Google Drive
+Step 1: On `/documents/new` choose **Import from Google Drive**. `GET /api/drive/status` says whether Google is set up and whether this user has connected Drive --->
+Step 2: **Connect Google Drive** → `GET /api/drive/connect` returns the Google consent URL (read-only `drive.readonly` scope). Google sends the user back through `/api/gmail/callback` (state `purpose: drive`), the tokens are saved on the user and the page reopens with `?drive=connected` --->
+Step 3: **Choose a file** → `GET /api/drive/files?q=` lists Google Docs, Word (.docx), text and HTML files (newest first, searchable). PDFs are listed but cannot be imported: open them as a Google Doc first --->
+Step 4: **Import** → `POST /api/drive/files/:fileId/import`. Google Docs are exported as HTML, .docx is converted with mammoth, and text is wrapped in paragraphs. Bold, italic, underline, alignment, lists, tables and links are kept; headings become bold paragraphs --->
+Step 5: The content is pasted into the editor and the file name fills Document Name if it is empty. The user completes Doc Ref No., Document Type and the other fields, then saves as in 2.1 --->
+Step 6: The document records where it came from (`sourceType`, `sourceFileName`, `sourceFileUrl`, `sourceImportedAt`). The user can disconnect Drive at any time (`POST /api/drive/disconnect`).
+
+### 2.1b Associated procedures (links that follow changes)
+Step 1: When creating a document (or later, from the **Associated Procedures** card on the document page) the user picks the procedures it refers to. Each link remembers the version it was made against (`document_links.linkedVersion`, e.g. Ed.1 Rev.0) --->
+Step 2: The card shows each linked procedure with its current version and status, plus the documents that refer to this one ("Referenced by") --->
+Step 3: Links can be changed (`PUT /api/documents/:id/links`) by the people working on an unlocked document, or by the COO, an admin or the QM at any time --->
+Step 4: When a linked procedure gets a new approved version (change request → revision → COO approval), every document that links to it is flagged `needsReview` with a note (e.g. "SOP-100 changed from Ed.1 Rev.0 to Ed.1 Rev.1 (CR-2026-001)") --->
+Step 5: The owner of each flagged document is notified and gets a **Linked Procedure Changed** task (2 days) in My Tasks --->
+Step 6: The owner opens the document and either confirms it still fits (**Still valid, mark reviewed** → `POST /api/document-links/:id/reviewed`, the link moves to the new version and the task closes) or, for an approved document, raises a change request (2.8b) to update it.
 
 ### 2.2 Edit a draft
 Step 1: `/documents/:id/edit` loads the document --->

@@ -244,6 +244,11 @@ export const users = pgTable("users", {
   gmailRefreshToken: text("gmail_refresh_token"),
   gmailTokenExpiry: timestamp("gmail_token_expiry"),
   gmailConnectedAt: timestamp("gmail_connected_at"),
+  // Google Drive (read-only) for importing documents
+  driveAccessToken: text("drive_access_token"),
+  driveRefreshToken: text("drive_refresh_token"),
+  driveTokenExpiry: timestamp("drive_token_expiry"),
+  driveConnectedAt: timestamp("drive_connected_at"),
   // User agreement acceptance for ISO 27001 compliance
   agreementAcceptedAt: timestamp("agreement_accepted_at"),
 });
@@ -293,6 +298,11 @@ export const documents = pgTable("documents", {
   returnedById: integer("returned_by_id"),
   returnNote: text("return_note"),
   activeChangeRequestId: integer("active_change_request_id"), // set while an accepted change request is being revised
+  // Where the content came from: typed in, or imported from a Google Drive file
+  sourceType: text("source_type").notNull().default("manual"), // manual | google_drive
+  sourceFileName: text("source_file_name"),
+  sourceFileUrl: text("source_file_url"),
+  sourceImportedAt: timestamp("source_imported_at"),
   assignedStaffIds: integer("assigned_staff_ids").array(),
   assignedDepartments: text("assigned_departments").array(),
   createdAt: timestamp("created_at").defaultNow(),
@@ -490,6 +500,26 @@ export const changeRequests = pgTable("change_requests", {
 
 export type ChangeRequest = typeof changeRequests.$inferSelect;
 
+// ============================================
+// ASSOCIATED PROCEDURES (document → documents it relies on)
+// When a linked procedure gets a new approved version, the link is flagged for review.
+// ============================================
+export const documentLinks = pgTable("document_links", {
+  id: serial("id").primaryKey(),
+  documentId: integer("document_id").notNull(),        // the document that refers to...
+  linkedDocumentId: integer("linked_document_id").notNull(), // ...this procedure
+  linkedVersion: text("linked_version"),               // the procedure's version when linked / last reviewed
+  needsReview: boolean("needs_review").notNull().default(false),
+  flaggedAt: timestamp("flagged_at"),
+  flagNote: text("flag_note"),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewedById: integer("reviewed_by_id"),
+  createdById: integer("created_by_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type DocumentLink = typeof documentLinks.$inferSelect;
+
 // Who assigned a task and by when it must be completed. One row per task key (e.g. "review:12"),
 // overwritten each time the task is assigned or forwarded again.
 export const taskAssignments = pgTable("task_assignments", {
@@ -516,6 +546,7 @@ export const DEFAULT_TARGET_DAYS: Record<string, number> = {
   employee_review: 1,
   employee_approve: 1,
   change_request: 2,
+  link_review: 2,
 };
 
 // ============================================
