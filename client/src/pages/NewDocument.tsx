@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { useCreateDocument, useSubmitDocumentForReview } from "@/hooks/use-documents";
 import { useAuth } from "@/hooks/use-auth";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { TargetDateField, TARGET_DAYS, defaultTargetInput, targetToIso } from "@/components/TargetDateField";
 import { useUsers } from "@/hooks/use-users";
 import { useEmployees } from "@/hooks/use-employees";
@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import TiptapEditor from "@/components/TiptapEditor";
-import { DriveImportPanel, AssociatedProceduresPicker, type ImportedDriveFile } from "@/components/DocumentSources";
+import { WordUploadPanel, AssociatedProceduresPicker, isGoogleFileUrl, googleFileKind, errorMessage, type UploadedFile } from "@/components/DocumentSources";
 import {
   Select,
   SelectContent,
@@ -29,7 +29,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { ArrowLeft, FileText, Save, Eye, Send, Users, Building, Maximize2, Minimize2, Keyboard, HardDrive, Link2 } from "lucide-react";
+import { ArrowLeft, FileText, Save, Eye, Send, Users, Building, Maximize2, Minimize2, Keyboard, HardDrive, Link2, Upload, ExternalLink } from "lucide-react";
 import DOMPurify from "dompurify";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
 
@@ -53,11 +53,21 @@ export default function NewDocument() {
   const [selectedStaffIds, setSelectedStaffIds] = useState<number[]>([]);
   const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  // How the document is added: typed in, or imported from Google Drive (back from Google's consent screen = Drive)
-  const [source, setSource] = useState<"manual" | "google_drive">(() =>
-    new URLSearchParams(window.location.search).get("drive") ? "google_drive" : "manual");
-  const [importedFile, setImportedFile] = useState<ImportedDriveFile | null>(null);
+  // How the document is added: a linked Google file (register details only), an uploaded Word file, or typed / pasted
+  const [source, setSource] = useState<"google_link" | "upload" | "manual">("manual");
+  const [uploadedFile, setUploadedFile] = useState<UploadedFile | null>(null);
   const [linkedDocumentIds, setLinkedDocumentIds] = useState<number[]>([]);
+  const [registering, setRegistering] = useState(false);
+  // Audit details for a document kept in Google
+  const [linkForm, setLinkForm] = useState({
+    url: "",
+    editionNumber: "1",
+    revisionNumber: "0",
+    issueDate: new Date().toISOString().slice(0, 10),
+    preparedById: "",
+    reviewedById: "",
+    approvedById: "",
+  });
 
   const [formData, setFormData] = useState({
     documentCode: "",
@@ -67,6 +77,10 @@ export default function NewDocument() {
     content: "",
     nextReviewDate: "",
   });
+
+  const isLink = source === "google_link";
+  const linkReady = isGoogleFileUrl(linkForm.url) && !!formData.documentCode && !!formData.title &&
+    linkForm.editionNumber !== "" && linkForm.revisionNumber !== "" && !!linkForm.issueDate && !!linkForm.preparedById && !!linkForm.approvedById;
 
   const uniqueDepartments = useMemo(() => {
     const depts = new Set(employees.map(e => e.department));
@@ -89,18 +103,48 @@ export default function NewDocument() {
     );
   };
 
-  const handleImported = (file: ImportedDriveFile) => {
-    setImportedFile(file);
+  const handleUploaded = (file: UploadedFile) => {
+    setUploadedFile(file);
     setFormData(prev => ({ ...prev, content: file.html, title: prev.title || file.title }));
   };
 
   // Where the document came from and the procedures it refers to, sent with either create action
   const sourceFields = () => ({
     linkedDocumentIds: linkedDocumentIds.length > 0 ? linkedDocumentIds : undefined,
-    sourceType: source === "google_drive" && importedFile ? "google_drive" : "manual",
-    sourceFileName: source === "google_drive" && importedFile ? importedFile.fileName : undefined,
-    sourceFileUrl: source === "google_drive" && importedFile?.webViewLink ? importedFile.webViewLink : undefined,
+    sourceType: source === "upload" && uploadedFile ? "upload" : "manual",
+    sourceFileName: source === "upload" && uploadedFile ? uploadedFile.fileName : undefined,
   });
+
+  // A Google file: register its details; it goes straight to the COO for final approval
+  const handleRegisterLink = async () => {
+    setRegistering(true);
+    try {
+      await apiRequest("POST", "/api/documents/register-link", {
+        documentCode: formData.documentCode,
+        title: formData.title,
+        category: formData.category,
+        description: formData.description || undefined,
+        nextReviewDate: formData.nextReviewDate || undefined,
+        url: linkForm.url.trim(),
+        editionNumber: parseInt(linkForm.editionNumber),
+        revisionNumber: parseInt(linkForm.revisionNumber),
+        issueDate: linkForm.issueDate,
+        preparedById: parseInt(linkForm.preparedById),
+        reviewedById: linkForm.reviewedById ? parseInt(linkForm.reviewedById) : null,
+        approvedById: parseInt(linkForm.approvedById),
+        linkedDocumentIds: linkedDocumentIds.length > 0 ? linkedDocumentIds : undefined,
+        assignedStaffIds: selectedStaffIds.length > 0 ? selectedStaffIds : undefined,
+        assignedDepartments: selectedDepartments.length > 0 ? selectedDepartments : undefined,
+      });
+      queryClient.invalidateQueries({ predicate: q => String(q.queryKey[0]).startsWith("/api/documents") });
+      toast({ title: "Document registered", description: "It is now with the COO for final approval in the Document Hub." });
+      navigate("/documents");
+    } catch (error) {
+      toast({ title: "Could not register the document", description: errorMessage(error), variant: "destructive" });
+    } finally {
+      setRegistering(false);
+    }
+  };
 
   const handleCreateAsDraft = async () => {
     try {
@@ -194,13 +238,14 @@ export default function NewDocument() {
           <Card>
             <CardHeader>
               <CardTitle>How do you want to add this document?</CardTitle>
-              <CardDescription>Type it in, or bring in the content of a file from your Google Drive and complete the details.</CardDescription>
+              <CardDescription>Link a file kept in Google, open a Word file in the editor, or type / paste the content.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3" role="radiogroup">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3" role="radiogroup">
                 {([
-                  { value: "manual", icon: Keyboard, title: "Add manually", text: "Enter every field and write the content in the editor." },
-                  { value: "google_drive", icon: HardDrive, title: "Import from Google Drive", text: "Connect Drive, choose a file and its content is pasted into the editor." },
+                  { value: "google_link", icon: HardDrive, title: "Link a Google file", text: "Docs, Sheets or any Drive file stays in Google. Enter its register details only." },
+                  { value: "upload", icon: Upload, title: "Upload a Word file", text: "The .docx opens in the editor here, then goes through review and approval." },
+                  { value: "manual", icon: Keyboard, title: "Type or paste", text: "Write or paste the content into the editor." },
                 ] as const).map(option => (
                   <button
                     key={option.value}
@@ -216,9 +261,7 @@ export default function NewDocument() {
                   </button>
                 ))}
               </div>
-              {source === "google_drive" && (
-                <DriveImportPanel imported={importedFile} onImported={handleImported} />
-              )}
+              {source === "upload" && <WordUploadPanel uploaded={uploadedFile} onUploaded={handleUploaded} />}
             </CardContent>
           </Card>
 
@@ -288,6 +331,73 @@ export default function NewDocument() {
               </div>
             </CardContent>
           </Card>
+
+          {isLink && (
+          <Card data-testid="card-google-register">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><HardDrive className="w-5 h-5" /> Google File &amp; Register Details</CardTitle>
+              <CardDescription>
+                The document stays in Google. These details go into the Document Master List for audit, and the COO gives final approval in the Document Hub.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="google-url">Google file link *</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="google-url"
+                    placeholder="https://docs.google.com/spreadsheets/d/..."
+                    value={linkForm.url}
+                    onChange={(e) => setLinkForm({ ...linkForm, url: e.target.value })}
+                    data-testid="input-google-url"
+                  />
+                  <Button variant="outline" asChild disabled={!isGoogleFileUrl(linkForm.url)}>
+                    <a href={isGoogleFileUrl(linkForm.url) ? linkForm.url.trim() : undefined} target="_blank" rel="noreferrer"><ExternalLink className="w-4 h-4 mr-1" /> Open</a>
+                  </Button>
+                </div>
+                <p className="text-xs mt-1 text-muted-foreground">
+                  {linkForm.url && !isGoogleFileUrl(linkForm.url)
+                    ? <span className="text-destructive">Paste a link starting with https://docs.google.com/ or https://drive.google.com/</span>
+                    : linkForm.url ? `${googleFileKind(linkForm.url)}. Make sure the people who need it have access in Google.` : "Docs, Sheets, Slides or any file in Drive."}
+                </p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <Label htmlFor="edition">Edition *</Label>
+                  <Input id="edition" type="number" min={0} value={linkForm.editionNumber} onChange={(e) => setLinkForm({ ...linkForm, editionNumber: e.target.value })} data-testid="input-edition" />
+                </div>
+                <div>
+                  <Label htmlFor="revision">Revision *</Label>
+                  <Input id="revision" type="number" min={0} value={linkForm.revisionNumber} onChange={(e) => setLinkForm({ ...linkForm, revisionNumber: e.target.value })} data-testid="input-revision" />
+                </div>
+                <div>
+                  <Label htmlFor="issue-date">Issue date *</Label>
+                  <Input id="issue-date" type="date" value={linkForm.issueDate} onChange={(e) => setLinkForm({ ...linkForm, issueDate: e.target.value })} data-testid="input-issue-date" />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {([
+                  ["preparedById", "Prepared by *"],
+                  ["reviewedById", "Reviewed by"],
+                  ["approvedById", "Approved by *"],
+                ] as const).map(([field, label]) => (
+                  <div key={field}>
+                    <Label>{label}</Label>
+                    <Select value={linkForm[field]} onValueChange={(v) => setLinkForm({ ...linkForm, [field]: v === "none" ? "" : v })}>
+                      <SelectTrigger data-testid={`select-${field}`}><SelectValue placeholder="Choose..." /></SelectTrigger>
+                      <SelectContent>
+                        {field === "reviewedById" && <SelectItem value="none">Not reviewed</SelectItem>}
+                        {users.map((user) => (
+                          <SelectItem key={user.id} value={user.id.toString()}>{user.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+          )}
 
           <Card>
             <CardHeader>
@@ -384,13 +494,14 @@ export default function NewDocument() {
             </CardContent>
           </Card>
 
+          {!isLink && (<>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2">
               <div>
                 <CardTitle>Document Content</CardTitle>
                 <CardDescription>
-                  {importedFile && source === "google_drive"
-                    ? `Imported from ${importedFile.fileName}. Check and tidy the content before saving.`
+                  {uploadedFile && source === "upload"
+                    ? `Opened from ${uploadedFile.fileName}. Check and tidy the content before saving.`
                     : "Write the document content using the rich text editor"}
                 </CardDescription>
               </div>
@@ -451,6 +562,16 @@ export default function NewDocument() {
             </CardContent>
           </Card>
 
+          </>)}
+
+          {isLink ? (
+          <div className="flex items-center justify-end gap-3 pt-4 border-t">
+            <Button onClick={handleRegisterLink} disabled={!linkReady || registering} data-testid="button-register-link">
+              <Send className="w-4 h-4 mr-2" />
+              {registering ? "Registering..." : "Register & send to COO"}
+            </Button>
+          </div>
+          ) : (
           <div className="flex items-center justify-end gap-3 pt-4 border-t">
             <Button 
               variant="outline"
@@ -472,6 +593,7 @@ export default function NewDocument() {
             </Button>
             )}
           </div>
+          )}
 
           </div>
         </div>

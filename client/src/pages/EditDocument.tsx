@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import TiptapEditor, { AISuggestion, type CommentSelection } from "@/components/TiptapEditor";
 import { CommentComposer, CommentsPanel, type DocComment } from "@/components/DocumentComments";
-import { AssociatedProceduresCard } from "@/components/DocumentSources";
+import { AssociatedProceduresCard, GoogleFileCard } from "@/components/DocumentSources";
 import { locateComment } from "@/lib/comment-highlights";
 import { useAuth } from "@/hooks/use-auth";
 import { TargetDateField, TARGET_DAYS, defaultTargetInput, targetToIso } from "@/components/TargetDateField";
@@ -900,6 +900,9 @@ export default function EditDocument() {
             />
           )}
 
+          {document?.sourceType === "google_link" ? (
+            <GoogleFileCard url={document.sourceFileUrl} title={document.documentCode} />
+          ) : (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2">
               <div>
@@ -935,6 +938,7 @@ export default function EditDocument() {
               </div>
             </CardContent>
           </Card>
+          )}
 
           </div>
         </div>

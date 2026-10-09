@@ -244,11 +244,6 @@ export const users = pgTable("users", {
   gmailRefreshToken: text("gmail_refresh_token"),
   gmailTokenExpiry: timestamp("gmail_token_expiry"),
   gmailConnectedAt: timestamp("gmail_connected_at"),
-  // Google Drive (read-only) for importing documents
-  driveAccessToken: text("drive_access_token"),
-  driveRefreshToken: text("drive_refresh_token"),
-  driveTokenExpiry: timestamp("drive_token_expiry"),
-  driveConnectedAt: timestamp("drive_connected_at"),
   // User agreement acceptance for ISO 27001 compliance
   agreementAcceptedAt: timestamp("agreement_accepted_at"),
 });
@@ -298,8 +293,9 @@ export const documents = pgTable("documents", {
   returnedById: integer("returned_by_id"),
   returnNote: text("return_note"),
   activeChangeRequestId: integer("active_change_request_id"), // set while an accepted change request is being revised
-  // Where the content came from: typed in, or imported from a Google Drive file
-  sourceType: text("source_type").notNull().default("manual"), // manual | google_drive
+  // Where the document lives: typed/pasted in the editor, uploaded Word file, or a linked Google file
+  sourceType: text("source_type").notNull().default("manual"), // manual | upload | google_link
+  issueDate: timestamp("issue_date"), // date of issue of the current version (audit register)
   sourceFileName: text("source_file_name"),
   sourceFileUrl: text("source_file_url"),
   sourceImportedAt: timestamp("source_imported_at"),

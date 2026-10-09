@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Archive, Download, FileText, History, ListChecks, Printer } from "lucide-react";
+import { Archive, Download, ExternalLink, FileText, History, ListChecks, Printer } from "lucide-react";
 import { CR_STATUS, type ChangeRequestDetail } from "@/components/DocumentControl";
 
 interface ObsoleteRow {
@@ -30,6 +30,14 @@ interface MasterListRow {
   title: string;
   category: string;
   version: string;
+  editionNumber: number;
+  revisionNumber: number;
+  issueDate: string | null;
+  preparedByName: string | null;
+  reviewedByName: string | null;
+  signedApprovedByName: string | null;
+  sourceType: string;
+  googleUrl: string | null;
   approvedAt: string | null;
   approvedByName: string | null;
   classification: string | null;
@@ -41,6 +49,7 @@ interface MasterListRow {
 const day = (value: string | null | undefined) => (value ? format(new Date(value), "dd MMM yyyy") : "-");
 const label = (value: string | null | undefined) =>
   value ? value.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "-";
+const typeLabel = (value: string | null | undefined) => (value === "sop" ? "SOP" : label(value));
 
 const STATUS_STYLES: Record<string, string> = {
   current: "bg-emerald-100 text-emerald-700",
@@ -210,9 +219,12 @@ export default function RecordsHive() {
                 className="print:hidden"
                 disabled={masterRows.length === 0}
                 onClick={() => downloadCsv(`document-master-list-${format(new Date(), "yyyy-MM-dd")}.csv`, masterRows.map(r => ({
-                  "Doc Ref": r.documentCode, Title: r.title, Category: label(r.category), Version: r.version,
-                  Approved: day(r.approvedAt), "Approved by": r.approvedByName ?? "", Classification: label(r.classification),
-                  Status: label(r.status), "Next review": day(r.nextReviewDate), "Versions kept": r.versionsKept,
+                  "Doc Ref No.": r.documentCode, "Document Name": r.title, Type: typeLabel(r.category),
+                  Edition: r.editionNumber, Revision: r.revisionNumber, "Issue Date": day(r.issueDate),
+                  "Prepared by": r.preparedByName ?? "", "Reviewed by": r.reviewedByName ?? "", "Approved by": r.signedApprovedByName ?? "",
+                  "Final approval (COO)": r.approvedByName ?? "", Classification: label(r.classification),
+                  Status: label(r.status), "Next review": day(r.nextReviewDate), "Kept in": r.googleUrl ?? "Sahih Hub",
+                  "Versions kept": r.versionsKept,
                 })))}
                 data-testid="button-export-master-list"
               >
@@ -226,27 +238,36 @@ export default function RecordsHive() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Doc Ref</TableHead>
-                      <TableHead>Title</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Version</TableHead>
-                      <TableHead>Approved</TableHead>
+                      <TableHead>Doc Ref No.</TableHead>
+                      <TableHead>Document Name</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead className="text-center">Edition</TableHead>
+                      <TableHead className="text-center">Revision</TableHead>
+                      <TableHead>Issue Date</TableHead>
+                      <TableHead>Prepared by</TableHead>
+                      <TableHead>Reviewed by</TableHead>
                       <TableHead>Approved by</TableHead>
                       <TableHead>Classification</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Next review</TableHead>
-                      <TableHead className="text-center">Versions kept</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {masterRows.map(row => (
                       <TableRow key={row.documentId} data-testid={`master-${row.documentCode}`}>
                         <TableCell className="font-mono">{row.documentCode}</TableCell>
-                        <TableCell>{row.title}</TableCell>
-                        <TableCell>{label(row.category)}</TableCell>
-                        <TableCell className="font-mono">{row.version}</TableCell>
-                        <TableCell>{day(row.approvedAt)}</TableCell>
-                        <TableCell>{row.approvedByName ?? "-"}</TableCell>
+                        <TableCell>
+                          {row.googleUrl
+                            ? <a href={row.googleUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">{row.title}<ExternalLink className="h-3 w-3" /></a>
+                            : row.title}
+                        </TableCell>
+                        <TableCell>{typeLabel(row.category)}</TableCell>
+                        <TableCell className="text-center">{row.editionNumber}</TableCell>
+                        <TableCell className="text-center">{row.revisionNumber}</TableCell>
+                        <TableCell>{day(row.issueDate)}</TableCell>
+                        <TableCell>{row.preparedByName ?? "-"}</TableCell>
+                        <TableCell>{row.reviewedByName ?? "-"}</TableCell>
+                        <TableCell>{row.signedApprovedByName ?? "-"}</TableCell>
                         <TableCell>{label(row.classification)}</TableCell>
                         <TableCell>
                           <Badge className={STATUS_STYLES[row.status] ?? ""}>
@@ -254,7 +275,6 @@ export default function RecordsHive() {
                           </Badge>
                         </TableCell>
                         <TableCell>{day(row.nextReviewDate)}</TableCell>
-                        <TableCell className="text-center">{row.versionsKept}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

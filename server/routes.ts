@@ -103,10 +103,7 @@ import {
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { collectOpenTasks, TASK_TYPE_LABELS, type OpenTask } from "./task-sources";
 import { registerDocumentControlRoutes, presentForReader, recordApprovedVersion, setDocumentLinks } from "./document-control";
-import {
-  getDriveAuthUrl, saveUserDriveTokens, getDriveConnection, disconnectUserDrive, listDriveFiles, importDriveFile,
-  DriveNotConnectedError, UnsupportedFileError,
-} from "./google-drive";
+import { convertUploadedFile, isGoogleFileUrl, UnsupportedFileError } from "./document-import";
 import {
   reconcileTasks, scheduleReconcile, getOpenTaskRecords, computeTaskMetrics, monthRange, refreshPerformanceReports,
   parseTargetDate, setTaskTarget, getTaskTarget, TargetDateError,
@@ -530,9 +527,9 @@ export async function registerRoutes(
       await storage.updateUser(user.id, { lastLogin: new Date() } as any);
       await storage.updateUserActivity(user.id);
       
-      // Never send the password hash or Google (Gmail / Drive) tokens to the browser
+      // Never send the password hash or Gmail tokens to the browser
       const {
-        passwordHash, gmailAccessToken, gmailRefreshToken, driveAccessToken, driveRefreshToken,
+        passwordHash, gmailAccessToken, gmailRefreshToken,
         ...userWithoutPassword
       } = user;
       res.json({ user: userWithoutPassword });
@@ -808,7 +805,7 @@ export async function registerRoutes(
   // ============================================
   // DOCUMENT ROUTES
   // ============================================
-  app.get(api.documents.list.path, async (req, res) => {
+  app.get(api.documents.list.path, requireAuth, async (req, res) => {
     const filters = {
       status: req.query.status as string | undefined,
       category: req.query.category as string | undefined,
@@ -848,6 +845,7 @@ export async function registerRoutes(
         content: null,
         fileUrl: null,
         finalPdfUrl: null,
+        sourceFileUrl: null,
         viewerHasAccess: false,
       };
     }));
@@ -855,7 +853,7 @@ export async function registerRoutes(
     res.json(filteredDocs);
   });
 
-  app.get(api.documents.get.path, async (req, res) => {
+  app.get(api.documents.get.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid document ID' });
@@ -896,10 +894,11 @@ export async function registerRoutes(
       content: null,
       fileUrl: null,
       finalPdfUrl: null,
+      sourceFileUrl: null,
     });
   });
 
-  app.post(api.documents.create.path, async (req, res) => {
+  app.post(api.documents.create.path, requireAuth, async (req, res) => {
     try {
       const input = api.documents.create.input.parse(req.body);
       const prepareTarget = input.preparedById ? parseTargetDate(input.prepareTargetDate, 'prepare') : null;
@@ -926,7 +925,7 @@ export async function registerRoutes(
         sourceType: input.sourceType || 'manual',
         sourceFileName: input.sourceFileName || null,
         sourceFileUrl: input.sourceFileUrl || null,
-        sourceImportedAt: input.sourceType === 'google_drive' ? new Date() : null,
+        sourceImportedAt: input.sourceType === 'upload' ? new Date() : null,
       } as any);
 
       if (input.linkedDocumentIds?.length) {
@@ -974,6 +973,122 @@ export async function registerRoutes(
         });
       }
       throw err;
+    }
+  });
+
+  // Upload a Word (.docx) / text / HTML file: returns its content for the document editor
+  app.post('/api/documents/convert-upload', requireAuth, async (req, res) => {
+    const parsed = z.object({
+      fileName: z.string().min(1).max(255),
+      data: z.string().min(1), // base64
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: 'Choose a file to upload' });
+    try {
+      const buffer = Buffer.from(parsed.data.data, 'base64');
+      if (buffer.length > 7 * 1024 * 1024) return res.status(413).json({ message: 'The file is larger than 7 MB' });
+      const html = await convertUploadedFile(parsed.data.fileName, buffer);
+      res.json({ fileName: parsed.data.fileName, title: parsed.data.fileName.replace(/\.(docx?|txt|html?)$/i, ''), html });
+    } catch (err: any) {
+      if (err instanceof UnsupportedFileError) return res.status(415).json({ message: err.message });
+      console.error('Error converting uploaded file:', err);
+      res.status(422).json({ message: 'This file could not be read. Check it opens in Word and upload it again.' });
+    }
+  });
+
+  // Register a document kept in Google (Docs / Sheets / Drive): only the audit details are entered here.
+  // It goes straight to the COO's final approval in the Document Hub.
+  app.post('/api/documents/register-link', requireAuth, async (req, res) => {
+    const userId = getCurrentUserId(req);
+    const parsed = z.object({
+      documentCode: z.string().trim().min(1, 'Enter the doc ref no.'),
+      title: z.string().trim().min(1, 'Enter the document name'),
+      category: z.string().min(1),
+      url: z.string().trim().refine(isGoogleFileUrl, 'Paste the link of a Google Doc, Sheet, Slides or Drive file (https://docs.google.com/... or https://drive.google.com/...)'),
+      editionNumber: z.number().int().min(0).max(999),
+      revisionNumber: z.number().int().min(0).max(999),
+      issueDate: z.string().refine(v => !isNaN(Date.parse(v)), 'Enter the issue date'),
+      preparedById: z.number({ required_error: 'Choose who prepared it' }).int().positive({ message: 'Choose who prepared it' }),
+      reviewedById: z.number().int().positive().optional().nullable(),
+      approvedById: z.number({ required_error: 'Choose who approved it' }).int().positive({ message: 'Choose who approved it' }),
+      description: z.string().optional(),
+      nextReviewDate: z.string().optional(),
+      linkedDocumentIds: z.array(z.number().int().positive()).optional(),
+      assignedStaffIds: z.array(z.number()).optional(),
+      assignedDepartments: z.array(z.string()).optional(),
+    }).safeParse(req.body);
+    if (!parsed.success) {
+      const issue = parsed.error.errors[0];
+      return res.status(400).json({ message: issue.message, field: issue.path.join('.') });
+    }
+    const input = parsed.data;
+    try {
+      for (const id of [input.preparedById, input.reviewedById, input.approvedById]) {
+        if (id && !(await storage.getUser(id))) return res.status(400).json({ message: 'One of the chosen signatories was not found' });
+      }
+      const issueDate = new Date(input.issueDate);
+      const now = new Date();
+      const doc = await storage.createDocument({
+        documentCode: input.documentCode,
+        title: input.title,
+        description: input.description || null,
+        category: input.category,
+        content: null,
+        fileUrl: input.url,
+        versionNumber: `${input.editionNumber}.${input.revisionNumber}`,
+        editionNumber: input.editionNumber,
+        revisionNumber: input.revisionNumber,
+        status: DocumentStatus.APPROVED,
+        createdById: userId,
+        nextReviewDate: input.nextReviewDate ? new Date(input.nextReviewDate) : null,
+        preparedById: input.preparedById,
+        reviewerId: input.reviewedById || null,
+        reviewedById: input.reviewedById || null,
+        approverId: input.approvedById,
+        approvedById: input.approvedById,
+        approvedAt: issueDate,
+        issueDate,
+        hubStatus: DocumentHubStatus.PENDING_COO_APPROVAL,
+        transferredToHubAt: now,
+        assignedStaffIds: input.assignedStaffIds?.length ? input.assignedStaffIds : null,
+        assignedDepartments: input.assignedDepartments?.length ? input.assignedDepartments : null,
+        sourceType: 'google_link',
+        sourceFileName: input.title,
+        sourceFileUrl: input.url,
+      } as any);
+      if (input.linkedDocumentIds?.length) await setDocumentLinks(doc.id, input.linkedDocumentIds, userId);
+
+      await storage.createWorkflowLog({
+        documentId: doc.id,
+        fromStatus: null,
+        toStatus: DocumentStatus.APPROVED,
+        actionById: userId,
+        comments: 'Registered from a Google file; sent to the COO for final approval in the Document Hub',
+      });
+      await storage.createAuditLog({
+        userId, action: AuditAction.CREATE, entityType: 'document', entityId: doc.id,
+        newValue: JSON.stringify({ ...input, source: 'google_link' }),
+      });
+      const coo = await storage.getUserByEmail('coo@sahihcertify.com');
+      if (coo) {
+        await setTaskTarget(`hub_approval:${doc.id}`, { assigneeId: coo.id, initiatorId: userId, targetDate: parseTargetDate(undefined, 'hub_approval') });
+        if (coo.id !== userId) {
+          await storage.createNotification({
+            userId: coo.id,
+            title: 'Document Awaiting Final Approval',
+            message: `"${doc.documentCode} - ${doc.title}" (Google file) was registered and awaits your final approval in the Document Hub.`,
+            urgencyLevel: UrgencyLevel.MEDIUM,
+            relatedDocumentId: doc.id,
+          });
+        }
+      }
+      await storage.updateLiveReportStats(userId, 'document_created');
+      res.status(201).json(doc);
+    } catch (err: any) {
+      if (err?.code === '23505' && err?.constraint === 'documents_document_code_unique') {
+        return res.status(400).json({ message: 'A document with this doc ref no. already exists.', field: 'documentCode' });
+      }
+      console.error('Error registering Google document:', err);
+      res.status(500).json({ message: 'Failed to register the document' });
     }
   });
 
@@ -4746,6 +4861,8 @@ export async function registerRoutes(
         classification,
         hubApprovedById: currentUserId,
         hubApprovedAt: new Date(),
+        // Issue date: the date entered for a registered Google file, otherwise the date of this approval
+        issueDate: (document as any).issueDate && !version.previousVersion ? (document as any).issueDate : new Date(),
         editionNumber: version.editionNumber,
         revisionNumber: version.revisionNumber,
         versionNumber: version.versionNumber,
@@ -6853,14 +6970,6 @@ Limit to the top 10 most important suggestions.`
       
       const tokens = await exchangeCodeForTokens(code as string, redirectUri);
 
-      // The same Google callback also completes the Google Drive connection (document import)
-      const driveState = stateData as { purpose?: string; returnTo?: string };
-      if (driveState.purpose === 'drive') {
-        await saveUserDriveTokens(userId, tokens.access_token!, tokens.refresh_token, tokens.expiry_date);
-        const returnTo = typeof driveState.returnTo === 'string' && /^\/(?![\/\\])/.test(driveState.returnTo) ? driveState.returnTo : '/documents/new';
-        return res.redirect(`${returnTo}${returnTo.includes('?') ? '&' : '?'}drive=connected`);
-      }
-      
       await saveUserGmailTokens(
         userId,
         tokens.access_token!,
@@ -6875,77 +6984,6 @@ Limit to the top 10 most important suggestions.`
     }
   });
   
-  // ============================================
-  // GOOGLE DRIVE (import documents)
-  // ============================================
-  app.get('/api/drive/status', requireAuth, async (req, res) => {
-    const userId = getCurrentUserId(req);
-    const connection = await getDriveConnection(userId);
-    res.json({
-      configured: isGoogleOAuthConfigured(),
-      connected: !!connection?.driveAccessToken,
-      connectedAt: connection?.driveConnectedAt ?? null,
-    });
-  });
-
-  app.get('/api/drive/connect', requireAuth, async (req, res) => {
-    try {
-      if (!isGoogleOAuthConfigured()) {
-        return res.status(400).json({ message: 'Google is not set up yet. An admin needs to add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.' });
-      }
-      const userId = getCurrentUserId(req);
-      const protocol = req.headers['x-forwarded-proto'] || 'https';
-      const host = req.headers['x-forwarded-host'] || req.headers.host;
-      const redirectUri = `${protocol}://${host}/api/gmail/callback`;
-      const crypto = await import('crypto');
-      const token = crypto.randomBytes(32).toString('hex');
-      const returnTo = typeof req.query.returnTo === 'string' && /^\/(?![\/\\])/.test(req.query.returnTo) ? req.query.returnTo : '/documents/new';
-      const state = Buffer.from(JSON.stringify({ userId, token, purpose: 'drive', returnTo })).toString('base64');
-      (req.session as any).oauthState = token;
-      await new Promise<void>((resolve, reject) => req.session.save(err => (err ? reject(err) : resolve())));
-      res.json({ authUrl: getDriveAuthUrl(redirectUri, state) });
-    } catch (error: any) {
-      console.error('Drive connect error:', error);
-      res.status(500).json({ message: error.message || 'Failed to start Google Drive connection' });
-    }
-  });
-
-  app.post('/api/drive/disconnect', requireAuth, async (req, res) => {
-    await disconnectUserDrive(getCurrentUserId(req));
-    res.json({ success: true });
-  });
-
-  const driveError = (res: Response, err: any) => {
-    if (err instanceof DriveNotConnectedError || err?.response?.status === 401 || err?.message === 'invalid_grant') {
-      return res.status(409).json({ code: 'not_connected', message: 'Connect Google Drive first' });
-    }
-    if (err instanceof UnsupportedFileError) {
-      return res.status(415).json({ code: 'unsupported', message: err.message });
-    }
-    if (err?.response?.status === 403) {
-      return res.status(403).json({ message: 'Google refused access to this file. Check the Drive API is enabled and the file is shared with you.' });
-    }
-    console.error('Google Drive error:', err);
-    return res.status(500).json({ message: 'Google Drive request failed' });
-  };
-
-  app.get('/api/drive/files', requireAuth, async (req, res) => {
-    try {
-      const search = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : undefined;
-      res.json(await listDriveFiles(getCurrentUserId(req), search || undefined));
-    } catch (err) {
-      driveError(res, err);
-    }
-  });
-
-  app.post('/api/drive/files/:fileId/import', requireAuth, async (req, res) => {
-    try {
-      res.json(await importDriveFile(getCurrentUserId(req), req.params.fileId));
-    } catch (err) {
-      driveError(res, err);
-    }
-  });
-
   // Disconnect Gmail
   app.post('/api/gmail/disconnect', requireAuth, async (req, res) => {
     try {

@@ -72,23 +72,29 @@ Step 5: The user uploads a signature → `PUT /api/users/:id/signature`. This si
 
 Document lifecycle: **Draft → In Review → Pending Approval → Approved (locked) → Document Hub**. Version is shown as `Ed.X Rev.Y`.
 
-### 2.1 Create a draft document
-Step 1: `/documents/new` → choose how to add it: **Add manually** or **Import from Google Drive** (see 2.1a) --->
-Step 2: Enter the Doc Ref No. (e.g. SOP-001), Document Name and Document Type (policy/manual/sop/format/JD/training assessment) --->
-Step 3: Write the content in the Tiptap editor (tables, images, links), or check the imported content --->
-Step 4: Link the **Associated Procedures** this document refers to (see 2.1b) --->
-Step 5: Choose the signatories (Prepared by / Reviewed by / Approved by), assigned staff or departments, and the next review date --->
-Step 6: `POST /api/documents` → status `draft` (the code must be unique). It also stores `sourceType` (`manual` / `google_drive`), the Drive file name and link, and `linkedDocumentIds` --->
-Step 7: Workflow log, audit log and live performance stat (`document_created`) are written --->
-Step 8: The document appears in the `/documents` list.
+### 2.1 Add a document: three ways
+`/documents/new` → choose **Link a Google file**, **Upload a Word file** or **Type or paste**. All three take Doc Ref No., Document Name, Document Type and the Associated Procedures (2.1b).
 
-### 2.1a Import from Google Drive
-Step 1: On `/documents/new` choose **Import from Google Drive**. `GET /api/drive/status` says whether Google is set up and whether this user has connected Drive --->
-Step 2: **Connect Google Drive** → `GET /api/drive/connect` returns the Google consent URL (read-only `drive.readonly` scope). Google sends the user back through `/api/gmail/callback` (state `purpose: drive`), the tokens are saved on the user and the page reopens with `?drive=connected` --->
-Step 3: **Choose a file** → `GET /api/drive/files?q=` lists Google Docs, Word (.docx), text and HTML files (newest first, searchable). PDFs are listed but cannot be imported: open them as a Google Doc first --->
-Step 4: **Import** → `POST /api/drive/files/:fileId/import`. Google Docs are exported as HTML, .docx is converted with mammoth, and text is wrapped in paragraphs. Bold, italic, underline, alignment, lists, tables and links are kept; headings become bold paragraphs --->
-Step 5: The content is pasted into the editor and the file name fills Document Name if it is empty. The user completes Doc Ref No., Document Type and the other fields, then saves as in 2.1 --->
-Step 6: The document records where it came from (`sourceType`, `sourceFileName`, `sourceFileUrl`, `sourceImportedAt`). The user can disconnect Drive at any time (`POST /api/drive/disconnect`).
+**A. Link a Google file (Docs, Sheets, Slides, any Drive file)**: the document stays in Google
+Step 1: Paste the Google link (must start with https://docs.google.com/ or https://drive.google.com/). **Open** checks it in a new tab --->
+Step 2: Enter the audit register details: Edition, Revision, Issue date, Prepared by, Reviewed by (optional), Approved by --->
+Step 3: **Register & send to COO** → `POST /api/documents/register-link`. The document is created as approved and goes straight to the COO's final approval in the Document Hub (a Final Approval task for the COO) --->
+Step 4: The COO approves and classifies it in the Hub (2.8a). It is stored as Current with the entered edition, revision and issue date, and appears in the Document Master List with a link to the Google file --->
+Step 5: Opening the document in Sahih Hub shows **Open in Google**. People without access to the document do not get the link.
+
+**B. Upload a Word file**: the file opens in the in-app editor
+Step 1: **Choose file** (.docx, .txt or .html, up to 7 MB) → `POST /api/documents/convert-upload` turns it into editor content (bold, italic, underline, alignment, lists, tables and links kept; headings become bold text). Old .doc files must be saved as .docx first --->
+Step 2: The content appears in the editor and the file name fills Document Name if empty --->
+Step 3: Continue as C from step 2.
+
+**C. Type or paste**
+Step 1: Enter Doc Ref No. (e.g. SOP-001), Document Name and Document Type (policy/manual/sop/format/JD/training assessment) --->
+Step 2: Write or paste the content in the Tiptap editor (tables, images, links) --->
+Step 3: Choose the preparer and preparation due date, assigned staff or departments, and the next review date --->
+Step 4: `POST /api/documents` → status `draft` (the code must be unique); `sourceType` is `manual` or `upload` --->
+Step 5: Workflow log, audit log and live performance stat (`document_created`) are written. The document then goes through preparation, review, approval and the COO (2.3 onwards).
+
+**Issue date**: for a linked Google file it is the date entered; for documents approved in Sahih Hub it is the date of the COO's final approval, and it moves to the new date each time a new version is approved.
 
 ### 2.1b Associated procedures (links that follow changes)
 Step 1: When creating a document (or later, from the **Associated Procedures** card on the document page) the user picks the procedures it refers to. Each link remembers the version it was made against (`document_links.linkedVersion`, e.g. Ed.1 Rev.0) --->
@@ -429,6 +435,7 @@ Step 2: **Form** opens the printable Change Request Form (`/records/change-reque
 Step 1: Every superseded version (with what replaced it and the change request), plus documents the COO withdrew as Obsolete. Retained and not for use.
 
 ### 11.3 Document Master List
+Columns for audit: Doc Ref No., Document Name, Type, Edition, Revision, Issue Date, Prepared by, Reviewed by, Approved by, Classification, Status, Next review (Google files link straight to the file). Export CSV adds the COO's final approval and where the document is kept.
 Step 1: Every document with an approved version: ref, title, category, current version, approval date and approver, classification, status, next review date and how many versions are kept. It updates automatically each time a document is approved, and can be exported to CSV or printed.
 
 ## Recommended order to build / verify (dependency chain)

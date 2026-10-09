@@ -223,7 +223,7 @@ export const api = {
         assignedDepartments: z.array(z.string()).optional(),
         prepareTargetDate: z.string().optional(), // ISO; when the preparer must finish
         linkedDocumentIds: z.array(z.number()).optional(), // associated procedures
-        sourceType: z.enum(['manual', 'google_drive']).optional(),
+        sourceType: z.enum(['manual', 'upload']).optional(),
         sourceFileName: z.string().optional(),
         sourceFileUrl: z.string().optional(),
       }),

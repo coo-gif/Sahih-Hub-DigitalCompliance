@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { format } from "date-fns";
@@ -11,10 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import {
-  AlertTriangle, CheckCircle2, ExternalLink, FileText, FileType, HardDrive, Link2, Loader2, LogOut, Pencil, RefreshCw, Search, X,
-} from "lucide-react";
+import { AlertTriangle, CheckCircle2, ExternalLink, HardDrive, Link2, Loader2, Pencil, Search, Upload, X } from "lucide-react";
 
 // Server errors arrive as "409: {json}"; show the message part
 export function errorMessage(error: unknown): string {
@@ -50,258 +47,96 @@ function StatusBadge({ status }: { status: string | null | undefined }) {
 }
 
 // ---------------------------------------------------------------------------
-// Google Drive import
+// Word upload: the file opens in the document editor
 // ---------------------------------------------------------------------------
 
-interface DriveStatus {
-  configured: boolean;
-  connected: boolean;
-  connectedAt: string | null;
-}
-
-interface DriveFile {
-  id: string;
-  name: string;
-  mimeType: string;
-  modifiedTime: string | null;
-  owner: string | null;
-  webViewLink: string | null;
-  importable: boolean;
-}
-
-export interface ImportedDriveFile {
+export interface UploadedFile {
   fileName: string;
   title: string;
-  mimeType: string;
-  webViewLink: string | null;
   html: string;
 }
 
-const FILE_KINDS: Record<string, string> = {
-  "application/vnd.google-apps.document": "Google Doc",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "Word",
-  "text/plain": "Text",
-  "text/html": "HTML",
-  "application/pdf": "PDF",
-};
+const readAsBase64 = (file: File) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+  reader.onerror = () => reject(reader.error);
+  reader.readAsDataURL(file);
+});
 
-/**
- * Connects the user's Google Drive, lets them pick a file and returns its content as editor HTML.
- * The caller pastes it into the document form together with the other fields.
- */
-export function DriveImportPanel({
-  imported,
-  onImported,
-  returnTo = "/documents/new",
-}: {
-  imported: ImportedDriveFile | null;
-  onImported: (file: ImportedDriveFile) => void;
-  returnTo?: string;
-}) {
+export function WordUploadPanel({ uploaded, onUploaded }: { uploaded: UploadedFile | null; onUploaded: (file: UploadedFile) => void }) {
   const { toast } = useToast();
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const { data: status, isLoading } = useQuery<DriveStatus>({ queryKey: ["/api/drive/status"] });
-
-  // Back from Google's consent screen: open the picker straight away
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("drive") === "connected") {
-      toast({ title: "Google Drive connected", description: "Choose the file to import." });
-      params.delete("drive");
-      const query = params.toString();
-      window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
-      queryClient.invalidateQueries({ queryKey: ["/api/drive/status"] });
-      setPickerOpen(true);
-    }
-  }, [toast]);
-
-  const connect = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("GET", `/api/drive/connect?returnTo=${encodeURIComponent(returnTo)}`);
-      return (await res.json()) as { authUrl: string };
+  const inputRef = useRef<HTMLInputElement>(null);
+  const convert = useMutation({
+    mutationFn: async (file: File) => {
+      if (file.size > 7 * 1024 * 1024) throw new Error("The file is larger than 7 MB");
+      const res = await apiRequest("POST", "/api/documents/convert-upload", { fileName: file.name, data: await readAsBase64(file) });
+      return (await res.json()) as UploadedFile;
     },
-    onSuccess: ({ authUrl }) => { window.location.href = authUrl; },
-    onError: (error) => toast({ title: "Could not connect Google Drive", description: errorMessage(error), variant: "destructive" }),
-  });
-
-  const disconnect = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/drive/disconnect"),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/drive/status"] });
-      toast({ title: "Google Drive disconnected" });
+    onSuccess: (file) => {
+      toast({ title: "File opened", description: `${file.fileName} is now in the editor below.` });
+      onUploaded(file);
     },
+    onError: (err) => toast({ title: "Could not open this file", description: errorMessage(err), variant: "destructive" }),
   });
-
-  if (isLoading) return <Skeleton className="h-24 w-full" />;
-
-  if (!status?.configured) {
-    return (
-      <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 flex gap-3" data-testid="drive-not-configured">
-        <AlertTriangle className="h-5 w-5 flex-shrink-0" />
-        <div>
-          Google Drive import is not set up yet. An admin needs to add the Google sign-in keys
-          (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET) and enable the Google Drive API. Until then, enter the document manually.
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <div className="space-y-3" data-testid="drive-panel">
-      {!status.connected ? (
-        <div className="rounded-md border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="text-sm">
-            <div className="font-medium flex items-center gap-2"><HardDrive className="h-4 w-4" /> Connect your Google Drive</div>
-            <p className="text-muted-foreground mt-1">Read-only access: Sahih Hub only opens the file you choose.</p>
-          </div>
-          <Button onClick={() => connect.mutate()} disabled={connect.isPending} data-testid="button-drive-connect">
-            {connect.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <HardDrive className="h-4 w-4 mr-2" />}
-            Connect Google Drive
-          </Button>
-        </div>
-      ) : (
-        <div className="rounded-md border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="text-sm">
-            <div className="font-medium flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-emerald-600" /> Google Drive connected
-            </div>
-            {status.connectedAt && (
-              <p className="text-muted-foreground mt-1">Since {format(new Date(status.connectedAt), "dd MMM yyyy")}</p>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <Button onClick={() => setPickerOpen(true)} data-testid="button-drive-choose">
-              <FileText className="h-4 w-4 mr-2" /> {imported ? "Choose another file" : "Choose a file"}
-            </Button>
-            <Button variant="ghost" size="icon" title="Disconnect Google Drive" onClick={() => disconnect.mutate()} data-testid="button-drive-disconnect">
-              <LogOut className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {imported && (
-        <div className="rounded-md bg-muted/50 p-3 text-sm flex items-center justify-between gap-3" data-testid="drive-imported">
-          <span>
-            Imported from Google Drive: <span className="font-medium">{imported.fileName}</span>
-            <span className="text-muted-foreground"> · review the fields and the content below before saving.</span>
-          </span>
-          {imported.webViewLink && (
-            <a href={imported.webViewLink} target="_blank" rel="noreferrer" className="text-primary inline-flex items-center gap-1 flex-shrink-0">
-              Open in Drive <ExternalLink className="h-3.5 w-3.5" />
-            </a>
-          )}
-        </div>
-      )}
-
-      <DriveFilePicker
-        open={pickerOpen}
-        onOpenChange={setPickerOpen}
-        onImported={(file) => { setPickerOpen(false); onImported(file); }}
-        onDisconnected={() => queryClient.invalidateQueries({ queryKey: ["/api/drive/status"] })}
+    <div className="rounded-md border border-dashed p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3" data-testid="upload-panel">
+      <div className="text-sm">
+        <div className="font-medium flex items-center gap-2"><Upload className="h-4 w-4" /> Upload a Word file</div>
+        <p className="text-muted-foreground mt-1">
+          {uploaded
+            ? <>Opened <span className="font-medium text-foreground">{uploaded.fileName}</span>. Check the content in the editor below.</>
+            : "Word (.docx), text or HTML, up to 7 MB. Old .doc files: save as .docx first."}
+        </p>
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".docx,.txt,.html,.htm,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        className="hidden"
+        onChange={(e) => { const file = e.target.files?.[0]; if (file) convert.mutate(file); e.target.value = ""; }}
+        data-testid="input-upload-file"
       />
+      <Button onClick={() => inputRef.current?.click()} disabled={convert.isPending} data-testid="button-upload-file">
+        {convert.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+        {uploaded ? "Upload another file" : "Choose file"}
+      </Button>
     </div>
   );
 }
 
-function DriveFilePicker({
-  open, onOpenChange, onImported, onDisconnected,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onImported: (file: ImportedDriveFile) => void;
-  onDisconnected: () => void;
-}) {
-  const { toast } = useToast();
-  const [search, setSearch] = useState("");
-  const [query, setQuery] = useState("");
+// Google Docs / Sheets / Slides / Drive links (kept and opened in Google)
+export const isGoogleFileUrl = (value: string) => /^https:\/\/(docs|drive)\.google\.com\//.test(value.trim());
 
-  useEffect(() => {
-    const timer = setTimeout(() => setQuery(search.trim()), 350);
-    return () => clearTimeout(timer);
-  }, [search]);
+export function googleFileKind(url: string | null | undefined): string {
+  if (!url) return "Google file";
+  if (url.includes("/spreadsheets/")) return "Google Sheet";
+  if (url.includes("/presentation/")) return "Google Slides";
+  if (url.includes("/document/")) return "Google Doc";
+  if (url.includes("/forms/")) return "Google Form";
+  return "Google Drive file";
+}
 
-  const filesUrl = `/api/drive/files${query ? `?q=${encodeURIComponent(query)}` : ""}`;
-  const { data: files = [], isLoading, isFetching, error, refetch } = useQuery<DriveFile[]>({
-    queryKey: [filesUrl],
-    enabled: open,
-    retry: false,
-  });
-
-  useEffect(() => {
-    if (error && /^409/.test((error as Error).message)) onDisconnected();
-  }, [error, onDisconnected]);
-
-  const importFile = useMutation({
-    mutationFn: async (fileId: string) => {
-      const res = await apiRequest("POST", `/api/drive/files/${encodeURIComponent(fileId)}/import`);
-      return (await res.json()) as ImportedDriveFile;
-    },
-    onSuccess: (file) => {
-      toast({ title: "File imported", description: `${file.fileName} has been pasted into the document.` });
-      onImported(file);
-    },
-    onError: (err) => toast({ title: "Could not import this file", description: errorMessage(err), variant: "destructive" }),
-  });
-
+/** For documents kept in Google: open the file in a new tab. */
+export function GoogleFileCard({ url, title }: { url: string | null | undefined; title: string }) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl" data-testid="dialog-drive-picker">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><HardDrive className="h-5 w-5" /> Choose a file from Google Drive</DialogTitle>
-          <DialogDescription>Google Docs, Word (.docx) and text files can be imported. PDFs must first be opened as a Google Doc.</DialogDescription>
-        </DialogHeader>
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input className="pl-9" placeholder="Search by file name" value={search} onChange={e => setSearch(e.target.value)} data-testid="input-drive-search" />
-          </div>
-          <Button variant="outline" size="icon" onClick={() => refetch()} title="Refresh">
-            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+    <Card data-testid="card-google-file">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><HardDrive className="h-5 w-5" /> Kept in Google</CardTitle>
+        <CardDescription>
+          This document is maintained as a {googleFileKind(url)}. Sahih Hub holds its register details (doc ref, edition, revision, issue date, signatories) and its approval.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {url ? (
+          <Button asChild data-testid="button-open-google">
+            <a href={url} target="_blank" rel="noreferrer"><ExternalLink className="h-4 w-4 mr-2" /> Open {title} in Google</a>
           </Button>
-        </div>
-        <div className="max-h-[50vh] overflow-y-auto border rounded-md divide-y">
-          {isLoading ? (
-            <div className="p-3 space-y-2">{[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-10 w-full" />)}</div>
-          ) : error ? (
-            <p className="p-6 text-sm text-center text-destructive">{errorMessage(error)}</p>
-          ) : files.length === 0 ? (
-            <p className="p-6 text-sm text-center text-muted-foreground">No documents found{query ? ` for "${query}"` : ""}.</p>
-          ) : files.map(file => {
-            const busy = importFile.isPending && importFile.variables === file.id;
-            return (
-              <div key={file.id} className="flex items-center gap-3 p-3" data-testid={`drive-file-${file.id}`}>
-                <FileType className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium text-sm truncate">{file.name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {FILE_KINDS[file.mimeType] ?? file.mimeType}
-                    {file.modifiedTime && ` · modified ${format(new Date(file.modifiedTime), "dd MMM yyyy")}`}
-                    {file.owner && ` · ${file.owner}`}
-                  </div>
-                  {!file.importable && (
-                    <div className="text-xs text-amber-700 mt-0.5">
-                      {file.mimeType === "application/pdf" ? "PDF: open it with Google Docs in Drive, then import that copy." : "This file type cannot be imported."}
-                    </div>
-                  )}
-                </div>
-                <Button
-                  size="sm"
-                  disabled={!file.importable || importFile.isPending}
-                  onClick={() => importFile.mutate(file.id)}
-                  data-testid={`button-import-${file.id}`}
-                >
-                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Import"}
-                </Button>
-              </div>
-            );
-          })}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        ) : (
+          <p className="text-sm text-muted-foreground">You need access to this document to open it. Use Request Access.</p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

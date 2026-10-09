@@ -783,6 +783,21 @@ export default function DocumentHub() {
                   : "Approved document (read-only)"}
               </DialogDescription>
             </DialogHeader>
+            {selectedDocument?.sourceType === "google_link" && (
+              <div className="rounded-md border p-4 text-sm space-y-3" data-testid="hub-google-file">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div><div className="text-muted-foreground text-xs">Edition / Revision</div>Ed.{selectedDocument.editionNumber} Rev.{selectedDocument.revisionNumber}</div>
+                  <div><div className="text-muted-foreground text-xs">Issue date</div>{selectedDocument.issueDate ? new Date(selectedDocument.issueDate).toLocaleDateString("en-GB") : "-"}</div>
+                  <div><div className="text-muted-foreground text-xs">Prepared by</div>{users.find(u => u.id === selectedDocument.preparedById)?.name ?? "-"}</div>
+                  <div><div className="text-muted-foreground text-xs">Approved by</div>{users.find(u => u.id === (selectedDocument.approverId ?? selectedDocument.approvedById))?.name ?? "-"}</div>
+                </div>
+                {selectedDocument.sourceFileUrl && (
+                  <Button asChild>
+                    <a href={selectedDocument.sourceFileUrl} target="_blank" rel="noreferrer">Open the Google file</a>
+                  </Button>
+                )}
+              </div>
+            )}
             {selectedDocument?.content && (
               <div 
                 className="prose prose-sm dark:prose-invert max-w-none p-4 bg-muted/30 rounded-md"
