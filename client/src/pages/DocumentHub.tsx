@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -15,6 +16,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { HubChangeRequests, DocumentVersionsDialog } from "@/components/DocumentControl";
 import {
   Table,
   TableBody,
@@ -53,9 +57,13 @@ import {
   Shield,
   FileDown,
   Loader2,
-  Search
+  Search,
+  ShieldCheck,
+  Tag,
+  MessageSquare
 } from "lucide-react";
 import { format } from "date-fns";
+import { DocumentHubStatus } from "@shared/schema";
 import type { Document, User, DocumentAccessRequest, DocumentAccess } from "@shared/schema";
 
 const COO_EMAIL = 'coo@sahihcertify.com';
@@ -68,10 +76,53 @@ const categoryColors: Record<string, string> = {
   job_description: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
 };
 
+const classificationOptions = [
+  {
+    value: "confidential",
+    label: "Confidential",
+    description: "Only the people you select can view it.",
+    className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+  },
+  {
+    value: "controlled_copy",
+    label: "Controlled Copy",
+    description: "Official copy under document control. Selected people only; downloads need approval.",
+    className: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+  },
+  {
+    value: "public_information",
+    label: "Public Information",
+    description: "Every signed-in user can view it.",
+    className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+  },
+  {
+    value: "legal",
+    label: "Legal",
+    description: "Legal record. Only the people you select can view it.",
+    className: "bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-200",
+  },
+] as const;
+
+const lifecycleOptions = [
+  { value: "current", label: "Current", className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" },
+  { value: "under_revision", label: "Under Revision", className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" },
+  { value: "obsolete", label: "Obsolete", className: "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300" },
+  { value: "quarantine", label: "Quarantine", className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" },
+] as const;
+
+function ClassificationBadge({ classification }: { classification: string | null }) {
+  const option = classificationOptions.find(o => o.value === classification);
+  if (!option) {
+    return <span className="text-sm text-muted-foreground">Not classified</span>;
+  }
+  return <Badge className={option.className}>{option.label}</Badge>;
+}
+
 export default function DocumentHub() {
   const { data: currentUser } = useAuth();
   const { data: users = [] } = useUsers();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
@@ -81,12 +132,26 @@ export default function DocumentHub() {
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
   const [userSearchQuery, setUserSearchQuery] = useState("");
   const [decisionNote, setDecisionNote] = useState("");
+  const [showFinalApprovalDialog, setShowFinalApprovalDialog] = useState(false);
+  const [showClassificationDialog, setShowClassificationDialog] = useState(false);
+  const [selectedClassification, setSelectedClassification] = useState<string>("");
+  // Obsolete and quarantine withdraw a document from use, so they are confirmed with a reason
+  const [pendingLifecycle, setPendingLifecycle] = useState<{ doc: Document; status: string } | null>(null);
+  const [lifecycleReason, setLifecycleReason] = useState("");
   
   const isCOO = currentUser?.email === COO_EMAIL;
   
-  const { data: approvedDocuments = [], isLoading: isLoadingDocs } = useQuery<Document[]>({
-    queryKey: ["/api/documents?status=approved"],
+  const { data: allDocuments = [], isLoading: isLoadingDocs } = useQuery<Document[]>({
+    queryKey: ["/api/documents"],
   });
+  // Approved or stored documents, plus documents being revised under an accepted change request
+  const approvedDocuments = allDocuments.filter(d => d.status === "approved" || d.isLocked || d.activeChangeRequestId);
+  const { data: submittedChangeRequests = [] } = useQuery<Array<{ id: number }>>({
+    queryKey: ["/api/change-requests?status=submitted"],
+    enabled: isCOO,
+  });
+  const [versionsFor, setVersionsFor] = useState<Document | null>(null);
+  const [versionChange, setVersionChange] = useState<"revision" | "edition">("revision");
   
   const { data: pendingRequests = [], isLoading: isLoadingRequests } = useQuery<DocumentAccessRequest[]>({
     queryKey: ["/api/document-access-requests?status=pending"],
@@ -98,6 +163,80 @@ export default function DocumentHub() {
     enabled: isCOO,
   });
   
+  const resetFinalApproval = () => {
+    setShowFinalApprovalDialog(false);
+    setSelectedDocument(null);
+    setSelectedClassification("");
+    setSelectedUserIds([]);
+    setUserSearchQuery("");
+    setDecisionNote("");
+  };
+
+  const finalApprovalMutation = useMutation({
+    mutationFn: async ({ documentId, classification, userIds, comments, versionChange }: { documentId: number; classification: string; userIds: number[]; comments?: string; versionChange?: "revision" | "edition" }) => {
+      const response = await apiRequest("POST", `/api/documents/${documentId}/hub-approve`, { classification, userIds, comments, versionChange });
+      return response.json() as Promise<{ accessGrantedTo: number }>;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/documents?status=approved"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/document-access"] });
+      resetFinalApproval();
+      toast({
+        title: "Document stored in Sahih Hub",
+        description: data.accessGrantedTo > 0
+          ? `Locked and stored. ${data.accessGrantedTo} user${data.accessGrantedTo > 1 ? 's' : ''} granted access.`
+          : "Locked and stored.",
+      });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const changeClassificationMutation = useMutation({
+    mutationFn: async ({ documentId, classification }: { documentId: number; classification: string }) => {
+      return apiRequest("POST", `/api/documents/${documentId}/classification`, { classification });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/documents?status=approved"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
+      setShowClassificationDialog(false);
+      setSelectedDocument(null);
+      setSelectedClassification("");
+      toast({ title: "Classification updated" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const lifecycleMutation = useMutation({
+    mutationFn: async ({ documentId, lifecycleStatus, reason }: { documentId: number; lifecycleStatus: string; reason?: string }) => {
+      return apiRequest("POST", `/api/documents/${documentId}/lifecycle-status`, { lifecycleStatus, reason });
+    },
+    onSuccess: (_data, { lifecycleStatus }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/documents?status=approved"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
+      setPendingLifecycle(null);
+      setLifecycleReason("");
+      const label = lifecycleOptions.find(o => o.value === lifecycleStatus)?.label;
+      toast({ title: "Status updated", description: `Document marked as ${label}. Users with access were notified.` });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const changeLifecycle = (doc: Document, status: string) => {
+    if (status === doc.lifecycleStatus) return;
+    if (status === "obsolete" || status === "quarantine") {
+      setPendingLifecycle({ doc, status });
+    } else {
+      lifecycleMutation.mutate({ documentId: doc.id, lifecycleStatus: status });
+    }
+  };
+
   const approveRequestMutation = useMutation({
     mutationFn: async ({ requestId, note }: { requestId: number; note?: string }) => {
       return apiRequest("POST", `/api/document-access-requests/${requestId}/approve`, { decisionNote: note });
@@ -190,10 +329,14 @@ export default function DocumentHub() {
     return documentAccess.filter(a => a.documentId === docId && !a.isRevoked);
   };
   
-  const filteredDocuments = approvedDocuments.filter(doc => 
+  const matchesSearch = (doc: Document) =>
     doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    doc.documentCode.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+    doc.documentCode.toLowerCase().includes(searchQuery.toLowerCase());
+
+  const awaitingFinalApproval = approvedDocuments.filter(doc => doc.hubStatus === DocumentHubStatus.PENDING_COO_APPROVAL);
+  // A document under revision stays in the master list (its approved version is still in force)
+  const filteredDocuments = approvedDocuments.filter(doc =>
+    (doc.hubStatus !== DocumentHubStatus.PENDING_COO_APPROVAL || doc.activeChangeRequestId) && matchesSearch(doc));
   
   if (!isCOO) {
     return (
@@ -224,15 +367,29 @@ export default function DocumentHub() {
             Document Hub
           </h1>
           <p className="text-muted-foreground">
-            Manage access to approved documents. Only you (COO) can view and grant access to locked documents.
+            Give final approval to approved documents, classify them and store them in the Sahih Hub. Only you (COO) can view and grant access to locked documents.
           </p>
         </div>
         
-        <Tabs defaultValue="master-list" className="space-y-4">
+        <Tabs defaultValue={awaitingFinalApproval.length > 0 ? "final-approval" : "master-list"} className="space-y-4">
           <TabsList>
+            <TabsTrigger value="final-approval" data-testid="tab-final-approval">
+              <ShieldCheck className="h-4 w-4 mr-2" />
+              Awaiting Final Approval
+              {awaitingFinalApproval.length > 0 && (
+                <Badge variant="destructive" className="ml-2">{awaitingFinalApproval.length}</Badge>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="master-list" data-testid="tab-master-list">
               <FileText className="h-4 w-4 mr-2" />
               Document Master List
+            </TabsTrigger>
+            <TabsTrigger value="change-requests" data-testid="tab-change-requests">
+              <Tag className="h-4 w-4 mr-2" />
+              Change Requests
+              {submittedChangeRequests.length > 0 && (
+                <Badge variant="destructive" className="ml-2">{submittedChangeRequests.length}</Badge>
+              )}
             </TabsTrigger>
             <TabsTrigger value="access-requests" data-testid="tab-access-requests">
               <Clock className="h-4 w-4 mr-2" />
@@ -243,13 +400,107 @@ export default function DocumentHub() {
             </TabsTrigger>
           </TabsList>
           
+          <TabsContent value="final-approval" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Awaiting Final Approval</CardTitle>
+                <CardDescription>
+                  Documents signed off by their approver. Review each one, then either choose a classification and store it, or comment on it and return it to the approver.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {isLoadingDocs ? (
+                  <div className="space-y-3">
+                    {[1, 2, 3].map(i => (
+                      <Skeleton key={i} className="h-16 w-full" />
+                    ))}
+                  </div>
+                ) : awaitingFinalApproval.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Check className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                    <p>No documents awaiting your final approval</p>
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Document</TableHead>
+                        <TableHead>Category</TableHead>
+                        <TableHead>Approved By</TableHead>
+                        <TableHead>Moved to Hub</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {awaitingFinalApproval.map(doc => (
+                        <TableRow key={doc.id} data-testid={`row-pending-document-${doc.id}`}>
+                          <TableCell>
+                            <div className="font-medium">{doc.documentCode}</div>
+                            <div className="text-sm text-muted-foreground">{doc.title}</div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={categoryColors[doc.category] || "bg-muted"}>
+                              {doc.category.toUpperCase()}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{doc.approverId ? getUserName(doc.approverId) : "-"}</TableCell>
+                          <TableCell>
+                            {doc.transferredToHubAt ? format(new Date(doc.transferredToHubAt), "MMM d, yyyy") : "-"}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setSelectedDocument(doc);
+                                  setShowViewDialog(true);
+                                }}
+                                data-testid={`button-review-pending-${doc.id}`}
+                              >
+                                <Eye className="h-4 w-4 mr-1" />
+                                View
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => navigate(`/documents/${doc.id}/edit`)}
+                                data-testid={`button-comment-pending-${doc.id}`}
+                              >
+                                <MessageSquare className="h-4 w-4 mr-1" />
+                                Comment / Return
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedDocument(doc);
+                                  setSelectedClassification(doc.classification || "");
+                                  setVersionChange("revision");
+                                  setShowFinalApprovalDialog(true);
+                                }}
+                                data-testid={`button-final-approve-${doc.id}`}
+                              >
+                                <ShieldCheck className="h-4 w-4 mr-1" />
+                                Approve & Store
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           <TabsContent value="master-list" className="space-y-4">
             <Card>
               <CardHeader>
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                   <div>
                     <CardTitle>Approved Documents</CardTitle>
-                    <CardDescription>All locked documents in the system</CardDescription>
+                    <CardDescription>All documents stored in the Sahih Hub</CardDescription>
                   </div>
                   <Input
                     placeholder="Search documents..."
@@ -278,9 +529,11 @@ export default function DocumentHub() {
                       <TableRow>
                         <TableHead>Document</TableHead>
                         <TableHead>Category</TableHead>
+                        <TableHead>Classification</TableHead>
                         <TableHead>Approved</TableHead>
                         <TableHead>Users with Access</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
+                        <TableHead>Status</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -301,6 +554,9 @@ export default function DocumentHub() {
                               <Badge className={categoryColors[doc.category] || "bg-muted"}>
                                 {doc.category.toUpperCase()}
                               </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <ClassificationBadge classification={doc.classification} />
                             </TableCell>
                             <TableCell>
                               {doc.approvedAt ? format(new Date(doc.approvedAt), "MMM d, yyyy") : "-"}
@@ -344,6 +600,23 @@ export default function DocumentHub() {
                                       Download PDF
                                     </DropdownMenuItem>
                                   )}
+                                  <DropdownMenuItem onClick={() => setVersionsFor(doc)} data-testid={`button-versions-${doc.id}`}>
+                                    <FileText className="h-4 w-4 mr-2" />
+                                    Version History
+                                  </DropdownMenuItem>
+                                  {doc.isLocked && (
+                                    <DropdownMenuItem
+                                      onClick={() => {
+                                        setSelectedDocument(doc);
+                                        setSelectedClassification(doc.classification || "");
+                                        setShowClassificationDialog(true);
+                                      }}
+                                      data-testid={`button-classify-${doc.id}`}
+                                    >
+                                      <Tag className="h-4 w-4 mr-2" />
+                                      Change Classification
+                                    </DropdownMenuItem>
+                                  )}
                                   <DropdownMenuSeparator />
                                   <DropdownMenuItem
                                     onClick={() => {
@@ -366,6 +639,35 @@ export default function DocumentHub() {
                                 </DropdownMenuContent>
                               </DropdownMenu>
                             </TableCell>
+                            <TableCell>
+                              {doc.activeChangeRequestId ? (
+                                <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" data-testid={`status-under-revision-${doc.id}`}>
+                                  Current · Under revision
+                                </Badge>
+                              ) : doc.isLocked ? (
+                                <Select
+                                  value={doc.lifecycleStatus || "current"}
+                                  onValueChange={(value) => changeLifecycle(doc, value)}
+                                  disabled={lifecycleMutation.isPending}
+                                >
+                                  <SelectTrigger
+                                    className={`h-8 w-[150px] text-xs font-medium border-0 ${lifecycleOptions.find(o => o.value === (doc.lifecycleStatus || "current"))?.className}`}
+                                    data-testid={`select-lifecycle-${doc.id}`}
+                                  >
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {lifecycleOptions.map(option => (
+                                      <SelectItem key={option.value} value={option.value} data-testid={`lifecycle-option-${option.value}`}>
+                                        {option.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <span className="text-sm text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
                           </TableRow>
                         );
                       })}
@@ -376,6 +678,10 @@ export default function DocumentHub() {
             </Card>
           </TabsContent>
           
+          <TabsContent value="change-requests" className="space-y-4">
+            <HubChangeRequests />
+          </TabsContent>
+
           <TabsContent value="access-requests" className="space-y-4">
             <Card>
               <CardHeader>
@@ -472,9 +778,26 @@ export default function DocumentHub() {
                 {selectedDocument?.documentCode} - {selectedDocument?.title}
               </DialogTitle>
               <DialogDescription>
-                Approved document (read-only)
+                {selectedDocument?.hubStatus === DocumentHubStatus.PENDING_COO_APPROVAL
+                  ? "Approved document awaiting your final approval (read-only)"
+                  : "Approved document (read-only)"}
               </DialogDescription>
             </DialogHeader>
+            {selectedDocument?.sourceType === "google_link" && (
+              <div className="rounded-md border p-4 text-sm space-y-3" data-testid="hub-google-file">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div><div className="text-muted-foreground text-xs">Edition / Revision</div>Ed.{selectedDocument.editionNumber} Rev.{selectedDocument.revisionNumber}</div>
+                  <div><div className="text-muted-foreground text-xs">Issue date</div>{selectedDocument.issueDate ? new Date(selectedDocument.issueDate).toLocaleDateString("en-GB") : "-"}</div>
+                  <div><div className="text-muted-foreground text-xs">Prepared by</div>{users.find(u => u.id === selectedDocument.preparedById)?.name ?? "-"}</div>
+                  <div><div className="text-muted-foreground text-xs">Approved by</div>{users.find(u => u.id === (selectedDocument.approverId ?? selectedDocument.approvedById))?.name ?? "-"}</div>
+                </div>
+                {selectedDocument.sourceFileUrl && (
+                  <Button asChild>
+                    <a href={selectedDocument.sourceFileUrl} target="_blank" rel="noreferrer">Open the Google file</a>
+                  </Button>
+                )}
+              </div>
+            )}
             {selectedDocument?.content && (
               <div 
                 className="prose prose-sm dark:prose-invert max-w-none p-4 bg-muted/30 rounded-md"
@@ -697,6 +1020,266 @@ export default function DocumentHub() {
               </Button>
               <Button onClick={() => setShowAccessListDialog(false)}>
                 Done
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <DocumentVersionsDialog
+          documentId={versionsFor?.id ?? null}
+          title={versionsFor ? `${versionsFor.documentCode} - ${versionsFor.title}` : ""}
+          onClose={() => setVersionsFor(null)}
+        />
+
+        <Dialog open={!!pendingLifecycle} onOpenChange={(open) => { if (!open) { setPendingLifecycle(null); setLifecycleReason(""); } }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>
+                Mark as {lifecycleOptions.find(o => o.value === pendingLifecycle?.status)?.label}?
+              </DialogTitle>
+              <DialogDescription>
+                "{pendingLifecycle?.doc.documentCode} - {pendingLifecycle?.doc.title}" will be withdrawn from use. Only you (COO) will be able to open it. Everyone with access is notified.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Label htmlFor="lifecycle-reason">Reason (optional)</Label>
+              <Textarea
+                id="lifecycle-reason"
+                value={lifecycleReason}
+                onChange={(e) => setLifecycleReason(e.target.value)}
+                placeholder={pendingLifecycle?.status === "quarantine" ? "e.g. Suspected error in clause 5, under investigation" : "e.g. Superseded by SOP-001 Ed.3"}
+                data-testid="input-lifecycle-reason"
+              />
+            </div>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => { setPendingLifecycle(null); setLifecycleReason(""); }}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => pendingLifecycle && lifecycleMutation.mutate({
+                  documentId: pendingLifecycle.doc.id,
+                  lifecycleStatus: pendingLifecycle.status,
+                  reason: lifecycleReason || undefined,
+                })}
+                disabled={lifecycleMutation.isPending}
+                data-testid="button-confirm-lifecycle"
+              >
+                {lifecycleMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Confirm
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={showFinalApprovalDialog} onOpenChange={(open) => { if (!open) resetFinalApproval(); }}>
+          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-primary" />
+                Final Approval
+              </DialogTitle>
+              <DialogDescription>
+                Classify "{selectedDocument?.documentCode} - {selectedDocument?.title}" and store it in the Sahih Hub. The document will be locked and become read-only.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              {selectedDocument?.activeChangeRequestId && (
+                <div className="rounded-md border border-blue-200 bg-blue-50 dark:bg-blue-900/20 p-3 space-y-2" data-testid="version-change">
+                  <Label className="text-sm font-medium block">This is a revision. Number the new version as:</Label>
+                  <RadioGroup value={versionChange} onValueChange={(v) => setVersionChange(v as "revision" | "edition")} className="space-y-1">
+                    <Label htmlFor="vc-revision" className="flex items-center gap-2 font-normal cursor-pointer">
+                      <RadioGroupItem value="revision" id="vc-revision" data-testid="radio-version-revision" />
+                      New revision: Ed.{selectedDocument.editionNumber} Rev.{(selectedDocument.revisionNumber ?? 0) + 1}
+                    </Label>
+                    <Label htmlFor="vc-edition" className="flex items-center gap-2 font-normal cursor-pointer">
+                      <RadioGroupItem value="edition" id="vc-edition" data-testid="radio-version-edition" />
+                      New edition: Ed.{(selectedDocument.editionNumber ?? 1) + 1} Rev.0
+                    </Label>
+                  </RadioGroup>
+                  <p className="text-xs text-muted-foreground">The version now in force will be stamped obsolete and kept in the records.</p>
+                </div>
+              )}
+              <div>
+                <Label className="text-sm font-medium mb-2 block">Classification</Label>
+              <RadioGroup
+                value={selectedClassification}
+                onValueChange={setSelectedClassification}
+                className="space-y-2"
+              >
+                {classificationOptions.map(option => (
+                  <Label
+                    key={option.value}
+                    htmlFor={`final-${option.value}`}
+                    className={`flex items-start gap-3 p-3 rounded-md border cursor-pointer font-normal ${
+                      selectedClassification === option.value ? 'border-primary bg-primary/5' : 'hover:bg-muted'
+                    }`}
+                  >
+                    <RadioGroupItem
+                      value={option.value}
+                      id={`final-${option.value}`}
+                      className="mt-0.5"
+                      data-testid={`radio-final-${option.value}`}
+                    />
+                    <div>
+                      <div className="font-medium">{option.label}</div>
+                      <div className="text-sm text-muted-foreground">{option.description}</div>
+                    </div>
+                  </Label>
+                ))}
+              </RadioGroup>
+              </div>
+
+              {selectedClassification && selectedClassification !== "public_information" && (
+                <div>
+                  <Label className="text-sm font-medium mb-2 block">Who should have access? (optional)</Label>
+                  <div className="relative mb-2">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search users..."
+                      value={userSearchQuery}
+                      onChange={(e) => setUserSearchQuery(e.target.value)}
+                      className="pl-9"
+                      data-testid="input-final-approval-search-users"
+                    />
+                  </div>
+                  <ScrollArea className="h-48 border rounded-md">
+                    <div className="p-2 space-y-1">
+                      {users
+                        .filter(u => u.email !== COO_EMAIL)
+                        .filter(u =>
+                          u.name.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+                          u.email.toLowerCase().includes(userSearchQuery.toLowerCase())
+                        )
+                        .map(user => {
+                          const isSelected = selectedUserIds.includes(user.id);
+                          return (
+                            <div
+                              key={user.id}
+                              className={`flex items-center gap-3 p-2 rounded-md cursor-pointer transition-colors ${isSelected ? 'bg-primary/10' : 'hover:bg-muted'}`}
+                              onClick={() => setSelectedUserIds(ids => isSelected ? ids.filter(id => id !== user.id) : [...ids, user.id])}
+                              data-testid={`final-approval-user-${user.id}`}
+                            >
+                              <Checkbox checked={isSelected} />
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium truncate">{user.name}</div>
+                                <div className="text-sm text-muted-foreground truncate">{user.email}</div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </ScrollArea>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {selectedUserIds.length} user{selectedUserIds.length !== 1 ? 's' : ''} selected. You can grant more access later.
+                  </p>
+                </div>
+              )}
+
+              <div>
+                <Label htmlFor="final-approval-comments" className="text-sm font-medium mb-2 block">Comments (optional)</Label>
+                <Textarea
+                  id="final-approval-comments"
+                  value={decisionNote}
+                  onChange={(e) => setDecisionNote(e.target.value)}
+                  placeholder="Notes for the audit trail"
+                  data-testid="input-final-approval-comments"
+                />
+              </div>
+            </div>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={resetFinalApproval}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  if (selectedDocument && selectedClassification) {
+                    finalApprovalMutation.mutate({
+                      documentId: selectedDocument.id,
+                      classification: selectedClassification,
+                      userIds: selectedClassification === "public_information" ? [] : selectedUserIds,
+                      comments: decisionNote || undefined,
+                      versionChange: selectedDocument.activeChangeRequestId ? versionChange : undefined,
+                    });
+                  }
+                }}
+                disabled={!selectedClassification || finalApprovalMutation.isPending}
+                data-testid="button-confirm-final-approval"
+              >
+                {finalApprovalMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Lock className="h-4 w-4 mr-2" />
+                )}
+                Approve & Store
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={showClassificationDialog} onOpenChange={(open) => {
+          setShowClassificationDialog(open);
+          if (!open) {
+            setSelectedDocument(null);
+            setSelectedClassification("");
+          }
+        }}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Tag className="h-5 w-5 text-primary" />
+                Change Classification
+              </DialogTitle>
+              <DialogDescription>
+                "{selectedDocument?.documentCode} - {selectedDocument?.title}"
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-2">
+              <RadioGroup
+                value={selectedClassification}
+                onValueChange={setSelectedClassification}
+                className="space-y-2"
+              >
+                {classificationOptions.map(option => (
+                  <Label
+                    key={option.value}
+                    htmlFor={`classify-${option.value}`}
+                    className={`flex items-start gap-3 p-3 rounded-md border cursor-pointer font-normal ${
+                      selectedClassification === option.value ? 'border-primary bg-primary/5' : 'hover:bg-muted'
+                    }`}
+                  >
+                    <RadioGroupItem
+                      value={option.value}
+                      id={`classify-${option.value}`}
+                      className="mt-0.5"
+                      data-testid={`radio-classify-${option.value}`}
+                    />
+                    <div>
+                      <div className="font-medium">{option.label}</div>
+                      <div className="text-sm text-muted-foreground">{option.description}</div>
+                    </div>
+                  </Label>
+                ))}
+              </RadioGroup>
+            </div>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setShowClassificationDialog(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  if (selectedDocument && selectedClassification) {
+                    changeClassificationMutation.mutate({
+                      documentId: selectedDocument.id,
+                      classification: selectedClassification,
+                    });
+                  }
+                }}
+                disabled={!selectedClassification || selectedClassification === selectedDocument?.classification || changeClassificationMutation.isPending}
+                data-testid="button-confirm-classification"
+              >
+                {changeClassificationMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Save
               </Button>
             </DialogFooter>
           </DialogContent>

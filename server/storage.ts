@@ -1,13 +1,14 @@
 import { db } from "./db";
 import {
   users, documents, documentVersions, workflowLogs, notifications, auditLogs,
-  employees, employeeTasks, downloadRequests, documentFeedback, documentTasks, taskPokes,
+  employees, employeeTasks, downloadRequests, documentFeedback, documentComments, documentTasks, taskPokes,
   documentAccessRequests, documentAccess, userRecords, buddyStatus, pushSubscriptions, buddyDialogues,
   userActivityLogs, monthlyPerformanceReports, bugReports,
   certificationApplications, certificationAudits, auditFindings, certificates, wallPosts, revisionHistory,
   trainings, trainingAssignments, trainingCompletions, docugenieForms, docugenieFormSubmissions, 
   leads, leadStatusHistory, leadUpdateRequests, customers, opportunities, historicalData,
   type User, type InsertUser,
+  type DocumentComment, type InsertDocumentComment,
   type Lead, type InsertLead,
   type LeadStatusHistory, type InsertLeadStatusHistory,
   type LeadUpdateRequest, type InsertLeadUpdateRequest,
@@ -45,11 +46,12 @@ import {
   type AuditFinding, type InsertAuditFinding,
   type Certificate, type InsertCertificate,
   type WallPost, type InsertWallPost,
-  DocumentStatus, InductionStatus, TaskStatus, FeedbackStatus, DocumentTaskStatus,
+  DocumentStatus, DocumentCommentStatus, InductionStatus, TaskStatus, FeedbackStatus, DocumentTaskStatus,
   EmployeeRecordStatus, DocumentAccessRequestStatus, BuddyState, MonthlyReportStatus,
   BugReportStatus,
 } from "@shared/schema";
 import { eq, desc, and, lt, gt, or, sql } from "drizzle-orm";
+import { computeTaskMetrics, reportFieldsFromMetrics } from "./task-ledger";
 import bcrypt from "bcrypt";
 
 const SALT_ROUNDS = 10;
@@ -99,6 +101,7 @@ export interface IStorage {
   getNotifications(userId?: number): Promise<Notification[]>;
   createNotification(notification: InsertNotification): Promise<Notification>;
   markNotificationRead(id: number): Promise<Notification>;
+  markDocumentNotificationsRead(userId: number, documentId: number): Promise<number>;
   markAllNotificationsRead(userId: number): Promise<number>;
 
   // Audit Logs
@@ -167,6 +170,12 @@ export interface IStorage {
 
   // Document Feedback
   getDocumentFeedback(documentId: number): Promise<DocumentFeedback[]>;
+  getDocumentComments(documentId: number): Promise<DocumentComment[]>;
+  getOpenCommentsAssignedTo(userId: number): Promise<DocumentComment[]>;
+  getDocumentComment(id: number): Promise<DocumentComment | undefined>;
+  createDocumentComment(comment: InsertDocumentComment): Promise<DocumentComment>;
+  updateDocumentComment(id: number, updates: Partial<InsertDocumentComment>): Promise<DocumentComment>;
+  deleteDocumentComment(id: number): Promise<void>;
   createDocumentFeedback(feedback: InsertDocumentFeedback): Promise<DocumentFeedback>;
   updateDocumentFeedback(id: number, updates: Partial<InsertDocumentFeedback>): Promise<DocumentFeedback>;
   markFeedbackAddressed(id: number): Promise<DocumentFeedback>;
@@ -546,6 +555,17 @@ export class DatabaseStorage implements IStorage {
       .returning();
     return updated;
   }
+
+  // A tagged user opening the document has seen what they were tagged in
+  async markDocumentNotificationsRead(userId: number, documentId: number): Promise<number> {
+    const updated = await db.update(notifications)
+      .set({ isRead: true })
+      .where(and(eq(notifications.userId, userId), eq(notifications.relatedDocumentId, documentId), eq(notifications.isRead, false)))
+      .returning({ id: notifications.id });
+    return updated.length;
+  }
+
+
 
   async markAllNotificationsRead(userId: number): Promise<number> {
     const result = await db.update(notifications)
@@ -986,6 +1006,40 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(documentFeedback)
       .where(eq(documentFeedback.documentId, documentId))
       .orderBy(desc(documentFeedback.createdAt));
+  }
+
+  async getDocumentComments(documentId: number): Promise<DocumentComment[]> {
+    return await db.select().from(documentComments)
+      .where(eq(documentComments.documentId, documentId))
+      .orderBy(documentComments.createdAt);
+  }
+
+  async getOpenCommentsAssignedTo(userId: number): Promise<DocumentComment[]> {
+    return await db.select().from(documentComments)
+      .where(and(
+        eq(documentComments.status, DocumentCommentStatus.OPEN),
+        sql`${userId} = ANY(${documentComments.assigneeIds})`
+      ))
+      .orderBy(documentComments.createdAt);
+  }
+
+  async getDocumentComment(id: number): Promise<DocumentComment | undefined> {
+    const [comment] = await db.select().from(documentComments).where(eq(documentComments.id, id));
+    return comment;
+  }
+
+  async createDocumentComment(comment: InsertDocumentComment): Promise<DocumentComment> {
+    const [created] = await db.insert(documentComments).values(comment).returning();
+    return created;
+  }
+
+  async updateDocumentComment(id: number, updates: Partial<InsertDocumentComment>): Promise<DocumentComment> {
+    const [updated] = await db.update(documentComments).set(updates).where(eq(documentComments.id, id)).returning();
+    return updated;
+  }
+
+  async deleteDocumentComment(id: number): Promise<void> {
+    await db.delete(documentComments).where(eq(documentComments.id, id));
   }
 
   async createDocumentFeedback(feedback: InsertDocumentFeedback): Promise<DocumentFeedback> {
@@ -1661,25 +1715,8 @@ export class DatabaseStorage implements IStorage {
       log.entityType === 'document' && log.action === 'approve'
     ).length;
 
-    // Get task metrics
-    const allTasks = await db.select().from(documentTasks)
-      .where(eq(documentTasks.assignedToId, userId));
-
-    const tasksCompleted = allTasks.filter(task => 
-      task.status === 'completed' && 
-      task.completedAt && 
-      task.completedAt >= startDate && 
-      task.completedAt <= endDate
-    ).length;
-    
-    const tasksOverdue = allTasks.filter(task => 
-      task.status === 'overdue' || 
-      (task.targetDate && new Date(task.targetDate) < new Date() && task.status !== 'completed')
-    ).length;
-    
-    const tasksPending = allTasks.filter(task => 
-      task.status === 'pending' || task.status === 'assigned' || task.status === 'in_progress'
-    ).length;
+    // Task performance from the task ledger
+    const taskMetrics = await computeTaskMetrics(userId, startDate, endDate);
 
     // Create the report
     const [report] = await db.insert(monthlyPerformanceReports).values({
@@ -1692,9 +1729,7 @@ export class DatabaseStorage implements IStorage {
       documentsCreated,
       documentsReviewed,
       documentsApproved,
-      tasksCompleted,
-      tasksOverdue,
-      tasksPending,
+      ...reportFieldsFromMetrics(taskMetrics),
       status: MonthlyReportStatus.DRAFT,
     }).returning();
 
@@ -1798,35 +1833,13 @@ export class DatabaseStorage implements IStorage {
       new Date(doc.approvedAt) <= endDate
     ).length;
 
-    // Get task metrics from document_tasks table
-    const allTasks = await db.select().from(documentTasks)
-      .where(eq(documentTasks.assignedToId, userId));
-
-    const tasksCompleted = allTasks.filter(task => 
-      task.status === 'completed' && 
-      task.completedAt && 
-      task.completedAt >= startDate && 
-      task.completedAt <= endDate
-    ).length;
-    
-    const tasksOverdue = allTasks.filter(task => 
-      task.status === 'overdue' || 
-      (task.targetDate && new Date(task.targetDate) < new Date() && task.status !== 'completed')
-    ).length;
-    
-    const tasksPending = allTasks.filter(task => 
-      task.status === 'pending' || task.status === 'assigned' || task.status === 'in_progress'
-    ).length;
-    
+    // Task figures are filled from the task ledger (see task-ledger.ts)
     // Update the report with live stats
     await db.update(monthlyPerformanceReports)
       .set({ 
         documentsCreated,
         documentsReviewed,
         documentsApproved,
-        tasksCompleted,
-        tasksOverdue,
-        tasksPending,
         updatedAt: new Date()
       })
       .where(eq(monthlyPerformanceReports.id, existingReport.id));

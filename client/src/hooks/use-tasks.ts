@@ -13,7 +13,18 @@ export interface MyTask {
   employeeDepartment?: string;
   employeeSupervisorName?: string;
   title: string;
-  taskType: 'prepare' | 'review' | 'approve' | 'download_approval' | 'access_approval' | 'employee_review' | 'employee_approve';
+  // review, approve, revise, comment, download_approval, access_approval, employee_review, employee_approve,
+  // and every other kind of assignment (hub_approval, training, bug, lead_followup ...) shown generically
+  taskType: string;
+  taskKey?: string;
+  typeLabel?: string;
+  reference?: string;
+  description?: string;
+  link?: string;
+  isOverdue?: boolean;
+  hasTarget?: boolean;
+  initiatorId?: number | null;
+  initiatorName?: string | null;
   status: string;
   createdAt: string | null;
   dueDate: string | null;
@@ -28,6 +39,55 @@ export interface MyTask {
   approverName?: string;
   reviewCompleted?: boolean;
   approveCompleted?: boolean;
+  returnedByName?: string | null;
+  returnNote?: string | null;
+  commentCount?: number;
+}
+
+// Task types with their own buttons in the task screens; anything else opens task.link
+export const SPECIAL_TASK_TYPES = new Set([
+  'review', 'approve', 'download_approval', 'access_approval', 'employee_review', 'employee_approve',
+]);
+
+export interface TaskPerformance {
+  tasksAssigned: number;
+  tasksCompleted: number;
+  tasksCompletedOnTime: number;
+  tasksCompletedLate: number;
+  tasksPending: number;
+  tasksOverdue: number;
+  tasksTransferred: number;
+  reworkCount: number;
+  totalTaskMinutes: number;
+  totalTargetMinutes: number;
+  avgTurnaroundMinutes: number | null;
+  avgDelayMinutes: number | null;
+  onTimeRate: number | null;
+  completionRate: number | null;
+  efficiencyPercent: number | null;
+  performanceScore: number | null;
+  breakdown: Record<string, { label: string; completed: number; onTime: number; late: number; open: number; avgMinutes: number | null }>;
+}
+
+export function useTaskPerformance(params?: { userId?: number; month?: number; year?: number }) {
+  const search = new URLSearchParams();
+  if (params?.userId) search.set('userId', String(params.userId));
+  if (params?.month) search.set('month', String(params.month));
+  if (params?.year) search.set('year', String(params.year));
+  const qs = search.toString();
+  return useQuery<TaskPerformance>({
+    queryKey: [`/api/task-performance${qs ? `?${qs}` : ''}`],
+    staleTime: 30 * 1000,
+  });
+}
+
+// "3h 20m", "2d 4h"
+export function formatMinutes(minutes: number | null | undefined): string {
+  if (minutes === null || minutes === undefined) return '-';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ${minutes % 60}m`;
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
 }
 
 export interface DocumentTask {
@@ -84,16 +144,18 @@ export function useDocumentTasksForDocument(documentId: number | null) {
 
 export function useCompleteTask() {
   return useMutation({
-    mutationFn: async ({ documentId, taskType, comments, approverId }: { 
+    mutationFn: async ({ documentId, taskType, comments, approverId, nextTargetDate }: { 
       documentId: number; 
       taskType: 'prepare' | 'review' | 'approve';
       comments?: string;
       approverId?: number;
+      nextTargetDate?: string; // ISO: by when the approver (after a review) or the COO (after an approval) must act
     }) => {
       const res = await apiRequest('POST', `/api/my-tasks/${documentId}/complete`, {
         taskType,
         comments,
         approverId,
+        nextTargetDate,
       });
       return res.json();
     },

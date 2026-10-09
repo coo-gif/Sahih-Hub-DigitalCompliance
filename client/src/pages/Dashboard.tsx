@@ -1,5 +1,5 @@
 import { useDashboardStats, useComplianceAlerts, useRecentActivity } from "@/hooks/use-dashboard";
-import { useMyTasks, useCompleteTask } from "@/hooks/use-tasks";
+import { useMyTasks, useCompleteTask, SPECIAL_TASK_TYPES } from "@/hooks/use-tasks";
 import { useUsers, useActiveUsers, useActivityHeartbeat } from "@/hooks/use-users";
 import { useAuth } from "@/hooks/use-auth";
 import { useApproveEmployee, useRejectEmployee, useSubmitEmployeeForApproval } from "@/hooks/use-employees";
@@ -74,6 +74,7 @@ import {
   GraduationCap,
   UserCog,
   MessageSquarePlus,
+  MessageSquare,
   Pin,
   Trash2,
   Send,
@@ -92,6 +93,7 @@ import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import { useState, useEffect, useMemo, useId } from "react";
 import type { MyTask } from "@/hooks/use-tasks";
+import { TargetDateField, TARGET_DAYS, defaultTargetInput, targetToIso } from "@/components/TargetDateField";
 import quoteImage1 from "@assets/generated_images/quality_certification_rings_abstract.png";
 import quoteImage2 from "@assets/generated_images/excellence_network_visualization.png";
 import quoteImage3 from "@assets/generated_images/continuous_improvement_ribbons.png";
@@ -856,8 +858,8 @@ export default function Dashboard() {
   const submitEmployeeForApprovalMutation = useSubmitEmployeeForApproval();
   
   const reassignEmployeeMutation = useMutation({
-    mutationFn: async ({ id, taskType, newAssigneeId, notes }: { id: number; taskType: 'employee_review' | 'employee_approve'; newAssigneeId: number; notes?: string }) => {
-      const res = await apiRequest('POST', `/api/employees/${id}/reassign`, { taskType, newAssigneeId, notes });
+    mutationFn: async ({ id, taskType, newAssigneeId, notes, targetDate }: { id: number; taskType: 'employee_review' | 'employee_approve'; newAssigneeId: number; notes?: string; targetDate?: string }) => {
+      const res = await apiRequest('POST', `/api/employees/${id}/reassign`, { taskType, newAssigneeId, notes, targetDate });
       return res.json();
     },
     onSuccess: () => {
@@ -867,37 +869,12 @@ export default function Dashboard() {
     },
   });
   
-  // Lock and transfer to Document Hub mutation
-  const lockAndTransferMutation = useMutation({
-    mutationFn: async ({ documentId, userIds }: { documentId: number; userIds: number[] }) => {
-      const res = await apiRequest('POST', `/api/documents/${documentId}/lock-transfer`, { userIds });
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/document-access'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
-      setShowLockTransferDialog(false);
-      setApprovedDocument(null);
-      setSelectedAccessUserIds([]);
-      toast({
-        title: "Document Transferred",
-        description: "Document has been locked and transferred to Document Hub. Only selected users can access it.",
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Transfer Failed",
-        description: error.message || "Failed to transfer document to Document Hub",
-        variant: "destructive",
-      });
-    },
-  });
-
   const [selectedTask, setSelectedTask] = useState<MyTask | null>(null);
   const [showTaskDialog, setShowTaskDialog] = useState(false);
   const [taskComments, setTaskComments] = useState("");
+  // Deadline for whoever the task goes to next (approver, COO, employee approver) or for a new assignee
+  const [nextTarget, setNextTarget] = useState(defaultTargetInput(TARGET_DAYS.approve));
+  const [employeeReassignTarget, setEmployeeReassignTarget] = useState(defaultTargetInput(TARGET_DAYS.employee_review));
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showComplianceDialog, setShowComplianceDialog] = useState(false);
   const [showTasksFocusDialog, setShowTasksFocusDialog] = useState(false);
@@ -915,10 +892,6 @@ export default function Dashboard() {
   const [employeeReassigneeId, setEmployeeReassigneeId] = useState<string>("");
   const [employeeReassignComment, setEmployeeReassignComment] = useState("");
   
-  // Lock and transfer to Document Hub state
-  const [showLockTransferDialog, setShowLockTransferDialog] = useState(false);
-  const [approvedDocument, setApprovedDocument] = useState<{ id: number; code: string; title: string } | null>(null);
-  const [selectedAccessUserIds, setSelectedAccessUserIds] = useState<number[]>([]);
   const [complianceTab, setComplianceTab] = useState<"overview" | "completed" | "pending">("overview");
   const [newPostContent, setNewPostContent] = useState("");
 
@@ -982,6 +955,10 @@ export default function Dashboard() {
         return <FileCheck className="w-4 h-4 text-amber-600" />;
       case 'approve':
         return <FileSignature className="w-4 h-4 text-success" />;
+      case 'revise':
+        return <FilePen className="w-4 h-4 text-amber-600" />;
+      case 'comment':
+        return <MessageSquare className="w-4 h-4 text-primary" />;
       default:
         return <FileText className="w-4 h-4" />;
     }
@@ -995,14 +972,25 @@ export default function Dashboard() {
         return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400';
       case 'approve':
         return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400';
+      case 'revise':
+        return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400';
+      case 'comment':
+        return 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400';
       default:
         return '';
     }
   };
 
   const handleOpenTask = (task: MyTask) => {
+    // Tasks without their own dialog are done on their own page
+    if (!SPECIAL_TASK_TYPES.has(task.taskType)) {
+      navigate(task.link || `/documents/${task.documentId}/edit`);
+      return;
+    }
     setSelectedTask(task);
     setTaskComments("");
+    setNextTarget(defaultTargetInput(task.taskType === 'approve' ? TARGET_DAYS.hub_approval : TARGET_DAYS.approve));
+    setEmployeeReassignTarget(defaultTargetInput(task.taskType === 'employee_approve' ? TARGET_DAYS.employee_approve : TARGET_DAYS.employee_review));
     // Default approver to CEO for employee review tasks
     if (task.taskType === 'employee_review' && ceoUser) {
       setSelectedApproverId(String(ceoUser.id));
@@ -1020,22 +1008,15 @@ export default function Dashboard() {
         documentId: selectedTask.documentId,
         taskType: selectedTask.taskType as 'prepare' | 'review' | 'approve',
         comments: taskComments || undefined,
+        nextTargetDate: targetToIso(nextTarget),
       });
       
       toast({
         title: "Task Completed",
-        description: `Successfully completed ${selectedTask.taskType} task for ${selectedTask.documentCode}`,
+        description: selectedTask.taskType === 'approve'
+          ? `${selectedTask.documentCode} is approved and has moved to the Document Hub for the COO's final approval.`
+          : `Successfully completed ${selectedTask.taskType} task for ${selectedTask.documentCode}`,
       });
-      
-      // If this was an approval task, show the "Lock and transfer to Document Hub" dialog
-      if (selectedTask.taskType === 'approve') {
-        setApprovedDocument({
-          id: selectedTask.documentId,
-          code: selectedTask.documentCode || '',
-          title: selectedTask.title || '',
-        });
-        setShowLockTransferDialog(true);
-      }
       
       setShowTaskDialog(false);
       setSelectedTask(null);
@@ -1049,24 +1030,6 @@ export default function Dashboard() {
     }
   };
   
-  // Handle lock and transfer to Document Hub
-  const handleLockAndTransfer = () => {
-    if (!approvedDocument) return;
-    lockAndTransferMutation.mutate({
-      documentId: approvedDocument.id,
-      userIds: selectedAccessUserIds,
-    });
-  };
-  
-  // Toggle user selection for access
-  const toggleUserAccess = (userId: number) => {
-    setSelectedAccessUserIds(prev => 
-      prev.includes(userId) 
-        ? prev.filter(id => id !== userId)
-        : [...prev, userId]
-    );
-  };
-
   if (statsError) {
     return (
       <div className="flex flex-col items-center justify-center py-16 space-y-4">
@@ -1323,7 +1286,7 @@ export default function Dashboard() {
               <div className="space-y-3">
                 {myTasks.map((task, idx) => (
                   <div 
-                    key={`${task.documentId}-${task.taskType}`} 
+                    key={task.taskKey || `${task.documentId}-${task.taskType}`} 
                     className="p-4 rounded-xl border-2 border-primary/20 hover:border-primary hover:shadow-xl cursor-pointer transition-all group bg-white dark:bg-card"
                     style={{ animation: `slideIn 0.3s ease-out ${idx * 0.1}s backwards` }}
                     onClick={() => handleOpenTask(task)}
@@ -1336,9 +1299,9 @@ export default function Dashboard() {
                         </div>
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-bold text-lg" data-testid={`text-task-code-${task.documentId}`}>{task.documentCode}</p>
+                            <p className="font-bold text-lg" data-testid={`text-task-code-${task.documentId}`}>{task.documentCode || task.reference}</p>
                             <Badge className={`${getTaskBadgeColor(task.taskType)} font-semibold`} data-testid={`badge-task-type-${task.documentId}`}>
-                              {task.taskType.charAt(0).toUpperCase() + task.taskType.slice(1)}
+                              {task.typeLabel || task.taskType.charAt(0).toUpperCase() + task.taskType.slice(1)}
                             </Badge>
                           </div>
                           <p className="text-sm text-muted-foreground" data-testid={`text-task-title-${task.documentId}`}>{task.title}</p>
@@ -2456,6 +2419,16 @@ export default function Dashboard() {
               </div>
             )}
 
+            {(selectedTask?.taskType === 'review' || selectedTask?.taskType === 'approve' || selectedTask?.taskType === 'employee_review') && (
+              <TargetDateField
+                id="next-target"
+                label={selectedTask?.taskType === 'approve' ? "COO's final approval due by" : 'Approval due by'}
+                value={nextTarget}
+                onChange={setNextTarget}
+                defaultDays={TARGET_DAYS.approve}
+              />
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="comments">Comments (optional)</Label>
               <Textarea
@@ -2476,12 +2449,22 @@ export default function Dashboard() {
                   </Button>
                 </Link>
               ) : (
-                <Link href={`/documents/${selectedTask?.documentId}/edit`} className="flex-1">
-                  <Button variant="outline" className="w-full">
-                    <FileText className="w-4 h-4 mr-2" />
-                    View Document
-                  </Button>
-                </Link>
+                <>
+                  <Link href={`/documents/${selectedTask?.documentId}/edit`} className="flex-1">
+                    <Button variant="outline" className="w-full">
+                      <FileText className="w-4 h-4 mr-2" />
+                      View Document
+                    </Button>
+                  </Link>
+                  {(selectedTask?.taskType === 'review' || selectedTask?.taskType === 'approve') && (
+                    <Link href={`/documents/${selectedTask?.documentId}/edit`} className="flex-1">
+                      <Button variant="outline" className="w-full" data-testid="button-task-comment-return">
+                        <MessageSquare className="w-4 h-4 mr-2" />
+                        Comment / Return
+                      </Button>
+                    </Link>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -2616,7 +2599,7 @@ export default function Dashboard() {
                       return;
                     }
                     if (selectedTask?.employeeId) {
-                      submitEmployeeForApprovalMutation.mutate({ id: selectedTask.employeeId, approverId: Number(selectedApproverId), notes: taskComments || undefined }, {
+                      submitEmployeeForApprovalMutation.mutate({ id: selectedTask.employeeId, approverId: Number(selectedApproverId), notes: taskComments || undefined, targetDate: targetToIso(nextTarget) }, {
                         onSuccess: () => {
                           const approverName = allUsers?.find(u => u.id === Number(selectedApproverId))?.name || 'the approver';
                           toast({ title: "Review Complete", description: `Employee record for ${selectedTask.employeeName} has been sent to ${approverName} for approval.` });
@@ -2760,6 +2743,13 @@ export default function Dashboard() {
                 data-testid="textarea-employee-reassign-comment"
               />
             </div>
+            <TargetDateField
+              id="employee-reassign-target"
+              label="New person must finish by"
+              value={employeeReassignTarget}
+              onChange={setEmployeeReassignTarget}
+              defaultDays={TARGET_DAYS.employee_review}
+            />
           </div>
 
           <DialogFooter className="gap-2">
@@ -2780,6 +2770,7 @@ export default function Dashboard() {
                   taskType: selectedTask.taskType as 'employee_review' | 'employee_approve',
                   newAssigneeId: Number(employeeReassigneeId),
                   notes: employeeReassignComment || undefined,
+                  targetDate: targetToIso(employeeReassignTarget),
                 }, {
                   onSuccess: () => {
                     const assigneeName = allUsers?.find(u => u.id === Number(employeeReassigneeId))?.name || 'the new assignee';
@@ -3060,7 +3051,7 @@ export default function Dashboard() {
               <div className="space-y-3">
                 {myTasks.map((task, idx) => (
                   <div 
-                    key={`focus-${task.documentId}-${task.taskType}`}
+                    key={`focus-${task.taskKey || `${task.documentId}-${task.taskType}`}`}
                     className="p-4 rounded-lg border hover:border-primary cursor-pointer transition-all group"
                     onClick={() => {
                       setShowTasksFocusDialog(false);
@@ -3074,9 +3065,9 @@ export default function Dashboard() {
                         </div>
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-medium">{task.documentCode}</p>
+                            <p className="font-medium">{task.documentCode || task.reference}</p>
                             <Badge className={`${getTaskBadgeColor(task.taskType)} text-xs`}>
-                              {task.taskType.charAt(0).toUpperCase() + task.taskType.slice(1)}
+                              {task.typeLabel || task.taskType.charAt(0).toUpperCase() + task.taskType.slice(1)}
                             </Badge>
                           </div>
                           <p className="text-sm text-muted-foreground">{task.title}</p>
@@ -3129,112 +3120,6 @@ export default function Dashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Lock and Transfer to Document Hub Dialog */}
-      <Dialog open={showLockTransferDialog} onOpenChange={(open) => {
-        if (!open) {
-          setShowLockTransferDialog(false);
-          setApprovedDocument(null);
-          setSelectedAccessUserIds([]);
-        }
-      }}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Lock className="w-5 h-5 text-primary" />
-              Lock and Transfer to Document Hub
-            </DialogTitle>
-            <DialogDescription>
-              The document <strong>{approvedDocument?.code}</strong> has been approved. You can now lock it and transfer it to the Document Hub. Only selected users will have access.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-4">
-            <div className="p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5" />
-                <div>
-                  <p className="font-medium text-amber-800 dark:text-amber-300">Important Notice</p>
-                  <p className="text-sm text-amber-700 dark:text-amber-400">
-                    Once transferred to Document Hub, this document will be locked for general access. Only users you select below (and the COO) will be able to view it.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <Label className="text-sm font-medium mb-3 block">Select users who should have access:</Label>
-              <ScrollArea className="h-[200px] border rounded-lg p-2">
-                <div className="space-y-2">
-                  {allUsers?.filter(u => u.email !== 'coo@sahihcertify.com').map(user => (
-                    <div 
-                      key={user.id}
-                      className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
-                        selectedAccessUserIds.includes(user.id) 
-                          ? 'bg-primary/10 border border-primary' 
-                          : 'hover:bg-muted border border-transparent'
-                      }`}
-                      onClick={() => toggleUserAccess(user.id)}
-                      data-testid={`user-access-${user.id}`}
-                    >
-                      <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
-                        selectedAccessUserIds.includes(user.id)
-                          ? 'bg-primary border-primary text-white'
-                          : 'border-gray-300'
-                      }`}>
-                        {selectedAccessUserIds.includes(user.id) && (
-                          <Check className="w-3 h-3" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate">{user.name}</p>
-                        <p className="text-xs text-muted-foreground truncate">{user.email}</p>
-                      </div>
-                      <Badge variant="outline" className="text-xs">
-                        {user.role?.replace('_', ' ')}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              </ScrollArea>
-              <p className="text-xs text-muted-foreground mt-2">
-                {selectedAccessUserIds.length} user(s) selected. COO always has access.
-              </p>
-            </div>
-          </div>
-
-          <DialogFooter className="flex gap-2">
-            <Button 
-              variant="outline" 
-              onClick={() => {
-                setShowLockTransferDialog(false);
-                setApprovedDocument(null);
-                setSelectedAccessUserIds([]);
-              }}
-              data-testid="button-skip-transfer"
-            >
-              Skip for Now
-            </Button>
-            <Button 
-              onClick={handleLockAndTransfer}
-              disabled={lockAndTransferMutation.isPending}
-              className="gap-2"
-              data-testid="button-lock-transfer"
-            >
-              {lockAndTransferMutation.isPending ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Transferring...
-                </>
-              ) : (
-                <>
-                  <Lock className="w-4 h-4" />
-                  Lock & Transfer
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

@@ -221,6 +221,11 @@ export const api = {
         status: z.enum([DocumentStatus.DRAFT, DocumentStatus.IN_REVIEW, DocumentStatus.PENDING_APPROVAL, DocumentStatus.APPROVED, DocumentStatus.OBSOLETE]).optional(),
         assignedStaffIds: z.array(z.number()).optional(),
         assignedDepartments: z.array(z.string()).optional(),
+        prepareTargetDate: z.string().optional(), // ISO; when the preparer must finish
+        linkedDocumentIds: z.array(z.number()).optional(), // associated procedures
+        sourceType: z.enum(['manual', 'upload']).optional(),
+        sourceFileName: z.string().optional(),
+        sourceFileUrl: z.string().optional(),
       }),
       responses: {
         201: z.custom<typeof documents.$inferSelect>(),
@@ -244,6 +249,7 @@ export const api = {
         preparedById: z.number().optional(),
         reviewedById: z.number().optional(),
         approvedById: z.number().optional(),
+        prepareTargetDate: z.string().optional(),
       }),
       responses: {
         200: z.custom<typeof documents.$inferSelect>(),
@@ -265,6 +271,7 @@ export const api = {
         reviewerId: z.number(),
         approverId: z.number().optional(),
         notes: z.string().optional(),
+        reviewTargetDate: z.string().optional(), // ISO; when the review must be done
       }),
       responses: {
         200: z.custom<typeof documents.$inferSelect>(),
@@ -381,6 +388,7 @@ export const api = {
       input: z.object({
         reviewerId: z.number(),
         notes: z.string().optional(),
+        targetDate: z.string().optional(),
       }),
       responses: {
         200: z.custom<typeof employees.$inferSelect>(),
@@ -394,6 +402,7 @@ export const api = {
       input: z.object({
         approverId: z.number(),
         notes: z.string().optional(),
+        targetDate: z.string().optional(),
       }),
       responses: {
         200: z.custom<typeof employees.$inferSelect>(),
@@ -432,6 +441,7 @@ export const api = {
         taskType: z.enum(['employee_review', 'employee_approve']),
         newAssigneeId: z.number(),
         notes: z.string().optional(),
+        targetDate: z.string().optional(),
       }),
       responses: {
         200: z.custom<typeof employees.$inferSelect>(),

@@ -4,6 +4,10 @@ import { storage, verifyPassword } from "./storage";
 import { api } from "@shared/routes";
 import { 
   DocumentStatus, 
+  DocumentHubStatus,
+  DocumentClassification,
+  DocumentCommentStatus,
+  DocumentLifecycleStatus,
   AuditAction,
   UrgencyLevel,
   UserRole,
@@ -25,6 +29,7 @@ import {
   insertOpportunitySchema,
   OpportunityStage,
   insertHistoricalDataSchema,
+  type Document,
 } from "@shared/schema";
 import { z } from "zod";
 import puppeteer from "puppeteer";
@@ -96,6 +101,13 @@ import {
   sendEmailWithAttachments
 } from "./gmail-oauth";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
+import { collectOpenTasks, TASK_TYPE_LABELS, type OpenTask } from "./task-sources";
+import { registerDocumentControlRoutes, presentForReader, recordApprovedVersion, setDocumentLinks } from "./document-control";
+import { convertUploadedFile, isGoogleFileUrl, UnsupportedFileError } from "./document-import";
+import {
+  reconcileTasks, scheduleReconcile, getOpenTaskRecords, computeTaskMetrics, monthRange, refreshPerformanceReports,
+  parseTargetDate, setTaskTarget, getTaskTarget, TargetDateError,
+} from "./task-ledger";
 
 async function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) {
@@ -113,6 +125,136 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
   }
   
   next();
+}
+
+const COO_EMAIL = 'coo@sahihcertify.com';
+
+// Documents the COO stored in the Hub as public information are readable by every signed-in user
+function isPublicHubDocument(doc: { hubStatus?: string | null; classification?: string | null; lifecycleStatus?: string | null }): boolean {
+  return doc.hubStatus === DocumentHubStatus.STORED && doc.classification === DocumentClassification.PUBLIC_INFORMATION && !isWithdrawnDocument(doc);
+}
+
+// Obsolete and quarantined documents are withdrawn from use: only the COO can open them
+function isWithdrawnDocument(doc: { lifecycleStatus?: string | null }): boolean {
+  return doc.lifecycleStatus === DocumentLifecycleStatus.OBSOLETE || doc.lifecycleStatus === DocumentLifecycleStatus.QUARANTINE;
+}
+
+// Same visibility rule as the documents list: unlocked, unapproved documents are open to everyone;
+// approved or locked ones need the COO, a workflow role, public classification or an access grant.
+async function canViewDocument(doc: Document, user: { id: number; email: string }): Promise<boolean> {
+  if (!doc.isLocked && doc.status !== DocumentStatus.APPROVED) return true;
+  if (user.email === COO_EMAIL) return true;
+  if (isWithdrawnDocument(doc)) return false;
+  if (isPublicHubDocument(doc)) return true;
+  if (doc.createdById === user.id || doc.preparedById === user.id || doc.reviewerId === user.id || doc.approverId === user.id) return true;
+  return storage.hasDocumentAccess(doc.id, user.id);
+}
+
+// Moves a document workflow step (prepare / revise / review / approve) to another person and tells everyone involved
+async function reassignDocumentTask(doc: Document, taskType: string, newAssigneeId: number, userId: number, reason?: string, newApproverId?: number) {
+  const documentId = doc.id;
+  const newAssignee = await storage.getUser(newAssigneeId);
+  if (!newAssignee) throw new Error('New assignee not found');
+  // Prepare update data based on task type
+  const updateData: any = {};
+  let oldAssigneeId: number | null = null;
+  
+  if (taskType === 'review') {
+    oldAssigneeId = doc.reviewerId;
+    updateData.reviewerId = newAssigneeId;
+    updateData.reviewedBySignedAt = null; // Clear previous signature
+  } else if (taskType === 'approve') {
+    oldAssigneeId = doc.approverId;
+    updateData.approverId = newAssigneeId;
+    updateData.approvedBySignedAt = null; // Clear previous signature
+  } else if (taskType === 'prepare' || taskType === 'revise') {
+    oldAssigneeId = doc.preparedById;
+    updateData.preparedById = newAssigneeId;
+    updateData.preparerConfirmedAt = null;
+    updateData.preparedBySignedAt = null;
+  }
+  
+  // If new approver is also specified
+  if (newApproverId) {
+    const newApprover = await storage.getUser(newApproverId);
+    if (!newApprover) {
+      throw new Error('New approver not found');
+    }
+    updateData.approverId = newApproverId;
+  }
+  
+  // Update the document
+  const updated = await storage.updateDocument(documentId, updateData);
+  
+  // Get old assignee info for audit log
+  const oldAssignee = oldAssigneeId ? await storage.getUser(oldAssigneeId) : null;
+  
+  // Create audit log
+  await storage.createAuditLog({
+    userId,
+    action: AuditAction.UPDATE,
+    entityType: 'document',
+    entityId: documentId,
+    oldValue: JSON.stringify({
+      taskType,
+      assignedTo: oldAssignee?.name || 'Unknown',
+      assignedToId: oldAssigneeId,
+    }),
+    newValue: JSON.stringify({
+      taskType,
+      assignedTo: newAssignee.name,
+      assignedToId: newAssigneeId,
+      reason: reason || 'Task reassigned',
+      ...(newApproverId && { newApproverId }),
+    }),
+  });
+  
+  // Create workflow log
+  await storage.createWorkflowLog({
+    documentId,
+    fromStatus: doc.status,
+    toStatus: doc.status, // Status doesn't change
+    actionById: userId,
+    comments: `Task reassigned: ${taskType} from ${oldAssignee?.name || 'Unknown'} to ${newAssignee.name}. ${reason ? `Reason: ${reason}` : ''}`,
+  });
+  
+  // Notify the new assignee
+  await storage.createNotification({
+    userId: newAssigneeId,
+    title: 'Task Assigned to You',
+    message: `You have been assigned to ${taskType} document "${doc.title}" (${doc.documentCode}). ${reason ? `Reason: ${reason}` : ''}`,
+    urgencyLevel: UrgencyLevel.HIGH,
+    relatedDocumentId: documentId,
+  });
+  
+  // Notify the old assignee if they weren't the one doing the reassignment
+  if (oldAssigneeId && oldAssigneeId !== userId) {
+    await storage.createNotification({
+      userId: oldAssigneeId,
+      title: 'Task Reassigned',
+      message: `Your ${taskType} task for document "${doc.title}" has been reassigned to ${newAssignee.name}.`,
+      urgencyLevel: UrgencyLevel.MEDIUM,
+      relatedDocumentId: documentId,
+    });
+  }
+  
+  return updated;
+}
+
+// Who assigned a task: the recorded initiator, else the one implied by the workflow
+async function taskInitiatorId(taskKey: string): Promise<number | null> {
+  const target = await getTaskTarget(taskKey);
+  if (target) return target.initiatorId;
+  const { tasks } = await collectOpenTasks();
+  return tasks.find(t => t.key === taskKey)?.initiatorId ?? null;
+}
+
+// Task types whose assignee can be changed from the task screens
+const REASSIGNABLE_TASK_TYPES = new Set(['prepare', 'revise', 'review', 'approve', 'employee_review', 'employee_approve', 'comment', 'bug', 'lead_followup']);
+
+function canManageTasks(user: { id: number; role: string; email: string } | undefined, initiatorId: number | null): boolean {
+  if (!user) return false;
+  return user.id === initiatorId || user.role === UserRole.ADMIN || user.role === UserRole.QUALITY_MANAGER || user.email === COO_EMAIL;
 }
 
 function getCurrentUserId(req: any): number {
@@ -338,8 +480,21 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
 
+  // Any successful change may create, move or finish someone's task: record it in the task ledger
+  app.use('/api', (req, res, next) => {
+    if (req.method !== 'GET') {
+      res.on('finish', () => {
+        if (res.statusCode < 400) scheduleReconcile();
+      });
+    }
+    next();
+  });
+
   // Register object storage routes for file uploads
   registerObjectStorageRoutes(app);
+
+  // Change requests, version records and the Records & Data Hive
+  registerDocumentControlRoutes(app, { requireAuth, canViewDocument });
 
   // ============================================
   // AUTHENTICATION ROUTES
@@ -372,7 +527,11 @@ export async function registerRoutes(
       await storage.updateUser(user.id, { lastLogin: new Date() } as any);
       await storage.updateUserActivity(user.id);
       
-      const { passwordHash, ...userWithoutPassword } = user;
+      // Never send the password hash or Gmail tokens to the browser
+      const {
+        passwordHash, gmailAccessToken, gmailRefreshToken,
+        ...userWithoutPassword
+      } = user;
       res.json({ user: userWithoutPassword });
     } catch (err) {
       console.error('Login error:', err);
@@ -646,7 +805,7 @@ export async function registerRoutes(
   // ============================================
   // DOCUMENT ROUTES
   // ============================================
-  app.get(api.documents.list.path, async (req, res) => {
+  app.get(api.documents.list.path, requireAuth, async (req, res) => {
     const filters = {
       status: req.query.status as string | undefined,
       category: req.query.category as string | undefined,
@@ -660,22 +819,24 @@ export async function registerRoutes(
     
     // COO gets full access to all documents
     if (currentUser?.email === COO_EMAIL) {
-      return res.json(docs);
+      return res.json(docs.map(d => ({ ...d, viewerHasAccess: true })));
     }
     
-    // For other users, filter out locked/approved documents unless they have explicit access
-    const filteredDocs = await Promise.all(docs.map(async (doc) => {
+    // For other users, filter out locked/approved documents unless they have explicit access.
+    // A document under revision is shown to readers as its approved version still in force.
+    const filteredDocs = await Promise.all(docs.map(async (rawDoc) => {
+      const doc = currentUser ? await presentForReader(rawDoc, currentUser) : rawDoc;
       // Non-locked and non-approved docs are always visible
       if (!doc.isLocked && doc.status !== DocumentStatus.APPROVED) {
-        return doc;
+        return { ...doc, viewerHasAccess: true };
       }
       
       // For locked/approved docs, check if user has explicit access
-      const hasAccess = await storage.hasDocumentAccess(doc.id, userId);
+      const hasAccess = isPublicHubDocument(doc) || await storage.hasDocumentAccess(doc.id, userId);
       
       // If user has access or is part of the workflow (creator, reviewer, approver), show full doc
-      if (hasAccess || doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId) {
-        return doc;
+      if (!isWithdrawnDocument(doc) && (hasAccess || doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId)) {
+        return { ...doc, viewerHasAccess: true };
       }
       
       // Otherwise, return metadata only (no content) to allow access requests
@@ -684,19 +845,21 @@ export async function registerRoutes(
         content: null,
         fileUrl: null,
         finalPdfUrl: null,
+        sourceFileUrl: null,
+        viewerHasAccess: false,
       };
     }));
     
     res.json(filteredDocs);
   });
 
-  app.get(api.documents.get.path, async (req, res) => {
+  app.get(api.documents.get.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid document ID' });
     }
-    const doc = await storage.getDocument(id);
-    if (!doc) {
+    const rawDoc = await storage.getDocument(id);
+    if (!rawDoc) {
       return res.status(404).json({ message: 'Document not found' });
     }
     
@@ -704,6 +867,8 @@ export async function registerRoutes(
     const userId = getCurrentUserId(req);
     const currentUser = await storage.getUser(userId);
     const COO_EMAIL = 'coo@sahihcertify.com';
+    // While under revision, readers see the approved version still in force
+    const doc = currentUser ? await presentForReader(rawDoc, currentUser) : rawDoc;
     
     // COO gets full access
     if (currentUser?.email === COO_EMAIL) {
@@ -716,10 +881,10 @@ export async function registerRoutes(
     }
     
     // For locked/approved docs, check access
-    const hasAccess = await storage.hasDocumentAccess(doc.id, userId);
+    const hasAccess = isPublicHubDocument(doc) || await storage.hasDocumentAccess(doc.id, userId);
     
     // If user has access or is part of the workflow
-    if (hasAccess || doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId) {
+    if (!isWithdrawnDocument(doc) && (hasAccess || doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId)) {
       return res.json(doc);
     }
     
@@ -729,12 +894,14 @@ export async function registerRoutes(
       content: null,
       fileUrl: null,
       finalPdfUrl: null,
+      sourceFileUrl: null,
     });
   });
 
-  app.post(api.documents.create.path, async (req, res) => {
+  app.post(api.documents.create.path, requireAuth, async (req, res) => {
     try {
       const input = api.documents.create.input.parse(req.body);
+      const prepareTarget = input.preparedById ? parseTargetDate(input.prepareTargetDate, 'prepare') : null;
       
       const doc = await storage.createDocument({
         documentCode: input.documentCode,
@@ -755,7 +922,15 @@ export async function registerRoutes(
         approverId: input.approvedById || null,
         assignedStaffIds: input.assignedStaffIds || null,
         assignedDepartments: input.assignedDepartments || null,
-      });
+        sourceType: input.sourceType || 'manual',
+        sourceFileName: input.sourceFileName || null,
+        sourceFileUrl: input.sourceFileUrl || null,
+        sourceImportedAt: input.sourceType === 'upload' ? new Date() : null,
+      } as any);
+
+      if (input.linkedDocumentIds?.length) {
+        await setDocumentLinks(doc.id, input.linkedDocumentIds, getCurrentUserId(req));
+      }
 
       // Audit log
       await storage.createAuditLog({
@@ -775,11 +950,16 @@ export async function registerRoutes(
         comments: 'Document created',
       });
 
+      if (input.preparedById && prepareTarget) {
+        await setTaskTarget(`prepare:${doc.id}`, { assigneeId: input.preparedById, initiatorId: getCurrentUserId(req), targetDate: prepareTarget });
+      }
+
       // Update live performance report stats
       await storage.updateLiveReportStats(getCurrentUserId(req), 'document_created');
 
       res.status(201).json(doc);
     } catch (err: any) {
+      if (err instanceof TargetDateError) return res.status(400).json({ message: err.message, field: 'prepareTargetDate' });
       if (err instanceof z.ZodError) {
         return res.status(400).json({
           message: err.errors[0].message,
@@ -796,6 +976,122 @@ export async function registerRoutes(
     }
   });
 
+  // Upload a Word (.docx) / text / HTML file: returns its content for the document editor
+  app.post('/api/documents/convert-upload', requireAuth, async (req, res) => {
+    const parsed = z.object({
+      fileName: z.string().min(1).max(255),
+      data: z.string().min(1), // base64
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: 'Choose a file to upload' });
+    try {
+      const buffer = Buffer.from(parsed.data.data, 'base64');
+      if (buffer.length > 7 * 1024 * 1024) return res.status(413).json({ message: 'The file is larger than 7 MB' });
+      const html = await convertUploadedFile(parsed.data.fileName, buffer);
+      res.json({ fileName: parsed.data.fileName, title: parsed.data.fileName.replace(/\.(docx?|txt|html?)$/i, ''), html });
+    } catch (err: any) {
+      if (err instanceof UnsupportedFileError) return res.status(415).json({ message: err.message });
+      console.error('Error converting uploaded file:', err);
+      res.status(422).json({ message: 'This file could not be read. Check it opens in Word and upload it again.' });
+    }
+  });
+
+  // Register a document kept in Google (Docs / Sheets / Drive): only the audit details are entered here.
+  // It goes straight to the COO's final approval in the Document Hub.
+  app.post('/api/documents/register-link', requireAuth, async (req, res) => {
+    const userId = getCurrentUserId(req);
+    const parsed = z.object({
+      documentCode: z.string().trim().min(1, 'Enter the doc ref no.'),
+      title: z.string().trim().min(1, 'Enter the document name'),
+      category: z.string().min(1),
+      url: z.string().trim().refine(isGoogleFileUrl, 'Paste the link of a Google Doc, Sheet, Slides or Drive file (https://docs.google.com/... or https://drive.google.com/...)'),
+      editionNumber: z.number().int().min(0).max(999),
+      revisionNumber: z.number().int().min(0).max(999),
+      issueDate: z.string().refine(v => !isNaN(Date.parse(v)), 'Enter the issue date'),
+      preparedById: z.number({ required_error: 'Choose who prepared it' }).int().positive({ message: 'Choose who prepared it' }),
+      reviewedById: z.number().int().positive().optional().nullable(),
+      approvedById: z.number({ required_error: 'Choose who approved it' }).int().positive({ message: 'Choose who approved it' }),
+      description: z.string().optional(),
+      nextReviewDate: z.string().optional(),
+      linkedDocumentIds: z.array(z.number().int().positive()).optional(),
+      assignedStaffIds: z.array(z.number()).optional(),
+      assignedDepartments: z.array(z.string()).optional(),
+    }).safeParse(req.body);
+    if (!parsed.success) {
+      const issue = parsed.error.errors[0];
+      return res.status(400).json({ message: issue.message, field: issue.path.join('.') });
+    }
+    const input = parsed.data;
+    try {
+      for (const id of [input.preparedById, input.reviewedById, input.approvedById]) {
+        if (id && !(await storage.getUser(id))) return res.status(400).json({ message: 'One of the chosen signatories was not found' });
+      }
+      const issueDate = new Date(input.issueDate);
+      const now = new Date();
+      const doc = await storage.createDocument({
+        documentCode: input.documentCode,
+        title: input.title,
+        description: input.description || null,
+        category: input.category,
+        content: null,
+        fileUrl: input.url,
+        versionNumber: `${input.editionNumber}.${input.revisionNumber}`,
+        editionNumber: input.editionNumber,
+        revisionNumber: input.revisionNumber,
+        status: DocumentStatus.APPROVED,
+        createdById: userId,
+        nextReviewDate: input.nextReviewDate ? new Date(input.nextReviewDate) : null,
+        preparedById: input.preparedById,
+        reviewerId: input.reviewedById || null,
+        reviewedById: input.reviewedById || null,
+        approverId: input.approvedById,
+        approvedById: input.approvedById,
+        approvedAt: issueDate,
+        issueDate,
+        hubStatus: DocumentHubStatus.PENDING_COO_APPROVAL,
+        transferredToHubAt: now,
+        assignedStaffIds: input.assignedStaffIds?.length ? input.assignedStaffIds : null,
+        assignedDepartments: input.assignedDepartments?.length ? input.assignedDepartments : null,
+        sourceType: 'google_link',
+        sourceFileName: input.title,
+        sourceFileUrl: input.url,
+      } as any);
+      if (input.linkedDocumentIds?.length) await setDocumentLinks(doc.id, input.linkedDocumentIds, userId);
+
+      await storage.createWorkflowLog({
+        documentId: doc.id,
+        fromStatus: null,
+        toStatus: DocumentStatus.APPROVED,
+        actionById: userId,
+        comments: 'Registered from a Google file; sent to the COO for final approval in the Document Hub',
+      });
+      await storage.createAuditLog({
+        userId, action: AuditAction.CREATE, entityType: 'document', entityId: doc.id,
+        newValue: JSON.stringify({ ...input, source: 'google_link' }),
+      });
+      const coo = await storage.getUserByEmail('coo@sahihcertify.com');
+      if (coo) {
+        await setTaskTarget(`hub_approval:${doc.id}`, { assigneeId: coo.id, initiatorId: userId, targetDate: parseTargetDate(undefined, 'hub_approval') });
+        if (coo.id !== userId) {
+          await storage.createNotification({
+            userId: coo.id,
+            title: 'Document Awaiting Final Approval',
+            message: `"${doc.documentCode} - ${doc.title}" (Google file) was registered and awaits your final approval in the Document Hub.`,
+            urgencyLevel: UrgencyLevel.MEDIUM,
+            relatedDocumentId: doc.id,
+          });
+        }
+      }
+      await storage.updateLiveReportStats(userId, 'document_created');
+      res.status(201).json(doc);
+    } catch (err: any) {
+      if (err?.code === '23505' && err?.constraint === 'documents_document_code_unique') {
+        return res.status(400).json({ message: 'A document with this doc ref no. already exists.', field: 'documentCode' });
+      }
+      console.error('Error registering Google document:', err);
+      res.status(500).json({ message: 'Failed to register the document' });
+    }
+  });
+
   app.put(api.documents.update.path, async (req, res) => {
     try {
       const input = api.documents.update.input.parse(req.body);
@@ -806,9 +1102,12 @@ export async function registerRoutes(
         return res.status(404).json({ message: 'Document not found' });
       }
 
-      // Prevent editing locked (approved) documents
+      // Prevent editing locked documents, and signed-off documents awaiting the COO in the Document Hub
       if (existing.isLocked) {
         return res.status(403).json({ message: 'This document is locked and cannot be edited. Approved documents are read-only.' });
+      }
+      if (existing.status === DocumentStatus.APPROVED) {
+        return res.status(403).json({ message: 'This document has been approved and is awaiting the COO\'s final approval in the Document Hub. It cannot be edited.' });
       }
 
       const updateData: any = {};
@@ -825,10 +1124,16 @@ export async function registerRoutes(
       if (input.requiresReviewedBy !== undefined) updateData.requiresReviewedBy = input.requiresReviewedBy;
       if (input.requiresApprovedBy !== undefined) updateData.requiresApprovedBy = input.requiresApprovedBy;
       if (input.preparedById !== undefined) updateData.preparedById = input.preparedById;
+      const prepareTarget = input.preparedById && input.preparedById !== existing.preparedById
+        ? parseTargetDate(input.prepareTargetDate, 'prepare')
+        : (input.prepareTargetDate ? parseTargetDate(input.prepareTargetDate, 'prepare') : null);
       if (input.reviewedById !== undefined) updateData.reviewerId = input.reviewedById;
       if (input.approvedById !== undefined) updateData.approverId = input.approvedById;
 
       const doc = await storage.updateDocument(id, updateData);
+      if (prepareTarget && doc.preparedById) {
+        await setTaskTarget(`prepare:${id}`, { assigneeId: doc.preparedById, initiatorId: getCurrentUserId(req), targetDate: prepareTarget });
+      }
 
       // Audit log
       await storage.createAuditLog({
@@ -842,6 +1147,7 @@ export async function registerRoutes(
 
       res.json(doc);
     } catch (err) {
+      if (err instanceof TargetDateError) return res.status(400).json({ message: err.message, field: 'prepareTargetDate' });
       if (err instanceof z.ZodError) {
         return res.status(400).json({
           message: err.errors[0].message,
@@ -852,11 +1158,16 @@ export async function registerRoutes(
     }
   });
 
-  app.delete(api.documents.delete.path, async (req, res) => {
+  app.delete(api.documents.delete.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     const existing = await storage.getDocument(id);
     if (!existing) {
       return res.status(404).json({ message: 'Document not found' });
+    }
+    // Anything that was ever approved is a controlled record and is kept for good
+    const versions = await storage.getDocumentVersions(id);
+    if (existing.isLocked || existing.status === DocumentStatus.APPROVED || existing.activeChangeRequestId || versions.length > 0) {
+      return res.status(403).json({ message: 'Approved documents are permanent records and cannot be deleted. Raise a change request, or ask the COO to mark it Obsolete.' });
     }
 
     await storage.deleteDocument(id);
@@ -897,10 +1208,15 @@ export async function registerRoutes(
         return res.status(400).json({ message: 'Reviewer not found', field: 'reviewerId' });
       }
 
+      const reviewTarget = parseTargetDate(input.reviewTargetDate, 'review');
+
       // Update document status to in_review
       const updateData: any = {
         status: DocumentStatus.IN_REVIEW,
         reviewerId: input.reviewerId,
+        returnedAt: null,
+        returnedById: null,
+        returnNote: null,
       };
 
       if (input.approverId) {
@@ -912,12 +1228,13 @@ export async function registerRoutes(
       }
 
       const doc = await storage.updateDocument(id, updateData);
+      await setTaskTarget(`review:${id}`, { assigneeId: input.reviewerId, initiatorId: getCurrentUserId(req), targetDate: reviewTarget });
 
       // Create notification for reviewer
       await storage.createNotification({
         userId: input.reviewerId,
         title: 'Document Requires Review',
-        message: `Document "${doc.title}" (${doc.documentCode}) requires your review.`,
+        message: `Document "${doc.title}" (${doc.documentCode}) requires your review by ${reviewTarget.toLocaleDateString('en-GB')}.`,
         urgencyLevel: 'medium',
       });
 
@@ -933,6 +1250,7 @@ export async function registerRoutes(
 
       res.json(doc);
     } catch (err) {
+      if (err instanceof TargetDateError) return res.status(400).json({ message: err.message, field: 'reviewTargetDate' });
       if (err instanceof z.ZodError) {
         return res.status(400).json({
           message: err.errors[0].message,
@@ -949,159 +1267,235 @@ export async function registerRoutes(
   app.get('/api/my-tasks', requireAuth, async (req, res) => {
     try {
       const userId = getCurrentUserId(req);
-      const currentUser = await storage.getUser(userId);
-      const allDocs = await storage.getDocuments();
+      const { tasks } = await collectOpenTasks();
+      const mine = tasks.filter(t => t.userId === userId);
+      // Due dates come from the task record once it exists, so they do not move
+      const records = new Map((await getOpenTaskRecords(userId)).map(r => [r.taskKey, r]));
+
+      // Several comments on the same document are shown as one task
+      const shown: OpenTask[] = [];
+      const commentCounts = new Map<number, number>();
+      for (const t of mine) {
+        if (t.taskType === 'comment' && t.documentId) {
+          commentCounts.set(t.documentId, (commentCounts.get(t.documentId) || 0) + 1);
+          if (commentCounts.get(t.documentId)! > 1) continue;
+        }
+        shown.push(t);
+      }
+
+      const now = Date.now();
       const allUsers = await storage.getUsers();
-      const userMap = new Map(allUsers.map(u => [u.id, u.name]));
-      const tasks: any[] = [];
-
-      for (const doc of allDocs) {
-        // Get reviewer and approver names
-        const reviewerName = doc.reviewerId ? userMap.get(doc.reviewerId) : null;
-        const approverName = doc.approverId ? userMap.get(doc.approverId) : null;
-        
-        // Review task: User is reviewer and document is in_review
-        if (doc.reviewerId === userId && doc.status === DocumentStatus.IN_REVIEW) {
-          tasks.push({
-            id: doc.id * 1000 + 1,
-            documentId: doc.id,
-            documentCode: doc.documentCode,
-            title: doc.title,
-            taskType: 'review',
-            status: 'pending',
-            createdAt: doc.updatedAt || doc.createdAt,
-            dueDate: doc.nextReviewDate,
-            reviewerId: doc.reviewerId,
-            reviewerName,
-            approverId: doc.approverId,
-            approverName,
-            reviewCompleted: false,
-            approveCompleted: false,
-          });
-        }
-
-        // Approve task: User is approver and document is pending_approval
-        if (doc.approverId === userId && doc.status === DocumentStatus.PENDING_APPROVAL) {
-          tasks.push({
-            id: doc.id * 1000 + 2,
-            documentId: doc.id,
-            documentCode: doc.documentCode,
-            title: doc.title,
-            taskType: 'approve',
-            status: 'pending',
-            createdAt: doc.updatedAt || doc.createdAt,
-            dueDate: doc.nextReviewDate,
-            reviewerId: doc.reviewerId,
-            reviewerName,
-            approverId: doc.approverId,
-            approverName,
-            reviewCompleted: true,
-            approveCompleted: false,
-          });
-        }
-      }
-
-      // Add employee review/approval tasks
-      const allEmployees = await storage.getEmployees();
-      for (const emp of allEmployees) {
-        // Get supervisor name if available
-        let supervisorName: string | null = null;
-        if (emp.supervisorId) {
-          const supervisor = allEmployees.find(e => e.id === emp.supervisorId);
-          supervisorName = supervisor?.name || null;
-        }
-        
-        // Employee review task: User is reviewer and employee is in_review
-        if (emp.reviewerId === userId && emp.workflowStatus === EmployeeRecordStatus.IN_REVIEW) {
-          tasks.push({
-            id: emp.id * 1000 + 5,
-            employeeId: emp.id,
-            employeeName: emp.name,
-            employeeEmail: emp.email,
-            employeePhone: emp.phone || null,
-            employeeJobTitle: emp.jobTitle,
-            employeeDepartment: emp.department,
-            employeeSupervisorName: supervisorName,
-            title: `Review Employee Record: ${emp.name}`,
-            taskType: 'employee_review',
-            status: 'pending',
-            createdAt: emp.submittedForReviewAt || emp.createdAt,
-            dueDate: null,
-          });
-        }
-        
-        // Employee approval task: User is approver and employee is pending_approval
-        if (emp.approverId === userId && emp.workflowStatus === EmployeeRecordStatus.PENDING_APPROVAL) {
-          tasks.push({
-            id: emp.id * 1000 + 6,
-            employeeId: emp.id,
-            employeeName: emp.name,
-            employeeEmail: emp.email,
-            employeePhone: emp.phone || null,
-            employeeJobTitle: emp.jobTitle,
-            employeeDepartment: emp.department,
-            employeeSupervisorName: supervisorName,
-            title: `Approve Employee Record: ${emp.name}`,
-            taskType: 'employee_approve',
-            status: 'pending',
-            createdAt: emp.submittedForApprovalAt || emp.createdAt,
-            dueDate: null,
-          });
-        }
-      }
-
-      // Add pending download requests for Admin and Quality Manager
-      if (currentUser && (currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.QUALITY_MANAGER)) {
-        const pendingDownloadRequests = await storage.getDownloadRequests({ status: DownloadRequestStatus.PENDING });
-        
-        for (const request of pendingDownloadRequests) {
-          const doc = await storage.getDocument(request.documentId);
-          if (doc) {
-            tasks.push({
-              id: request.id * 1000 + 3, // Use different multiplier to avoid ID conflicts
-              documentId: doc.id,
-              documentCode: doc.documentCode,
-              title: doc.title,
-              taskType: 'download_approval',
-              status: 'pending',
-              createdAt: request.createdAt,
-              dueDate: null,
-              downloadRequestId: request.id,
-              requesterId: request.requesterId,
-              reason: request.reason,
-            });
-          }
-        }
-        
-        // Add pending document access requests
-        const pendingAccessRequests = await storage.getDocumentAccessRequests({ status: 'pending' });
-        
-        for (const request of pendingAccessRequests) {
-          const doc = await storage.getDocument(request.documentId);
-          const requester = await storage.getUser(request.requesterId);
-          if (doc) {
-            tasks.push({
-              id: request.id * 1000 + 4, // Use different multiplier to avoid ID conflicts
-              documentId: doc.id,
-              documentCode: doc.documentCode,
-              title: doc.title,
-              taskType: 'access_approval',
-              status: 'pending',
-              createdAt: request.createdAt,
-              dueDate: null,
-              accessRequestId: request.id,
-              requesterId: request.requesterId,
-              requesterName: requester?.name || 'Unknown User',
-              reason: request.requestReason,
-            });
-          }
-        }
-      }
-
-      res.json(tasks);
+      const result = shown.map((t, index) => {
+        const record = records.get(t.key);
+        const assignedAt = record?.assignedAt ?? t.assignedAt;
+        const dueAt = record ? record.dueAt : t.dueAt;
+        const commentCount = t.taskType === 'comment' && t.documentId ? commentCounts.get(t.documentId) : undefined;
+        return {
+          ...t.extra,
+          id: index + 1,
+          taskKey: t.key,
+          taskType: t.taskType,
+          typeLabel: TASK_TYPE_LABELS[t.taskType] || t.taskType,
+          title: t.title,
+          reference: t.reference,
+          description: commentCount && commentCount > 1
+            ? `You were mentioned in ${commentCount} open comments on this document.`
+            : t.description,
+          link: t.link,
+          documentId: t.documentId,
+          status: 'pending',
+          createdAt: assignedAt,
+          dueDate: dueAt,
+          isOverdue: !!dueAt && dueAt.getTime() < now,
+          hasTarget: t.dueSource !== 'default',
+          initiatorId: t.initiatorId ?? null,
+          initiatorName: t.initiatorId ? allUsers.find(u => u.id === t.initiatorId)?.name ?? null : null,
+          commentCount,
+        };
+      });
+      result.sort((a, b) => (a.dueDate?.getTime() ?? Infinity) - (b.dueDate?.getTime() ?? Infinity));
+      res.json(result);
     } catch (err) {
       console.error('Error fetching my tasks:', err);
       res.status(500).json({ message: 'Failed to fetch tasks' });
+    }
+  });
+
+  // Tasks this user assigned to others (initiator view). Managers can ask for every open task with ?all=1.
+  app.get('/api/tasks/initiated', requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const all = req.query.all === '1' && canManageTasks(user, null);
+      const { tasks } = await collectOpenTasks();
+      const users = await storage.getUsers();
+      const nameOf = (id: number | null | undefined) => (id ? users.find(u => u.id === id)?.name ?? 'Unknown' : null);
+      const now = Date.now();
+      const result = tasks
+        .filter(t => all ? true : t.initiatorId === user.id && t.userId !== user.id)
+        .map(t => ({
+          taskKey: t.key,
+          taskType: t.taskType,
+          typeLabel: TASK_TYPE_LABELS[t.taskType] || t.taskType,
+          title: t.title,
+          reference: t.reference,
+          link: t.link,
+          assigneeId: t.userId,
+          assigneeName: nameOf(t.userId),
+          initiatorId: t.initiatorId ?? null,
+          initiatorName: nameOf(t.initiatorId),
+          assignedAt: t.assignedAt,
+          dueDate: t.dueAt,
+          isOverdue: !!t.dueAt && t.dueAt.getTime() < now,
+          canReassign: REASSIGNABLE_TASK_TYPES.has(t.taskType),
+        }))
+        .sort((a, b) => (a.dueDate?.getTime() ?? Infinity) - (b.dueDate?.getTime() ?? Infinity));
+      res.json(result);
+    } catch (err) {
+      console.error('Error fetching initiated tasks:', err);
+      res.status(500).json({ message: 'Failed to fetch tasks' });
+    }
+  });
+
+  // The initiator (or an admin, QM or the COO) moves a task to another person and/or changes its target date
+  app.post('/api/tasks/change', requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const parsed = z.object({
+        taskKey: z.string().min(1),
+        assigneeId: z.number().int().positive().optional(), // current assignee, for tasks shared by several people
+        newAssigneeId: z.number().int().positive().optional(),
+        targetDate: z.string().optional(),
+        reason: z.string().optional(),
+      }).safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: 'Invalid request' });
+      }
+      const { taskKey, assigneeId, newAssigneeId, reason } = parsed.data;
+      if (!newAssigneeId && !parsed.data.targetDate) {
+        return res.status(400).json({ message: 'Choose a new person or a new target date' });
+      }
+
+      const { tasks } = await collectOpenTasks();
+      const task = tasks.find(t => t.key === taskKey && (!assigneeId || t.userId === assigneeId));
+      if (!task) {
+        return res.status(404).json({ message: 'This task is no longer open' });
+      }
+      if (!canManageTasks(user, task.initiatorId ?? null)) {
+        return res.status(403).json({ message: 'Only the person who assigned this task (or an admin, the Quality Manager or the COO) can change it' });
+      }
+
+      const previousTarget = await getTaskTarget(taskKey);
+      const targetDate = parsed.data.targetDate
+        ? parseTargetDate(parsed.data.targetDate, task.taskType)
+        : (previousTarget?.targetDate ?? task.dueAt ?? parseTargetDate(undefined, task.taskType));
+
+      const moving = !!newAssigneeId && newAssigneeId !== task.userId;
+      if (moving) {
+        if (!REASSIGNABLE_TASK_TYPES.has(task.taskType)) {
+          return res.status(400).json({ message: 'This kind of task cannot be moved to another person here. You can still change its target date.' });
+        }
+        const newAssignee = await storage.getUser(newAssigneeId!);
+        if (!newAssignee) {
+          return res.status(404).json({ message: 'New assignee not found' });
+        }
+        const entityId = task.entityId;
+        switch (task.taskType) {
+          case 'prepare':
+          case 'revise':
+          case 'review':
+          case 'approve': {
+            const doc = await storage.getDocument(task.documentId!);
+            if (!doc) return res.status(404).json({ message: 'Document not found' });
+            await reassignDocumentTask(doc, task.taskType, newAssigneeId!, user.id, reason);
+            break;
+          }
+          case 'employee_review':
+          case 'employee_approve':
+            await storage.updateEmployee(entityId, task.taskType === 'employee_review' ? { reviewerId: newAssigneeId } : { approverId: newAssigneeId });
+            break;
+          case 'comment': {
+            const comment = await storage.getDocumentComment(entityId);
+            if (!comment) return res.status(404).json({ message: 'Comment not found' });
+            const assignees = Array.from(new Set(comment.assigneeIds.map(id => (id === task.userId ? newAssigneeId! : id))));
+            await storage.updateDocumentComment(entityId, { assigneeIds: assignees });
+            break;
+          }
+          case 'bug':
+            await storage.updateBugReport(entityId, { assignedToId: newAssigneeId } as any);
+            break;
+          case 'lead_followup':
+            await storage.updateLead(entityId, { assignedToId: newAssigneeId } as any);
+            break;
+        }
+        if (!['prepare', 'revise', 'review', 'approve'].includes(task.taskType)) {
+          await storage.createNotification({
+            userId: newAssigneeId!,
+            title: 'Task Assigned to You',
+            message: `${user.name} assigned you: ${TASK_TYPE_LABELS[task.taskType] || task.taskType} - ${task.title}. Target: ${targetDate.toLocaleDateString('en-GB')}.${reason ? ` Reason: ${reason}` : ''}`,
+            urgencyLevel: UrgencyLevel.HIGH,
+            relatedDocumentId: task.documentId,
+          });
+          if (task.userId !== user.id) {
+            await storage.createNotification({
+              userId: task.userId,
+              title: 'Task Reassigned',
+              message: `${TASK_TYPE_LABELS[task.taskType] || task.taskType} - ${task.title} has been reassigned to ${newAssignee.name}.`,
+              urgencyLevel: UrgencyLevel.MEDIUM,
+              relatedDocumentId: task.documentId,
+            });
+          }
+        }
+      } else if (task.userId !== user.id) {
+        await storage.createNotification({
+          userId: task.userId,
+          title: 'Target Date Changed',
+          message: `${user.name} changed the target date of "${task.title}" to ${targetDate.toLocaleDateString('en-GB')}.${reason ? ` Reason: ${reason}` : ''}`,
+          urgencyLevel: UrgencyLevel.MEDIUM,
+          relatedDocumentId: task.documentId,
+        });
+      }
+
+      await setTaskTarget(taskKey, {
+        assigneeId: moving ? newAssigneeId : task.userId,
+        initiatorId: task.initiatorId ?? user.id,
+        targetDate,
+        note: reason || null,
+      });
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.ASSIGN_TASK,
+        entityType: 'task',
+        entityId: task.entityId,
+        previousValue: JSON.stringify({ taskKey, assigneeId: task.userId, targetDate: task.dueAt }),
+        newValue: JSON.stringify({ taskKey, assigneeId: moving ? newAssigneeId : task.userId, targetDate, reason }),
+      });
+
+      res.json({ success: true, taskKey, assigneeId: moving ? newAssigneeId : task.userId, targetDate });
+    } catch (err) {
+      if (err instanceof TargetDateError) return res.status(400).json({ message: err.message, field: 'targetDate' });
+      console.error('Error changing task:', err);
+      res.status(500).json({ message: 'Failed to change task' });
+    }
+  });
+
+  // Task performance for one person and month (own figures, or anyone's for admins)
+  app.get('/api/task-performance', requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const userId = req.query.userId ? Number(req.query.userId) : user.id;
+      if (userId !== user.id && user.role !== UserRole.ADMIN) {
+        return res.status(403).json({ message: 'You can only view your own task performance' });
+      }
+      const now = new Date();
+      const month = req.query.month ? Number(req.query.month) : now.getMonth() + 1;
+      const year = req.query.year ? Number(req.query.year) : now.getFullYear();
+      await reconcileTasks();
+      const { start, end } = monthRange(month, year);
+      res.json({ userId, month, year, ...(await computeTaskMetrics(userId, start, end)) });
+    } catch (err) {
+      console.error('Error computing task performance:', err);
+      res.status(500).json({ message: 'Failed to compute task performance' });
     }
   });
 
@@ -1111,6 +1505,8 @@ export async function registerRoutes(
       const documentId = Number(req.params.documentId);
       const userId = getCurrentUserId(req);
       const { taskType, comments, approverId } = req.body;
+      // Target for the next person: the approver after a review, the COO after an approval
+      const nextTarget = parseTargetDate(req.body.nextTargetDate, taskType === 'review' ? 'approve' : 'hub_approval');
 
       const doc = await storage.getDocument(documentId);
       if (!doc) {
@@ -1128,6 +1524,9 @@ export async function registerRoutes(
         // Move to pending approval and optionally set new approver
         const updateData: any = {
           status: DocumentStatus.PENDING_APPROVAL,
+          returnedAt: null,
+          returnedById: null,
+          returnNote: null,
         };
         
         // If a new approver is selected, update the approver
@@ -1137,6 +1536,9 @@ export async function registerRoutes(
         }
 
         const updated = await storage.updateDocument(documentId, updateData);
+        if (finalApproverId) {
+          await setTaskTarget(`approve:${documentId}`, { assigneeId: finalApproverId, initiatorId: userId, targetDate: nextTarget });
+        }
 
         // Notify approver if set
         if (finalApproverId) {
@@ -1169,13 +1571,30 @@ export async function registerRoutes(
           return res.status(400).json({ message: 'Document is not pending approval' });
         }
 
-        // Approve and lock the document (approved docs are immutable)
+        // Approve and move to the Document Hub. The document stays unlocked until
+        // the COO gives final approval and classifies it (see /hub-approve).
         const updated = await storage.updateDocument(documentId, {
           status: DocumentStatus.APPROVED,
           approvedAt: new Date(),
           approvedBySignedAt: new Date(),
-          isLocked: true,
+          hubStatus: DocumentHubStatus.PENDING_COO_APPROVAL,
+          transferredToHubAt: new Date(),
+          returnedAt: null,
+          returnedById: null,
+          returnNote: null,
         });
+
+        const cooUser = await storage.getUserByEmail(COO_EMAIL);
+        if (cooUser) {
+          await setTaskTarget(`hub_approval:${documentId}`, { assigneeId: cooUser.id, initiatorId: userId, targetDate: nextTarget });
+          await storage.createNotification({
+            userId: cooUser.id,
+            title: 'Document Awaiting Final Approval',
+            message: `Document "${doc.title}" (${doc.documentCode}) has been approved and moved to the Document Hub. Your final approval and classification are required.`,
+            urgencyLevel: UrgencyLevel.HIGH,
+            relatedDocumentId: documentId,
+          });
+        }
 
         await storage.createAuditLog({
           userId,
@@ -1307,6 +1726,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: 'Invalid task type' });
       }
     } catch (err) {
+      if (err instanceof TargetDateError) return res.status(400).json({ message: err.message, field: 'nextTargetDate' });
       console.error('Error completing task:', err);
       res.status(500).json({ message: 'Failed to complete task' });
     }
@@ -1526,7 +1946,9 @@ export async function registerRoutes(
         return res.status(400).json({ message: 'Reviewer not found', field: 'reviewerId' });
       }
 
+      const targetDate = parseTargetDate(input.targetDate, 'employee_review');
       const employee = await storage.submitEmployeeForReview(id, input.reviewerId, input.notes);
+      await setTaskTarget(`employee_review:${id}`, { assigneeId: input.reviewerId, initiatorId: getCurrentUserId(req), targetDate });
 
       // Create notification for reviewer
       await storage.createNotification({
@@ -1548,6 +1970,7 @@ export async function registerRoutes(
 
       res.json(employee);
     } catch (err) {
+      if (err instanceof TargetDateError) return res.status(400).json({ message: err.message, field: 'targetDate' });
       if (err instanceof z.ZodError) {
         return res.status(400).json({
           message: err.errors[0].message,
@@ -1581,7 +2004,9 @@ export async function registerRoutes(
         return res.status(400).json({ message: 'Approver not found', field: 'approverId' });
       }
 
+      const targetDate = parseTargetDate(input.targetDate, 'employee_approve');
       const employee = await storage.submitEmployeeForApproval(id, input.approverId, input.notes);
+      await setTaskTarget(`employee_approve:${id}`, { assigneeId: input.approverId, initiatorId: getCurrentUserId(req), targetDate });
 
       // Create notification for approver
       await storage.createNotification({
@@ -1603,6 +2028,7 @@ export async function registerRoutes(
 
       res.json(employee);
     } catch (err) {
+      if (err instanceof TargetDateError) return res.status(400).json({ message: err.message, field: 'targetDate' });
       if (err instanceof z.ZodError) {
         return res.status(400).json({
           message: err.errors[0].message,
@@ -1871,7 +2297,15 @@ export async function registerRoutes(
         notificationMessage = `You have been assigned to approve the employee record for "${existing.name}" (${existing.employeeNumber}).`;
       }
 
+      const targetDate = parseTargetDate(input.targetDate, input.taskType);
       const employee = await storage.updateEmployee(id, updateData);
+      const previousTarget = await getTaskTarget(`${input.taskType}:${id}`);
+      await setTaskTarget(`${input.taskType}:${id}`, {
+        assigneeId: input.newAssigneeId,
+        initiatorId: previousTarget?.initiatorId ?? getCurrentUserId(req),
+        targetDate,
+        note: input.notes,
+      });
 
       // Create notification for new assignee
       await storage.createNotification({
@@ -1900,6 +2334,7 @@ export async function registerRoutes(
 
       res.json(employee);
     } catch (err) {
+      if (err instanceof TargetDateError) return res.status(400).json({ message: err.message, field: 'targetDate' });
       if (err instanceof z.ZodError) {
         return res.status(400).json({
           message: err.errors[0].message,
@@ -2096,10 +2531,10 @@ export async function registerRoutes(
     const COO_EMAIL = 'coo@sahihcertify.com';
     
     if ((doc.isLocked || doc.status === DocumentStatus.APPROVED) && currentUser?.email !== COO_EMAIL) {
-      const hasAccess = await storage.hasDocumentAccess(doc.id, userId);
+      const hasAccess = isPublicHubDocument(doc) || await storage.hasDocumentAccess(doc.id, userId);
       const isWorkflowMember = doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId;
       
-      if (!hasAccess && !isWorkflowMember) {
+      if (isWithdrawnDocument(doc) || (!hasAccess && !isWorkflowMember)) {
         return res.status(403).json({ message: 'Access denied. This document is locked.' });
       }
     }
@@ -2800,10 +3235,10 @@ export async function registerRoutes(
     const COO_EMAIL = 'coo@sahihcertify.com';
     
     if ((doc.isLocked || doc.status === DocumentStatus.APPROVED) && currentUser?.email !== COO_EMAIL) {
-      const hasAccess = await storage.hasDocumentAccess(doc.id, userId);
+      const hasAccess = isPublicHubDocument(doc) || await storage.hasDocumentAccess(doc.id, userId);
       const isWorkflowMember = doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId;
       
-      if (!hasAccess && !isWorkflowMember) {
+      if (isWithdrawnDocument(doc) || (!hasAccess && !isWorkflowMember)) {
         return res.status(403).json({ message: 'Access denied. This document is locked.' });
       }
     }
@@ -2968,10 +3403,10 @@ export async function registerRoutes(
     const COO_EMAIL = 'coo@sahihcertify.com';
     
     if ((doc.isLocked || doc.status === DocumentStatus.APPROVED) && currentUser?.email !== COO_EMAIL) {
-      const hasAccess = await storage.hasDocumentAccess(doc.id, userId);
+      const hasAccess = isPublicHubDocument(doc) || await storage.hasDocumentAccess(doc.id, userId);
       const isWorkflowMember = doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId;
       
-      if (!hasAccess && !isWorkflowMember) {
+      if (isWithdrawnDocument(doc) || (!hasAccess && !isWorkflowMember)) {
         return res.status(403).json({ message: 'Access denied. This document is locked.' });
       }
     }
@@ -3528,103 +3963,33 @@ export async function registerRoutes(
         (taskType === 'approve' && doc.approverId === userId) ||
         (taskType === 'prepare' && doc.preparedById === userId);
       
-      const hasPermission = isAssigned || 
-        currentUser?.role === 'admin' || 
-        currentUser?.role === 'quality_manager';
+      const hasPermission = isAssigned ||
+        currentUser?.role === 'admin' ||
+        currentUser?.role === 'quality_manager' ||
+        currentUser?.email === COO_EMAIL ||
+        (await taskInitiatorId(`${taskType}:${documentId}`)) === userId;
       
       if (!hasPermission) {
         return res.status(403).json({ message: 'You do not have permission to reassign this task' });
       }
       
-      // Prepare update data based on task type
-      const updateData: any = {};
-      let oldAssigneeId: number | null = null;
-      
-      if (taskType === 'review') {
-        oldAssigneeId = doc.reviewerId;
-        updateData.reviewerId = newAssigneeId;
-        updateData.reviewedBySignedAt = null; // Clear previous signature
-      } else if (taskType === 'approve') {
-        oldAssigneeId = doc.approverId;
-        updateData.approverId = newAssigneeId;
-        updateData.approvedBySignedAt = null; // Clear previous signature
-      } else if (taskType === 'prepare') {
-        oldAssigneeId = doc.preparedById;
-        updateData.preparedById = newAssigneeId;
-        updateData.preparerConfirmedAt = null;
-        updateData.preparedBySignedAt = null;
-      }
-      
-      // If new approver is also specified
-      if (newApproverId) {
-        const newApprover = await storage.getUser(newApproverId);
-        if (!newApprover) {
-          return res.status(404).json({ message: 'New approver not found' });
-        }
-        updateData.approverId = newApproverId;
-      }
-      
-      // Update the document
-      const updated = await storage.updateDocument(documentId, updateData);
-      
-      // Get old assignee info for audit log
-      const oldAssignee = oldAssigneeId ? await storage.getUser(oldAssigneeId) : null;
-      
-      // Create audit log
-      await storage.createAuditLog({
-        userId,
-        action: AuditAction.UPDATE,
-        entityType: 'document',
-        entityId: documentId,
-        oldValue: JSON.stringify({
-          taskType,
-          assignedTo: oldAssignee?.name || 'Unknown',
-          assignedToId: oldAssigneeId,
-        }),
-        newValue: JSON.stringify({
-          taskType,
-          assignedTo: newAssignee.name,
-          assignedToId: newAssigneeId,
-          reason: reason || 'Task reassigned',
-          ...(newApproverId && { newApproverId }),
-        }),
+      const targetDate = parseTargetDate(req.body.targetDate, taskType);
+      const updated = await reassignDocumentTask(doc, taskType, newAssigneeId, userId, reason, newApproverId);
+      const existingTarget = await getTaskTarget(`${taskType}:${documentId}`);
+      await setTaskTarget(`${taskType}:${documentId}`, {
+        assigneeId: newAssigneeId,
+        initiatorId: existingTarget?.initiatorId ?? userId,
+        targetDate,
+        note: reason || null,
       });
-      
-      // Create workflow log
-      await storage.createWorkflowLog({
-        documentId,
-        fromStatus: doc.status,
-        toStatus: doc.status, // Status doesn't change
-        actionById: userId,
-        comments: `Task reassigned: ${taskType} from ${oldAssignee?.name || 'Unknown'} to ${newAssignee.name}. ${reason ? `Reason: ${reason}` : ''}`,
-      });
-      
-      // Notify the new assignee
-      await storage.createNotification({
-        userId: newAssigneeId,
-        title: 'Task Assigned to You',
-        message: `You have been assigned to ${taskType} document "${doc.title}" (${doc.documentCode}). ${reason ? `Reason: ${reason}` : ''}`,
-        urgencyLevel: UrgencyLevel.HIGH,
-        relatedDocumentId: documentId,
-      });
-      
-      // Notify the old assignee if they weren't the one doing the reassignment
-      if (oldAssigneeId && oldAssigneeId !== userId) {
-        await storage.createNotification({
-          userId: oldAssigneeId,
-          title: 'Task Reassigned',
-          message: `Your ${taskType} task for document "${doc.title}" has been reassigned to ${newAssignee.name}.`,
-          urgencyLevel: UrgencyLevel.MEDIUM,
-          relatedDocumentId: documentId,
-        });
-      }
-      
+
       res.json({ 
         success: true, 
         document: updated,
         message: `Task reassigned to ${newAssignee.name}` 
       });
     } catch (err) {
+      if (err instanceof TargetDateError) return res.status(400).json({ message: err.message });
       console.error('Error reassigning task:', err);
       res.status(500).json({ message: 'Failed to reassign task' });
     }
@@ -3957,7 +4322,7 @@ export async function registerRoutes(
     }
     
     // For approved (locked) documents, check explicit access grant from COO
-    const hasAccess = await storage.hasDocumentAccess(documentId, userId);
+    const hasAccess = !isWithdrawnDocument(document) && (isPublicHubDocument(document) || await storage.hasDocumentAccess(documentId, userId));
     res.json({ hasAccess });
   });
 
@@ -4142,205 +4507,519 @@ export async function registerRoutes(
     }
   });
 
-  // Manual lock document and grant access to selected users (COO only)
-  app.post('/api/documents/:id/lock', requireAuth, async (req, res) => {
+  // ============================================
+  // DOCUMENT COMMENTS (inline, with @mentioned assignees)
+  // ============================================
+  app.get('/api/documents/:id/comments', requireAuth, async (req, res) => {
     try {
       const documentId = Number(req.params.id);
-      if (isNaN(documentId)) {
-        return res.status(400).json({ message: 'Invalid document ID' });
-      }
-      
-      const currentUserId = getCurrentUserId(req);
-      const currentUser = await storage.getUser(currentUserId);
-      
-      // Only COO can manually lock documents
-      const COO_EMAIL = 'coo@sahihcertify.com';
-      if (currentUser?.email !== COO_EMAIL) {
-        return res.status(403).json({ message: 'Only the COO can manually lock documents' });
-      }
-      
-      const document = await storage.getDocument(documentId);
-      if (!document) {
+      const user = (req as any).user;
+      const doc = await storage.getDocument(documentId);
+      if (!doc) {
         return res.status(404).json({ message: 'Document not found' });
       }
-      
-      // Cannot lock already locked documents
-      if (document.isLocked) {
-        return res.status(400).json({ message: 'Document is already locked' });
+      if (!user || !(await canViewDocument(doc, user))) {
+        return res.status(403).json({ message: 'You do not have access to this document' });
       }
-      
-      const { userIds } = req.body as { userIds?: number[] };
-      
-      // Lock the document
-      const updated = await storage.updateDocument(documentId, {
-        isLocked: true,
+      const isCoo = user.email === COO_EMAIL;
+      const inWorkflow = [doc.createdById, doc.preparedById, doc.reviewerId, doc.approverId].includes(user.id);
+      const visible = (await storage.getDocumentComments(documentId)).filter(c => {
+        const involved = c.authorId === user.id || c.mentionedIds.includes(user.id) || c.assigneeIds.includes(user.id);
+        // Change-request points: the initiator and the COO; the people revising see the accepted request's points
+        if (c.kind === 'change_request') return involved || isCoo || (inWorkflow && c.changeRequestId === doc.activeChangeRequestId);
+        // Comments on a locked document are private to the author and the people tagged
+        if (c.isPrivate) return involved;
+        return true;
       });
-      
-      // Grant access to selected users
-      if (userIds && userIds.length > 0) {
-        for (const userId of userIds) {
-          await storage.grantDocumentAccess({
-            documentId,
-            userId,
-            grantedById: currentUserId,
-          });
-          
-          // Notify each user
-          await storage.createNotification({
-            userId,
-            title: 'Document Access Granted',
-            message: `You have been granted access to locked document "${document.documentCode} - ${document.title}"`,
-            urgencyLevel: UrgencyLevel.LOW,
-            relatedDocumentId: documentId,
-          });
-        }
-      }
-      
-      // Audit log
-      await storage.createAuditLog({
-        userId: currentUserId,
-        action: AuditAction.UPDATE,
-        entityType: 'document',
-        entityId: documentId,
-        previousValue: JSON.stringify({ isLocked: false }),
-        newValue: JSON.stringify({ isLocked: true, grantedAccessTo: userIds || [] }),
-      });
-      
-      res.json({ 
-        document: updated, 
-        accessGrantedTo: userIds?.length || 0 
-      });
+      res.json(visible);
     } catch (err) {
-      console.error('Error locking document:', err);
-      res.status(500).json({ message: 'Failed to lock document' });
+      console.error('Error fetching document comments:', err);
+      res.status(500).json({ message: 'Failed to fetch comments' });
     }
   });
 
-  // Lock and transfer to Document Hub (called after document approval)
-  app.post('/api/documents/:id/lock-transfer', requireAuth, async (req, res) => {
+  app.post('/api/documents/:id/comments', requireAuth, async (req, res) => {
+    try {
+      const documentId = Number(req.params.id);
+      const user = (req as any).user;
+      const parseResult = z.object({
+        content: z.string().trim().min(1, 'Comment cannot be empty'),
+        quotedText: z.string().min(1, 'Select the text you are commenting on'),
+        anchorFrom: z.number().int().nonnegative(),
+        anchorTo: z.number().int().positive(),
+        mentionedIds: z.array(z.number().int().positive()).optional().default([]), // tagged: notified only
+        assigneeIds: z.array(z.number().int().positive()).optional().default([]), // assigned: becomes a task
+        targetDate: z.string().optional(),
+      }).safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ message: parseResult.error.errors[0].message });
+      }
+      const input = parseResult.data;
+
+      const doc = await storage.getDocument(documentId);
+      if (!doc) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+      if (!user || !(await canViewDocument(doc, user))) {
+        return res.status(403).json({ message: 'You do not have access to this document' });
+      }
+      // A locked document is a permanent record: comments on it are for reference and discussion only,
+      // visible to the author and the people tagged, and never create tasks
+      if (doc.isLocked && input.assigneeIds.length > 0) {
+        return res.status(400).json({ message: 'Comments on an approved document cannot assign tasks. Tag people to notify them, or raise a change request.' });
+      }
+
+      const validUsers = async (ids: number[]) => {
+        const out: number[] = [];
+        for (const id of Array.from(new Set(ids))) if (await storage.getUser(id)) out.push(id);
+        return out;
+      };
+      const assigneeIds = await validUsers(input.assigneeIds);
+      const mentionedIds = (await validUsers([...input.mentionedIds, ...assigneeIds]));
+
+      const commentTarget = assigneeIds.length > 0 ? parseTargetDate(input.targetDate, 'comment') : null;
+      const comment = await storage.createDocumentComment({
+        documentId,
+        authorId: user.id,
+        content: input.content,
+        quotedText: input.quotedText,
+        anchorFrom: input.anchorFrom,
+        anchorTo: input.anchorTo,
+        assigneeIds,
+        mentionedIds,
+        isPrivate: !!doc.isLocked,
+        documentStatus: doc.status,
+      });
+
+      if (commentTarget) {
+        await setTaskTarget(`comment:${comment.id}`, { initiatorId: user.id, targetDate: commentTarget });
+      }
+      for (const taggedId of mentionedIds) {
+        if (taggedId === user.id) continue;
+        const assigned = assigneeIds.includes(taggedId);
+        await storage.createNotification({
+          userId: taggedId,
+          title: assigned ? 'A comment was assigned to you' : 'You were tagged in a document comment',
+          message: `${user.name} ${assigned ? 'assigned you a comment' : 'tagged you'} on "${doc.documentCode} - ${doc.title}": ${input.content.slice(0, 200)}`,
+          urgencyLevel: assigned ? UrgencyLevel.MEDIUM : UrgencyLevel.LOW,
+          relatedDocumentId: documentId,
+        });
+      }
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.CREATE,
+        entityType: 'document_comment',
+        entityId: comment.id,
+        newValue: JSON.stringify({ documentId, quotedText: input.quotedText, content: input.content, mentionedIds, assigneeIds, private: !!doc.isLocked }),
+      });
+
+      res.status(201).json(comment);
+    } catch (err) {
+      if (err instanceof TargetDateError) return res.status(400).json({ message: err.message, field: 'targetDate' });
+      console.error('Error creating document comment:', err);
+      res.status(500).json({ message: 'Failed to add comment' });
+    }
+  });
+
+  // Opening a document marks the reader's notifications about it (tags, assignments) as read
+  app.post('/api/documents/:id/seen', requireAuth, async (req, res) => {
+    const user = (req as any).user;
+    const count = await storage.markDocumentNotificationsRead(user.id, Number(req.params.id));
+    res.json({ cleared: count });
+  });
+
+  app.post('/api/document-comments/:id/resolve', requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const user = (req as any).user;
+      const comment = await storage.getDocumentComment(id);
+      if (!comment) {
+        return res.status(404).json({ message: 'Comment not found' });
+      }
+      const canResolve = comment.authorId === user?.id ||
+        comment.assigneeIds.includes(user?.id) ||
+        comment.mentionedIds.includes(user?.id) ||
+        user?.email === COO_EMAIL ||
+        user?.role === UserRole.ADMIN ||
+        user?.role === UserRole.QUALITY_MANAGER;
+      if (!canResolve) {
+        return res.status(403).json({ message: 'Only the author, a mentioned user, an admin or the Quality Manager can resolve this comment' });
+      }
+      if (comment.status === DocumentCommentStatus.RESOLVED) {
+        return res.json(comment);
+      }
+
+      const updated = await storage.updateDocumentComment(id, {
+        status: DocumentCommentStatus.RESOLVED,
+        resolvedById: user.id,
+        resolvedAt: new Date(),
+      });
+
+      if (comment.authorId !== user.id) {
+        const doc = await storage.getDocument(comment.documentId);
+        await storage.createNotification({
+          userId: comment.authorId,
+          title: 'Your comment was resolved',
+          message: `${user.name} resolved your comment on "${doc?.documentCode} - ${doc?.title}": "${comment.quotedText.slice(0, 80)}"`,
+          urgencyLevel: UrgencyLevel.LOW,
+          relatedDocumentId: comment.documentId,
+        });
+      }
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.UPDATE,
+        entityType: 'document_comment',
+        entityId: id,
+        previousValue: JSON.stringify({ status: comment.status }),
+        newValue: JSON.stringify({ status: DocumentCommentStatus.RESOLVED }),
+      });
+
+      res.json(updated);
+    } catch (err) {
+      console.error('Error resolving document comment:', err);
+      res.status(500).json({ message: 'Failed to resolve comment' });
+    }
+  });
+
+  app.delete('/api/document-comments/:id', requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const user = (req as any).user;
+      const comment = await storage.getDocumentComment(id);
+      if (!comment) {
+        return res.status(404).json({ message: 'Comment not found' });
+      }
+      if (comment.authorId !== user?.id) {
+        return res.status(403).json({ message: 'Only the author can delete a comment' });
+      }
+      if (comment.status !== DocumentCommentStatus.OPEN) {
+        return res.status(400).json({ message: 'Resolved comments are kept for the audit trail' });
+      }
+      await storage.deleteDocumentComment(id);
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.DELETE,
+        entityType: 'document_comment',
+        entityId: id,
+        previousValue: JSON.stringify(comment),
+      });
+      res.status(204).send();
+    } catch (err) {
+      console.error('Error deleting document comment:', err);
+      res.status(500).json({ message: 'Failed to delete comment' });
+    }
+  });
+
+  // ============================================
+  // RETURN FOR REVISION (one step back in the workflow)
+  // reviewer -> preparer (draft), approver -> reviewer, COO -> approver
+  // ============================================
+  app.post('/api/documents/:id/return', requireAuth, async (req, res) => {
+    try {
+      const documentId = Number(req.params.id);
+      const user = (req as any).user;
+      const note = typeof req.body?.note === 'string' ? req.body.note.trim() : '';
+
+      const doc = await storage.getDocument(documentId);
+      if (!doc) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+
+      let toStatus: string;
+      let returnToId: number | null;
+      let returnToRole: string;
+      const updateData: any = {};
+
+      if (doc.status === DocumentStatus.IN_REVIEW && doc.reviewerId === user?.id) {
+        toStatus = DocumentStatus.DRAFT;
+        returnToId = doc.preparedById ?? doc.createdById;
+        returnToRole = 'preparer';
+        updateData.preparerConfirmedAt = null;
+        updateData.preparedBySignedAt = null;
+      } else if (doc.status === DocumentStatus.PENDING_APPROVAL && doc.approverId === user?.id) {
+        toStatus = DocumentStatus.IN_REVIEW;
+        returnToId = doc.reviewerId;
+        returnToRole = 'reviewer';
+        updateData.reviewedBySignedAt = null;
+      } else if (doc.status === DocumentStatus.APPROVED && doc.hubStatus === DocumentHubStatus.PENDING_COO_APPROVAL && user?.email === COO_EMAIL) {
+        toStatus = DocumentStatus.PENDING_APPROVAL;
+        returnToId = doc.approverId;
+        returnToRole = 'approver';
+        updateData.approvedAt = null;
+        updateData.approvedBySignedAt = null;
+        updateData.hubStatus = null;
+        updateData.transferredToHubAt = null;
+      } else {
+        return res.status(403).json({ message: 'Only the person currently responsible for this document (reviewer, approver, or the COO in the Document Hub) can return it' });
+      }
+
+      const returnedTaskType = toStatus === DocumentStatus.DRAFT ? 'revise' : toStatus === DocumentStatus.IN_REVIEW ? 'review' : 'approve';
+      const returnTarget = parseTargetDate(req.body?.targetDate, returnedTaskType);
+
+      // The reason must be written in the document itself, as comments
+      const comments = await storage.getDocumentComments(documentId);
+      const myOpenComments = comments.filter(c => c.authorId === user.id && c.status === DocumentCommentStatus.OPEN);
+      if (myOpenComments.length === 0) {
+        return res.status(400).json({ message: 'Add at least one comment in the document explaining what needs to change before returning it (select text, right-click, Comment)' });
+      }
+
+      const updated = await storage.updateDocument(documentId, {
+        ...updateData,
+        status: toStatus,
+        returnedAt: new Date(),
+        returnedById: user.id,
+        returnNote: note || null,
+      });
+
+      await setTaskTarget(`${returnedTaskType}:${documentId}`, { assigneeId: returnToId, initiatorId: user.id, targetDate: returnTarget, note: note || null });
+
+      await storage.createWorkflowLog({
+        documentId,
+        fromStatus: doc.status,
+        toStatus,
+        assignedToId: returnToId,
+        actionById: user.id,
+        comments: `Returned for revision to ${returnToRole}${note ? `: ${note}` : ''}`,
+      });
+
+      if (returnToId) {
+        await storage.createNotification({
+          userId: returnToId,
+          title: 'Document Returned for Revision',
+          message: `${user.name} returned "${doc.documentCode} - ${doc.title}" to you with ${myOpenComments.length} comment${myOpenComments.length > 1 ? 's' : ''}.${note ? ` Note: ${note}` : ''}`,
+          urgencyLevel: UrgencyLevel.HIGH,
+          relatedDocumentId: documentId,
+        });
+      }
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.RETURN_FOR_REVISION,
+        entityType: 'document',
+        entityId: documentId,
+        previousValue: JSON.stringify({ status: doc.status, hubStatus: doc.hubStatus }),
+        newValue: JSON.stringify({ status: toStatus, returnedTo: returnToId, returnToRole, note, commentIds: myOpenComments.map(c => c.id) }),
+      });
+
+      res.json({ document: updated, returnedToId: returnToId, returnToRole });
+    } catch (err) {
+      if (err instanceof TargetDateError) return res.status(400).json({ message: err.message, field: 'targetDate' });
+      console.error('Error returning document:', err);
+      res.status(500).json({ message: 'Failed to return document' });
+    }
+  });
+
+  // COO final approval: classify an approved document, lock it and store it in the Sahih Hub
+  const classificationSchema = z.enum([
+    DocumentClassification.CONFIDENTIAL,
+    DocumentClassification.CONTROLLED_COPY,
+    DocumentClassification.PUBLIC_INFORMATION,
+    DocumentClassification.LEGAL,
+  ]);
+
+  app.post('/api/documents/:id/hub-approve', requireAuth, async (req, res) => {
     try {
       const documentId = Number(req.params.id);
       if (isNaN(documentId)) {
         return res.status(400).json({ message: 'Invalid document ID' });
       }
-      
-      // Validate request body with Zod
-      const lockTransferSchema = z.object({
+
+      const parseResult = z.object({
+        classification: classificationSchema,
         userIds: z.array(z.number().int().positive()).optional().default([]),
-      });
-      
-      const parseResult = lockTransferSchema.safeParse(req.body);
+        comments: z.string().optional(),
+        // for a revised document: new revision (Rev+1) or new edition (Ed+1, Rev.0)
+        versionChange: z.enum(['revision', 'edition']).optional(),
+      }).safeParse(req.body);
       if (!parseResult.success) {
-        return res.status(400).json({ 
-          message: 'Invalid request body', 
-          errors: parseResult.error.errors 
-        });
+        return res.status(400).json({ message: 'Please choose a classification for the document', errors: parseResult.error.errors });
       }
-      
-      const { userIds } = parseResult.data;
-      
+      const { classification, userIds, comments, versionChange } = parseResult.data;
+
       const currentUserId = getCurrentUserId(req);
       const currentUser = await storage.getUser(currentUserId);
-      
+      if (currentUser?.email !== COO_EMAIL) {
+        return res.status(403).json({ message: 'Only the COO can give final approval in the Document Hub' });
+      }
+
       const document = await storage.getDocument(documentId);
       if (!document) {
         return res.status(404).json({ message: 'Document not found' });
       }
-      
-      // Only allow lock-transfer for approved documents
-      if (document.status !== DocumentStatus.APPROVED) {
-        return res.status(400).json({ message: 'Only approved documents can be transferred to Document Hub' });
+      if (document.status !== DocumentStatus.APPROVED || document.hubStatus !== DocumentHubStatus.PENDING_COO_APPROVAL) {
+        return res.status(400).json({ message: 'Only approved documents awaiting final approval can be stored in the Document Hub' });
       }
-      
-      // Cannot lock already locked documents
-      if (document.isLocked) {
-        return res.status(400).json({ message: 'Document is already locked and transferred to Document Hub' });
-      }
-      
-      // Only approver, COO, admin, or quality manager can lock-transfer
-      const COO_EMAIL = 'coo@sahihcertify.com';
-      const isApprover = document.approverId === currentUserId;
-      const isCOO = currentUser?.email === COO_EMAIL;
-      const isAdmin = currentUser?.role === UserRole.ADMIN;
-      const isQM = currentUser?.role === UserRole.QUALITY_MANAGER;
-      
-      if (!isApprover && !isCOO && !isAdmin && !isQM) {
-        return res.status(403).json({ message: 'Only the approver, COO, Admin, or Quality Manager can transfer documents to Document Hub' });
-      }
-      
-      // Validate that all userIds exist
-      const validUserIds: number[] = [];
-      for (const userId of userIds) {
-        const user = await storage.getUser(userId);
-        if (user) {
-          validUserIds.push(userId);
-        }
-      }
-      
-      // Lock the document
+
+      // Record this as the current approved version; a previous version becomes obsolete (and is kept)
+      const version = await recordApprovedVersion(document, currentUserId, versionChange, classification);
       const updated = await storage.updateDocument(documentId, {
         isLocked: true,
-      });
-      
+        hubStatus: DocumentHubStatus.STORED,
+        lifecycleStatus: DocumentLifecycleStatus.CURRENT,
+        classification,
+        hubApprovedById: currentUserId,
+        hubApprovedAt: new Date(),
+        // Issue date: the date entered for a registered Google file, otherwise the date of this approval
+        issueDate: (document as any).issueDate && !version.previousVersion ? (document as any).issueDate : new Date(),
+        editionNumber: version.editionNumber,
+        revisionNumber: version.revisionNumber,
+        versionNumber: version.versionNumber,
+        activeChangeRequestId: null,
+      } as any);
+
       const accessGrantedTo: number[] = [];
-      
-      // Grant access to selected users (only valid ones)
-      for (const userId of validUserIds) {
-        try {
-          await storage.grantDocumentAccess({
-            documentId,
-            userId,
-            grantedById: currentUserId,
-          });
-          accessGrantedTo.push(userId);
-          
-          // Notify each user
-          await storage.createNotification({
-            userId,
-            title: 'Document Hub Access Granted',
-            message: `You have been granted access to document "${document.documentCode} - ${document.title}" in the Document Hub`,
-            urgencyLevel: UrgencyLevel.LOW,
-            relatedDocumentId: documentId,
-          });
-        } catch (err) {
-          // Continue with other users if one fails
-          console.error(`Failed to grant access to user ${userId}:`, err);
-        }
+      for (const userId of userIds) {
+        if (userId === currentUserId) continue;
+        const user = await storage.getUser(userId);
+        if (!user || await storage.hasDocumentAccess(documentId, userId)) continue;
+        await storage.grantDocumentAccess({ documentId, userId, grantedById: currentUserId });
+        accessGrantedTo.push(userId);
+        await storage.createNotification({
+          userId,
+          title: 'Document Hub Access Granted',
+          message: `You have been granted access to document "${document.documentCode} - ${document.title}" in the Document Hub`,
+          urgencyLevel: UrgencyLevel.LOW,
+          relatedDocumentId: documentId,
+        });
       }
-      
-      // Also grant access to COO automatically
-      const cooUser = await storage.getUserByEmail(COO_EMAIL);
-      if (cooUser && cooUser.id !== currentUserId && !validUserIds.includes(cooUser.id)) {
-        try {
-          await storage.grantDocumentAccess({
-            documentId,
-            userId: cooUser.id,
-            grantedById: currentUserId,
-          });
-          accessGrantedTo.push(cooUser.id);
-        } catch (err) {
-          console.error('Failed to grant COO access:', err);
-        }
+
+      // Let the document's creator and approver know it is now stored
+      const classificationLabel = classification.replace(/_/g, ' ');
+      for (const userId of Array.from(new Set([document.createdById, document.approverId]))) {
+        if (!userId || userId === currentUserId) continue;
+        await storage.createNotification({
+          userId,
+          title: 'Document Stored in Sahih Hub',
+          message: `Document "${document.documentCode} - ${document.title}" received the COO's final approval and is stored as ${classificationLabel}.`,
+          urgencyLevel: UrgencyLevel.LOW,
+          relatedDocumentId: documentId,
+        });
       }
-      
-      // Audit log
+
+      await storage.createAuditLog({
+        userId: currentUserId,
+        action: AuditAction.APPROVE,
+        entityType: 'document',
+        entityId: documentId,
+        previousValue: JSON.stringify({ hubStatus: document.hubStatus, isLocked: document.isLocked }),
+        newValue: JSON.stringify({ hubStatus: DocumentHubStatus.STORED, isLocked: true, classification, grantedAccessTo: accessGrantedTo, comments, version: version.versionNumber, supersedes: version.previousVersion }),
+      });
+
+      res.json({ document: updated, accessGrantedTo: accessGrantedTo.length });
+    } catch (err) {
+      console.error('Error giving final approval in Document Hub:', err);
+      res.status(500).json({ message: 'Failed to store document in the Document Hub' });
+    }
+  });
+
+  // COO changes the classification of a document already stored in the Hub
+  app.post('/api/documents/:id/classification', requireAuth, async (req, res) => {
+    try {
+      const documentId = Number(req.params.id);
+      if (isNaN(documentId)) {
+        return res.status(400).json({ message: 'Invalid document ID' });
+      }
+      const parseResult = z.object({ classification: classificationSchema }).safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ message: 'Invalid classification' });
+      }
+
+      const currentUserId = getCurrentUserId(req);
+      const currentUser = await storage.getUser(currentUserId);
+      if (currentUser?.email !== COO_EMAIL) {
+        return res.status(403).json({ message: 'Only the COO can change a document classification' });
+      }
+
+      const document = await storage.getDocument(documentId);
+      if (!document) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+      if (!document.isLocked) {
+        return res.status(400).json({ message: 'Only documents stored in the Document Hub can be classified' });
+      }
+
+      const updated = await storage.updateDocument(documentId, {
+        classification: parseResult.data.classification,
+        hubStatus: DocumentHubStatus.STORED,
+      });
+
       await storage.createAuditLog({
         userId: currentUserId,
         action: AuditAction.UPDATE,
         entityType: 'document',
         entityId: documentId,
-        previousValue: JSON.stringify({ isLocked: false }),
-        newValue: JSON.stringify({ isLocked: true, transferredToHub: true, grantedAccessTo: accessGrantedTo }),
+        previousValue: JSON.stringify({ classification: document.classification }),
+        newValue: JSON.stringify({ classification: parseResult.data.classification }),
       });
-      
-      res.json({ 
-        document: updated, 
-        accessGrantedTo: accessGrantedTo.length,
-        transferredToHub: true,
-      });
+
+      res.json(updated);
     } catch (err) {
-      console.error('Error transferring document to hub:', err);
-      res.status(500).json({ message: 'Failed to transfer document to Document Hub' });
+      console.error('Error changing document classification:', err);
+      res.status(500).json({ message: 'Failed to change classification' });
+    }
+  });
+
+  // COO sets the lifecycle status of a stored document: current, under revision, obsolete or quarantine
+  app.post('/api/documents/:id/lifecycle-status', requireAuth, async (req, res) => {
+    try {
+      const documentId = Number(req.params.id);
+      const parseResult = z.object({
+        lifecycleStatus: z.enum([
+          DocumentLifecycleStatus.CURRENT,
+          DocumentLifecycleStatus.UNDER_REVISION,
+          DocumentLifecycleStatus.OBSOLETE,
+          DocumentLifecycleStatus.QUARANTINE,
+        ]),
+        reason: z.string().optional(),
+      }).safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ message: 'Invalid status' });
+      }
+      const { lifecycleStatus, reason } = parseResult.data;
+
+      const user = (req as any).user;
+      if (user?.email !== COO_EMAIL) {
+        return res.status(403).json({ message: 'Only the COO can change the status of a stored document' });
+      }
+      const document = await storage.getDocument(documentId);
+      if (!document) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+      if (!document.isLocked) {
+        return res.status(400).json({ message: 'Only documents stored in the Document Hub have a status' });
+      }
+
+      const updated = await storage.updateDocument(documentId, { lifecycleStatus });
+
+      // Tell everyone who can open it, so nobody keeps using an obsolete or quarantined copy
+      const accessList = (await storage.getDocumentAccess({ documentId })).filter(a => !a.isRevoked);
+      const label = lifecycleStatus.replace(/_/g, ' ');
+      for (const userId of Array.from(new Set([...accessList.map(a => a.userId), document.createdById]))) {
+        if (userId === user.id) continue;
+        await storage.createNotification({
+          userId,
+          title: 'Document Status Changed',
+          message: `"${document.documentCode} - ${document.title}" is now ${label}.${reason ? ` Reason: ${reason}` : ''}`,
+          urgencyLevel: lifecycleStatus === DocumentLifecycleStatus.QUARANTINE ? UrgencyLevel.HIGH : UrgencyLevel.MEDIUM,
+          relatedDocumentId: documentId,
+        });
+      }
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: AuditAction.UPDATE,
+        entityType: 'document',
+        entityId: documentId,
+        previousValue: JSON.stringify({ lifecycleStatus: document.lifecycleStatus }),
+        newValue: JSON.stringify({ lifecycleStatus, reason }),
+      });
+
+      res.json(updated);
+    } catch (err) {
+      console.error('Error changing document status:', err);
+      res.status(500).json({ message: 'Failed to change document status' });
     }
   });
 
@@ -4623,6 +5302,9 @@ export async function registerRoutes(
         status: req.query.status as string | undefined,
       };
       
+      // Bring the task ledger and draft reports up to date before showing them
+      await reconcileTasks();
+      await refreshPerformanceReports();
       const reports = await storage.getMonthlyPerformanceReports(filters);
       
       // Enrich with user names
@@ -6287,7 +6969,7 @@ Limit to the top 10 most important suggestions.`
       const redirectUri = `${protocol}://${host}/api/gmail/callback`;
       
       const tokens = await exchangeCodeForTokens(code as string, redirectUri);
-      
+
       await saveUserGmailTokens(
         userId,
         tokens.access_token!,
@@ -6680,6 +7362,10 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
 
   app.post('/api/documents/:documentId/revision-history', requireAuth, async (req, res) => {
     try {
+      const lockedDoc = await storage.getDocument(Number(req.params.documentId));
+      if (lockedDoc?.isLocked) {
+        return res.status(403).json({ message: 'This document is approved and locked. Raise a change request instead.' });
+      }
       const documentId = parseInt(req.params.documentId);
       const { description, reason, preparedById, reviewedById, approvedById, amendmentDate } = req.body;
       
@@ -6715,6 +7401,11 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
 
   app.patch('/api/revision-history/:id', requireAuth, async (req, res) => {
     try {
+      const entryForLock = await storage.getRevisionHistoryById(Number(req.params.id));
+      const lockedDoc = entryForLock ? await storage.getDocument(entryForLock.documentId) : undefined;
+      if (lockedDoc?.isLocked) {
+        return res.status(403).json({ message: 'This document is approved and locked. Raise a change request instead.' });
+      }
       const id = parseInt(req.params.id);
       const { description, reason, preparedById, reviewedById, approvedById, amendmentDate, status } = req.body;
       
@@ -6770,6 +7461,11 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
 
   app.delete('/api/revision-history/:id', requireAuth, async (req, res) => {
     try {
+      const entryForLock = await storage.getRevisionHistoryById(Number(req.params.id));
+      const lockedDoc = entryForLock ? await storage.getDocument(entryForLock.documentId) : undefined;
+      if (lockedDoc?.isLocked) {
+        return res.status(403).json({ message: 'This document is approved and locked. Raise a change request instead.' });
+      }
       const id = parseInt(req.params.id);
       await storage.deleteRevisionHistory(id);
       res.json({ success: true });

@@ -57,6 +57,7 @@ export const AuditAction = {
   ARCHIVE: "archive",
   ASSIGN_TASK: "assign_task",
   COMPLETE_TASK: "complete_task",
+  RETURN_FOR_REVISION: "return_for_revision",
 } as const;
 
 export const EmploymentType = {
@@ -137,6 +138,28 @@ export const DocumentTaskStatus = {
 export const ReportType = {
   DOCUMENT_APPROVAL: "document_approval",
   STAFF_CONFIRMATION: "staff_confirmation",
+} as const;
+
+// Document Hub: after the approver signs, the document waits for the COO's final approval
+export const DocumentHubStatus = {
+  PENDING_COO_APPROVAL: "pending_coo_approval",
+  STORED: "stored",
+} as const;
+
+// Classification the COO assigns when storing a document in the Sahih Hub
+export const DocumentClassification = {
+  CONFIDENTIAL: "confidential",
+  CONTROLLED_COPY: "controlled_copy",
+  PUBLIC_INFORMATION: "public_information",
+  LEGAL: "legal",
+} as const;
+
+// Lifecycle status of a document stored in the Hub (set by the COO)
+export const DocumentLifecycleStatus = {
+  CURRENT: "current",
+  UNDER_REVISION: "under_revision",
+  OBSOLETE: "obsolete",
+  QUARANTINE: "quarantine",
 } as const;
 
 export const DocumentImportance = {
@@ -260,6 +283,22 @@ export const documents = pgTable("documents", {
   finalPdfGeneratedAt: timestamp("final_pdf_generated_at"),
   downloadRequiresApproval: boolean("download_requires_approval").default(true),
   isLocked: boolean("is_locked").default(false),
+  hubStatus: text("hub_status"), // null until approved, then pending_coo_approval -> stored
+  classification: text("classification"), // set by the COO on final approval
+  lifecycleStatus: text("lifecycle_status"), // current / under_revision / obsolete / quarantine, once stored
+  transferredToHubAt: timestamp("transferred_to_hub_at"),
+  hubApprovedById: integer("hub_approved_by_id"),
+  hubApprovedAt: timestamp("hub_approved_at"),
+  returnedAt: timestamp("returned_at"), // set when sent back a step; cleared when it moves forward again
+  returnedById: integer("returned_by_id"),
+  returnNote: text("return_note"),
+  activeChangeRequestId: integer("active_change_request_id"), // set while an accepted change request is being revised
+  // Where the document lives: typed/pasted in the editor, uploaded Word file, or a linked Google file
+  sourceType: text("source_type").notNull().default("manual"), // manual | upload | google_link
+  issueDate: timestamp("issue_date"), // date of issue of the current version (audit register)
+  sourceFileName: text("source_file_name"),
+  sourceFileUrl: text("source_file_url"),
+  sourceImportedAt: timestamp("source_imported_at"),
   assignedStaffIds: integer("assigned_staff_ids").array(),
   assignedDepartments: text("assigned_departments").array(),
   createdAt: timestamp("created_at").defaultNow(),
@@ -335,7 +374,20 @@ export const documentVersions = pgTable("document_versions", {
   pdfUrl: text("pdf_url"),
   approvedById: integer("approved_by_id"),
   archivedAt: timestamp("archived_at").defaultNow(),
+  // Every approved version is kept as a controlled record; only one is current at a time
+  title: text("title"),
+  status: text("status").notNull().default("current"), // current | obsolete
+  classification: text("classification"),
+  approvedAt: timestamp("approved_at"),
+  obsoletedAt: timestamp("obsoleted_at"),
+  supersededByVersionId: integer("superseded_by_version_id"),
+  changeRequestId: integer("change_request_id"), // the change request that produced this version
 });
+
+export const DocumentVersionStatus = {
+  CURRENT: "current",
+  OBSOLETE: "obsolete",
+} as const;
 
 // ============================================
 // DOCUMENT FEEDBACK (Review Comments & Corrections)
@@ -351,6 +403,180 @@ export const documentFeedback = pgTable("document_feedback", {
   createdAt: timestamp("created_at").defaultNow(),
   addressedAt: timestamp("addressed_at"),
 });
+
+// ============================================
+// TASK RECORDS (ledger of every task anyone was assigned, for performance reporting)
+// ============================================
+export const TaskRecordStatus = {
+  OPEN: "open",
+  COMPLETED: "completed",
+  TRANSFERRED: "transferred", // reassigned to someone else
+  CLOSED_BY_OTHER: "closed_by_other", // a shared task another person handled
+  CANCELLED: "cancelled", // the source was deleted, cancelled or withdrawn
+} as const;
+
+export const taskRecords = pgTable("task_records", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  taskKey: text("task_key").notNull(),
+  taskType: text("task_type").notNull(),
+  title: text("title").notNull(),
+  reference: text("reference"),
+  link: text("link"),
+  entityType: text("entity_type").notNull(),
+  entityId: integer("entity_id").notNull(),
+  initiatorId: integer("initiator_id"),
+  assignedAt: timestamp("assigned_at").notNull(),
+  dueAt: timestamp("due_at"),
+  status: text("status").notNull().default(TaskRecordStatus.OPEN),
+  closedAt: timestamp("closed_at"),
+  minutesTaken: integer("minutes_taken"),
+  minutesAllowed: integer("minutes_allowed"),
+  completedOnTime: boolean("completed_on_time"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type TaskRecord = typeof taskRecords.$inferSelect;
+
+// ============================================
+// CHANGE REQUESTS (to an approved, locked document)
+// ============================================
+export const ChangeRequestStatus = {
+  DRAFT: "draft",           // being written by the initiator
+  SUBMITTED: "submitted",   // waiting for the COO
+  REJECTED: "rejected",     // the approved version stays valid
+  ACCEPTED: "accepted",     // document under revision
+  IMPLEMENTED: "implemented", // new version approved, old one obsolete
+} as const;
+
+export const ChangeReason = {
+  SELF_OBSERVATION: "self_observation",
+  STANDARD_DEVIATION: "standard_deviation",
+  AUDIT_FINDING: "audit_finding",
+  INTERNAL_AUDIT: "internal_audit",
+  EXTERNAL_AUDIT: "external_audit",
+  FEEDBACK: "feedback",
+  LEGAL_CHANGE: "legal_change",
+  OTHER: "other",
+} as const;
+
+export const CHANGE_REASON_LABELS: Record<string, string> = {
+  self_observation: "Self observation",
+  standard_deviation: "Standard deviation",
+  audit_finding: "Audit finding",
+  internal_audit: "Internal audit",
+  external_audit: "External audit",
+  feedback: "Feedback",
+  legal_change: "Legal change",
+  other: "Other",
+};
+
+export const changeRequests = pgTable("change_requests", {
+  id: serial("id").primaryKey(),
+  crNumber: text("cr_number").notNull().unique(), // CR-2026-001
+  documentId: integer("document_id").notNull(),
+  documentCode: text("document_code").notNull(),
+  documentTitle: text("document_title").notNull(),
+  editionNumber: integer("edition_number").notNull(), // version the change was raised against
+  revisionNumber: integer("revision_number").notNull(),
+  initiatorId: integer("initiator_id").notNull(),
+  status: text("status").notNull().default(ChangeRequestStatus.DRAFT),
+  summary: text("summary"),
+  submittedAt: timestamp("submitted_at"),
+  decidedById: integer("decided_by_id"),
+  decidedAt: timestamp("decided_at"),
+  decisionNote: text("decision_note"),
+  revisionPreparerId: integer("revision_preparer_id"),
+  implementedAt: timestamp("implemented_at"),
+  newEditionNumber: integer("new_edition_number"),
+  newRevisionNumber: integer("new_revision_number"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type ChangeRequest = typeof changeRequests.$inferSelect;
+
+// ============================================
+// ASSOCIATED PROCEDURES (document → documents it relies on)
+// When a linked procedure gets a new approved version, the link is flagged for review.
+// ============================================
+export const documentLinks = pgTable("document_links", {
+  id: serial("id").primaryKey(),
+  documentId: integer("document_id").notNull(),        // the document that refers to...
+  linkedDocumentId: integer("linked_document_id").notNull(), // ...this procedure
+  linkedVersion: text("linked_version"),               // the procedure's version when linked / last reviewed
+  needsReview: boolean("needs_review").notNull().default(false),
+  flaggedAt: timestamp("flagged_at"),
+  flagNote: text("flag_note"),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewedById: integer("reviewed_by_id"),
+  createdById: integer("created_by_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type DocumentLink = typeof documentLinks.$inferSelect;
+
+// Who assigned a task and by when it must be completed. One row per task key (e.g. "review:12"),
+// overwritten each time the task is assigned or forwarded again.
+export const taskAssignments = pgTable("task_assignments", {
+  id: serial("id").primaryKey(),
+  taskKey: text("task_key").notNull().unique(),
+  assigneeId: integer("assignee_id"),
+  initiatorId: integer("initiator_id").notNull(),
+  targetDate: timestamp("target_date").notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type TaskAssignment = typeof taskAssignments.$inferSelect;
+
+// Default time allowed when a task is assigned or forwarded (days). The person assigning can change it.
+export const DEFAULT_TARGET_DAYS: Record<string, number> = {
+  prepare: 2,
+  review: 1,
+  approve: 1,
+  hub_approval: 1,
+  revise: 2,
+  comment: 1,
+  employee_review: 1,
+  employee_approve: 1,
+  change_request: 2,
+  link_review: 2,
+};
+
+// ============================================
+// DOCUMENT COMMENTS (inline comments anchored to selected text, with @mentioned assignees)
+// ============================================
+export const DocumentCommentStatus = {
+  OPEN: "open",
+  RESOLVED: "resolved",
+} as const;
+
+export const documentComments = pgTable("document_comments", {
+  id: serial("id").primaryKey(),
+  documentId: integer("document_id").notNull(),
+  authorId: integer("author_id").notNull(),
+  content: text("content").notNull(),
+  quotedText: text("quoted_text").notNull(), // the text the comment was made on
+  anchorFrom: integer("anchor_from").notNull(), // editor positions at the time of commenting
+  anchorTo: integer("anchor_to").notNull(),
+  assigneeIds: integer("assignee_ids").array().notNull().default(sql`'{}'::integer[]`), // "Assigned to": a task each
+  mentionedIds: integer("mentioned_ids").array().notNull().default(sql`'{}'::integer[]`), // @tagged: notified only
+  isPrivate: boolean("is_private").notNull().default(false), // on a locked document: only author and tagged people see it
+  kind: text("kind").notNull().default("comment"), // comment | change_request
+  changeRequestId: integer("change_request_id"),
+  reasonCategory: text("reason_category"),
+  reasonOther: text("reason_other"),
+  documentStatus: text("document_status").notNull(), // workflow stage when the comment was made
+  status: text("status").notNull().default(DocumentCommentStatus.OPEN),
+  resolvedById: integer("resolved_by_id"),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type DocumentComment = typeof documentComments.$inferSelect;
+export type InsertDocumentComment = typeof documentComments.$inferInsert;
 
 // ============================================
 // DOWNLOAD REQUESTS
@@ -629,6 +855,22 @@ export const monthlyPerformanceReports = pgTable("monthly_performance_reports", 
   tasksCompleted: integer("tasks_completed").default(0),
   tasksOverdue: integer("tasks_overdue").default(0),
   tasksPending: integer("tasks_pending").default(0),
+
+  // Task performance, filled automatically from the task ledger
+  tasksAssigned: integer("tasks_assigned").default(0),
+  tasksCompletedOnTime: integer("tasks_completed_on_time").default(0),
+  tasksCompletedLate: integer("tasks_completed_late").default(0),
+  tasksTransferred: integer("tasks_transferred").default(0), // reassigned away or handled by a colleague
+  reworkCount: integer("rework_count").default(0), // documents returned to this person for revision
+  totalTaskMinutes: integer("total_task_minutes").default(0), // time from assignment to completion, summed
+  totalTargetMinutes: integer("total_target_minutes").default(0), // time allowed by the target dates of the same tasks
+  avgTurnaroundMinutes: integer("avg_turnaround_minutes"),
+  avgDelayMinutes: integer("avg_delay_minutes"), // average lateness of late tasks
+  onTimeRate: integer("on_time_rate"), // %
+  completionRate: integer("completion_rate"), // % of tasks due this month that were completed
+  efficiencyPercent: integer("efficiency_percent"), // time allowed / time taken
+  performanceScore: integer("performance_score"), // 0-100
+  taskBreakdown: text("task_breakdown"), // JSON per task type
   
   // Workflow status
   status: text("status").notNull().default(MonthlyReportStatus.DRAFT),

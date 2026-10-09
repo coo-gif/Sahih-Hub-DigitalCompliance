@@ -5,7 +5,7 @@ import { useDocuments, useCreateDocument, useUpdateDocument, useDeleteDocument, 
 import { useUsers } from "@/hooks/use-users";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
-import { DocumentStatus } from "@shared/schema";
+import { DocumentStatus, DocumentHubStatus, DocumentClassification } from "@shared/schema";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -58,10 +58,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, MoreHorizontal, Pencil, Trash2, AlertCircle, Eye, FileText, Calendar, Clock, FileDown, Loader2, Send, Lock, Unlock, UserCog, Shield, Users } from "lucide-react";
+import { Plus, MoreHorizontal, Pencil, Trash2, AlertCircle, Eye, FileText, Calendar, Clock, FileDown, Loader2, Send, Lock, Unlock, UserCog, Shield, Users, MessageSquare } from "lucide-react";
 import { format } from "date-fns";
 import type { Document } from "@shared/schema";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
+import { TargetDateField, TARGET_DAYS, defaultTargetInput, targetToIso } from "@/components/TargetDateField";
 
 const statusColors: Record<string, string> = {
   draft: "bg-muted text-slate-700",
@@ -94,9 +95,8 @@ export default function Documents() {
   const [selectedApproverId, setSelectedApproverId] = useState<string>("");
   const [reviewComment, setReviewComment] = useState("");
   const [reassignComment, setReassignComment] = useState("");
-  const [showLockDialog, setShowLockDialog] = useState(false);
-  const [selectedAccessUsers, setSelectedAccessUsers] = useState<number[]>([]);
-  const [isLocking, setIsLocking] = useState(false);
+  const [reviewTarget, setReviewTarget] = useState(defaultTargetInput(TARGET_DAYS.review));
+  const [reassignTarget, setReassignTarget] = useState(defaultTargetInput(TARGET_DAYS.review));
   
   const filters = {
     status: statusFilter !== "all" ? statusFilter : undefined,
@@ -128,9 +128,14 @@ export default function Documents() {
   
   // Check if user has access to an approved/locked document
   // Only COO has automatic access; others need explicit grant
-  const hasAccessToDocument = (docId: number): boolean => {
+  const hasAccessToDocument = (doc: Document): boolean => {
     if (isCOO) return true;
-    return myDocumentAccess.some((access: any) => access.documentId === docId && !access.isRevoked);
+    // The server says whether this reader can open the document (access grant, classification, workflow role)
+    const fromServer = (doc as Document & { viewerHasAccess?: boolean }).viewerHasAccess;
+    if (fromServer !== undefined) return fromServer;
+    if (doc.lifecycleStatus === "obsolete" || doc.lifecycleStatus === "quarantine") return false;
+    if (doc.hubStatus === DocumentHubStatus.STORED && doc.classification === DocumentClassification.PUBLIC_INFORMATION) return true;
+    return myDocumentAccess.some((access: any) => access.documentId === doc.id && !access.isRevoked);
   };
   
   // Check if user has a pending access request for a document
@@ -149,55 +154,6 @@ export default function Documents() {
     } catch (error: any) {
       toast({ title: "Error requesting access", description: error.message, variant: "destructive" });
     }
-  };
-
-  // Open lock dialog (COO only)
-  const openLockDialog = (doc: Document) => {
-    setSelectedDocument(doc);
-    setSelectedAccessUsers([]);
-    setShowLockDialog(true);
-  };
-
-  // Handle locking document and granting access (COO only)
-  const handleLockDocument = async () => {
-    if (!selectedDocument) return;
-    setIsLocking(true);
-    try {
-      const response = await fetch(`/api/documents/${selectedDocument.id}/lock`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ userIds: selectedAccessUsers }),
-      });
-      
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.message || 'Failed to lock document');
-      }
-      
-      const result = await response.json();
-      toast({ 
-        title: "Document locked", 
-        description: `Document moved to Document Hub. Access granted to ${result.accessGrantedTo} user(s).` 
-      });
-      setShowLockDialog(false);
-      setSelectedDocument(null);
-      setSelectedAccessUsers([]);
-      queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
-    } catch (error: any) {
-      toast({ title: "Error locking document", description: error.message, variant: "destructive" });
-    } finally {
-      setIsLocking(false);
-    }
-  };
-
-  // Toggle user selection for access
-  const toggleUserAccess = (userId: number) => {
-    setSelectedAccessUsers(prev => 
-      prev.includes(userId) 
-        ? prev.filter(id => id !== userId)
-        : [...prev, userId]
-    );
   };
 
   const [formData, setFormData] = useState({
@@ -348,6 +304,7 @@ export default function Documents() {
     setSelectedReviewerId("");
     setSelectedApproverId("");
     setReviewComment("");
+    setReviewTarget(defaultTargetInput(TARGET_DAYS.review));
     setShowSubmitReviewDialog(true);
   };
 
@@ -360,6 +317,7 @@ export default function Documents() {
         reviewerId: parseInt(selectedReviewerId),
         approverId: selectedApproverId ? parseInt(selectedApproverId) : undefined,
         notes: reviewComment || undefined,
+        reviewTargetDate: targetToIso(reviewTarget),
       });
       toast({ title: "Document submitted for review" });
       setShowSubmitReviewDialog(false);
@@ -374,6 +332,7 @@ export default function Documents() {
     setSelectedReviewerId(doc.reviewerId?.toString() || "");
     setSelectedApproverId(doc.approverId?.toString() || "");
     setReassignComment("");
+    setReassignTarget(defaultTargetInput(doc.status === "pending_approval" ? TARGET_DAYS.approve : TARGET_DAYS.review));
     setShowReassignDialog(true);
   };
 
@@ -415,6 +374,7 @@ export default function Documents() {
           newAssigneeId,
           newApproverId: !isApprovalTask && approverId && !isNaN(approverId) ? approverId : undefined,
           reason: reassignComment || 'Task reassigned',
+          targetDate: targetToIso(reassignTarget),
         }),
       });
       
@@ -557,6 +517,20 @@ export default function Documents() {
                          doc.status === "pending_approval" ? "Pending Approval" :
                          doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
                       </Badge>
+                      {(doc.lifecycleStatus === "under_revision" || doc.lifecycleStatus === "obsolete" || doc.lifecycleStatus === "quarantine") && (
+                        <Badge
+                          variant="outline"
+                          className={`mt-1 block w-fit ${doc.lifecycleStatus === "quarantine" ? "text-red-700 border-red-300" : doc.lifecycleStatus === "obsolete" ? "text-slate-600 border-slate-300" : "text-blue-700 border-blue-300"}`}
+                          data-testid={`badge-lifecycle-${doc.id}`}
+                        >
+                          {doc.lifecycleStatus === "under_revision" ? "Current · Under Revision" : doc.lifecycleStatus === "obsolete" ? "Obsolete" : "Quarantine"}
+                        </Badge>
+                      )}
+                      {doc.hubStatus === DocumentHubStatus.PENDING_COO_APPROVAL && (
+                        <Badge variant="outline" className="mt-1 block w-fit text-amber-700 border-amber-300" data-testid={`badge-awaiting-coo-${doc.id}`}>
+                          Awaiting COO final approval
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell data-testid={`cell-assignees-${doc.id}`}>
                       {(doc.status === "in_review" || doc.status === "pending_approval" || doc.status === "approved") ? (
@@ -648,16 +622,32 @@ export default function Documents() {
                         
                         {(doc.isLocked || doc.status === "approved") && (
                           <>
-                            {hasAccessToDocument(doc.id) ? (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleViewPdf(doc)}
-                                data-testid={`button-view-pdf-${doc.id}`}
-                              >
-                                <FileDown className="w-4 h-4 mr-1" />
-                                View PDF
-                              </Button>
+                            {(hasAccessToDocument(doc) || doc.createdById === currentUser?.id || doc.reviewerId === currentUser?.id || doc.approverId === currentUser?.id) ? (
+                              <>
+                                {doc.finalPdfUrl && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleViewPdf(doc)}
+                                    data-testid={`button-view-pdf-${doc.id}`}
+                                  >
+                                    <FileDown className="w-4 h-4 mr-1" />
+                                    PDF
+                                  </Button>
+                                )}
+                                {doc.isLocked && doc.hubStatus === "stored" && !doc.activeChangeRequestId &&
+                                  !["under_revision", "obsolete", "quarantine"].includes(doc.lifecycleStatus || "") && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="border-orange-300 text-orange-700 dark:text-orange-300"
+                                    onClick={() => navigate(`/documents/${doc.id}/edit?mode=change-request`)}
+                                    data-testid={`button-change-request-${doc.id}`}
+                                  >
+                                    Change Request
+                                  </Button>
+                                )}
+                              </>
                             ) : hasPendingAccessRequest(doc.id) ? (
                               <Badge variant="secondary" className="bg-amber-100 text-amber-700" data-testid={`badge-pending-access-${doc.id}`}>
                                 <Clock className="w-3 h-3 mr-1" />
@@ -694,6 +684,18 @@ export default function Documents() {
                                 <FileDown className="w-4 h-4 mr-2" /> Generate PDF
                               </DropdownMenuItem>
                             )}
+                            {((doc.status === "in_review" && doc.reviewerId === currentUser?.id) ||
+                              (doc.status === "pending_approval" && doc.approverId === currentUser?.id)) && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => navigate(`/documents/${doc.id}/edit`)}
+                                  data-testid={`button-comment-return-${doc.id}`}
+                                >
+                                  <MessageSquare className="w-4 h-4 mr-2" /> Comment / Return
+                                </DropdownMenuItem>
+                              </>
+                            )}
                             {(doc.status === "in_review" || doc.status === "pending_approval") && isAdminOrQM && (
                               <>
                                 <DropdownMenuSeparator />
@@ -702,16 +704,16 @@ export default function Documents() {
                                 </DropdownMenuItem>
                               </>
                             )}
-                            {/* COO can manually lock documents and move to Document Hub - ONLY for approved documents */}
-                            {isCOO && !doc.isLocked && doc.status === DocumentStatus.APPROVED && doc.status !== DocumentStatus.IN_REVIEW && doc.status !== DocumentStatus.PENDING_APPROVAL && doc.status !== DocumentStatus.DRAFT && (
+                            {/* COO gives final approval, classification and storage in the Document Hub */}
+                            {isCOO && doc.status === DocumentStatus.APPROVED && doc.hubStatus === DocumentHubStatus.PENDING_COO_APPROVAL && (
                               <>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem 
-                                  onClick={() => openLockDialog(doc)} 
+                                  onClick={() => navigate("/document-hub")} 
                                   className="text-amber-600"
-                                  data-testid={`button-lock-${doc.id}`}
+                                  data-testid={`button-final-approve-${doc.id}`}
                                 >
-                                  <Shield className="w-4 h-4 mr-2" /> Lock & Move to Hub
+                                  <Shield className="w-4 h-4 mr-2" /> Final Approval in Hub
                                 </DropdownMenuItem>
                               </>
                             )}
@@ -1015,7 +1017,7 @@ export default function Documents() {
               </div>
               
               {/* Access Control for Locked/Approved Documents */}
-              {(selectedDocument.isLocked || selectedDocument.status === 'approved') && !hasAccessToDocument(selectedDocument.id) ? (
+              {(selectedDocument.isLocked || selectedDocument.status === 'approved') && !hasAccessToDocument(selectedDocument) ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center space-y-4" data-testid="access-restricted-message">
                   <div className="p-4 rounded-full bg-amber-100 dark:bg-amber-900/30">
                     <Lock className="w-10 h-10 text-amber-600 dark:text-amber-400" />
@@ -1326,6 +1328,13 @@ export default function Documents() {
                 data-testid="input-review-comment"
               />
             </div>
+            <TargetDateField
+              id="review-target"
+              label="Review due by"
+              value={reviewTarget}
+              onChange={setReviewTarget}
+              defaultDays={TARGET_DAYS.review}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowSubmitReviewDialog(false)}>
@@ -1333,7 +1342,7 @@ export default function Documents() {
             </Button>
             <Button 
               onClick={handleSubmitForReview}
-              disabled={!selectedReviewerId || submitForReviewMutation.isPending}
+              disabled={!selectedReviewerId || !reviewTarget || submitForReviewMutation.isPending}
               data-testid="button-submit-review"
             >
               {submitForReviewMutation.isPending ? "Submitting..." : "Submit for Review"}
@@ -1387,6 +1396,13 @@ export default function Documents() {
                 </SelectContent>
               </Select>
             </div>
+            <TargetDateField
+              id="reassign-target"
+              label="New person must finish by"
+              value={reassignTarget}
+              onChange={setReassignTarget}
+              defaultDays={selectedDocument?.status === "pending_approval" ? TARGET_DAYS.approve : TARGET_DAYS.review}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowReassignDialog(false)}>
@@ -1403,80 +1419,6 @@ export default function Documents() {
         </DialogContent>
       </Dialog>
 
-      {/* Lock Document & Grant Access Dialog (COO only) */}
-      <Dialog open={showLockDialog} onOpenChange={setShowLockDialog}>
-        <DialogContent className="max-w-lg" data-testid="dialog-lock-document">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Shield className="w-5 h-5 text-amber-600" />
-              Lock Document & Move to Hub
-            </DialogTitle>
-            <DialogDescription>
-              Lock "{selectedDocument?.title}" and select users who will have access to view it in the Document Hub.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="p-3 bg-amber-50 dark:bg-amber-900/30 rounded-md border border-amber-200 dark:border-amber-800">
-              <p className="text-sm text-amber-800 dark:text-amber-200">
-                <strong>Note:</strong> Once locked, this document will be moved to the Document Hub and only selected users (plus yourself as COO) will be able to access it.
-              </p>
-            </div>
-            
-            <div className="space-y-2">
-              <Label className="flex items-center gap-2">
-                <Users className="w-4 h-4" />
-                Select Users with Access
-              </Label>
-              <ScrollArea className="h-[200px] border rounded-md p-2">
-                <div className="space-y-2">
-                  {users.filter((u: any) => u.email !== 'coo@sahihcertify.com').map((user: any) => (
-                    <div 
-                      key={user.id} 
-                      className="flex items-center gap-3 p-2 rounded hover-elevate cursor-pointer"
-                      onClick={() => toggleUserAccess(user.id)}
-                      data-testid={`checkbox-user-${user.id}`}
-                    >
-                      <Checkbox 
-                        checked={selectedAccessUsers.includes(user.id)}
-                        onCheckedChange={() => toggleUserAccess(user.id)}
-                      />
-                      <div className="flex-1">
-                        <div className="font-medium text-sm">{user.name}</div>
-                        <div className="text-xs text-muted-foreground">{user.email} - {user.role.replace('_', ' ')}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </ScrollArea>
-              <p className="text-xs text-muted-foreground">
-                {selectedAccessUsers.length} user(s) selected
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowLockDialog(false)} data-testid="button-cancel-lock">
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleLockDocument}
-              disabled={isLocking}
-              data-testid="button-confirm-lock"
-            >
-              {isLocking ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Locking...
-                </>
-              ) : (
-                <>
-                  <Lock className="w-4 h-4 mr-2" />
-                  Lock & Move to Hub
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
     </div>
   );

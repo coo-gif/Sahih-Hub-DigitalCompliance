@@ -69,8 +69,8 @@ export function useDeleteDocument() {
 
 export function useSubmitDocumentForReview() {
   return useMutation({
-    mutationFn: async ({ id, reviewerId, approverId, notes }: { id: number; reviewerId: number; approverId?: number; notes?: string }) => {
-      const res = await apiRequest('POST', `/api/documents/${id}/submit-review`, { reviewerId, approverId, notes });
+    mutationFn: async ({ id, reviewerId, approverId, notes, reviewTargetDate }: { id: number; reviewerId: number; approverId?: number; notes?: string; reviewTargetDate?: string }) => {
+      const res = await apiRequest('POST', `/api/documents/${id}/submit-review`, { reviewerId, approverId, notes, reviewTargetDate });
       return res.json();
     },
     onSuccess: () => {

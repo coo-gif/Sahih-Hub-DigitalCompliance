@@ -14,7 +14,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import TiptapEditor, { AISuggestion } from "@/components/TiptapEditor";
+import TiptapEditor, { AISuggestion, type CommentSelection } from "@/components/TiptapEditor";
+import { CommentComposer, CommentsPanel, type DocComment } from "@/components/DocumentComments";
+import { AssociatedProceduresCard, GoogleFileCard } from "@/components/DocumentSources";
+import { locateComment } from "@/lib/comment-highlights";
+import { useAuth } from "@/hooks/use-auth";
+import { TargetDateField, TARGET_DAYS, defaultTargetInput, targetToIso } from "@/components/TargetDateField";
+import type { Editor } from "@tiptap/react";
 import {
   Dialog,
   DialogContent,
@@ -23,7 +29,7 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { ArrowLeft, FileText, Save, Eye, Maximize2, Minimize2, Wand2, Loader2, Check, X, Lightbulb, ChevronRight, Plus, Minus, History, Trash2 } from "lucide-react";
+import { ArrowLeft, FileText, Save, Eye, Maximize2, Minimize2, Wand2, Loader2, Check, X, Lightbulb, ChevronRight, Plus, Minus, History, Trash2, MessageSquare, Undo2, Lock, FilePen, Send } from "lucide-react";
 import DOMPurify from "dompurify";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -70,6 +76,208 @@ export default function EditDocument() {
   });
 
   const document = documents?.find(d => d.id === documentId);
+  const { data: currentUser } = useAuth();
+
+  // ---- Inline comments ----
+  const commentsKey = `/api/documents/${documentId}/comments`;
+  const { data: comments = [] } = useQuery<DocComment[]>({
+    queryKey: [commentsKey],
+    enabled: !!documentId,
+  });
+  const openComments = comments.filter(c => c.status === "open");
+  const [showComments, setShowComments] = useState(false);
+  const [commentsAutoOpened, setCommentsAutoOpened] = useState(false);
+  const [activeCommentId, setActiveCommentId] = useState<number | null>(null);
+  const [commentSelection, setCommentSelection] = useState<CommentSelection | null>(null);
+  const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
+
+  useEffect(() => {
+    if (!commentsAutoOpened && openComments.length > 0) {
+      setShowComments(true);
+      setCommentsAutoOpened(true);
+    }
+  }, [openComments.length, commentsAutoOpened]);
+
+  // ---- Change request (on an approved, locked document) ----
+  const [crMode, setCrMode] = useState(() => new URLSearchParams(window.location.search).get("mode") === "change-request");
+  const [crSummary, setCrSummary] = useState("");
+  const crDraftKey = `/api/documents/${documentId}/change-requests/mine`;
+  const { data: crDraft } = useQuery<{ id: number; crNumber: string; points: Array<{ id: number }> } | null>({
+    queryKey: [crDraftKey],
+    enabled: !!documentId,
+  });
+
+  // Opening the document clears the reader's notifications about it (tags, assignments)
+  useEffect(() => {
+    if (!documentId) return;
+    apiRequest("POST", `/api/documents/${documentId}/seen`, {})
+      .then(() => queryClient.invalidateQueries({ queryKey: ['/api/notifications'] }))
+      .catch(() => {});
+  }, [documentId]);
+
+  const invalidateComments = () => {
+    queryClient.invalidateQueries({ queryKey: [commentsKey] });
+    queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+  };
+
+  const addCommentMutation = useMutation({
+    mutationFn: async (data: { content: string; mentionedIds: number[]; assigneeIds: number[]; targetDate?: string; reasonCategory?: string; reasonOther?: string }) => {
+      if (!commentSelection) throw new Error("No text selected");
+      const anchor = { quotedText: commentSelection.text, anchorFrom: commentSelection.from, anchorTo: commentSelection.to };
+      if (crMode) {
+        const res = await apiRequest("POST", `/api/documents/${documentId}/change-requests/items`, {
+          ...anchor, content: data.content, reasonCategory: data.reasonCategory, reasonOther: data.reasonOther,
+        });
+        const body = await res.json();
+        return body.point as DocComment;
+      }
+      const res = await apiRequest("POST", commentsKey, {
+        ...anchor,
+        content: data.content,
+        mentionedIds: data.mentionedIds,
+        assigneeIds: data.assigneeIds,
+        targetDate: data.targetDate,
+      });
+      return res.json() as Promise<DocComment>;
+    },
+    onSuccess: (comment) => {
+      invalidateComments();
+      queryClient.invalidateQueries({ queryKey: [crDraftKey] });
+      setCommentSelection(null);
+      setShowComments(true);
+      setActiveCommentId(comment.id);
+      const tagged = comment.mentionedIds?.length ?? 0;
+      toast({
+        title: comment.kind === "change_request" ? "Added to your change request" : "Comment added",
+        description: comment.kind === "change_request"
+          ? "Add more points, then submit it to the COO."
+          : tagged > 0
+            ? `${tagged} tagged ${tagged > 1 ? "people were" : "person was"} notified${comment.assigneeIds.length ? `; ${comment.assigneeIds.length} got a task` : ""}.`
+            : undefined,
+      });
+    },
+    onError: (error: any) => {
+      toast({ title: "Could not add comment", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const resolveCommentMutation = useMutation({
+    mutationFn: async (id: number) => apiRequest("POST", `/api/document-comments/${id}/resolve`, {}),
+    onSuccess: () => invalidateComments(),
+    onError: (error: any) => toast({ title: "Could not resolve comment", description: error.message, variant: "destructive" }),
+  });
+
+  const deleteCommentMutation = useMutation({
+    mutationFn: async (id: number) => apiRequest("DELETE", `/api/document-comments/${id}`),
+    onSuccess: () => invalidateComments(),
+    onError: (error: any) => toast({ title: "Could not delete comment", description: error.message, variant: "destructive" }),
+  });
+
+  const selectComment = (comment: DocComment) => {
+    setActiveCommentId(comment.id);
+    if (!editorInstance || editorInstance.isDestroyed) return;
+    const range = locateComment(editorInstance.state.doc, comment);
+    if (!range) {
+      toast({ title: "Text not found", description: "The commented text has been changed or removed since this comment was made." });
+      return;
+    }
+    const { node } = editorInstance.view.domAtPos(range.from);
+    const element = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
+    element?.scrollIntoView({ block: "center", behavior: "smooth" });
+  };
+
+  // ---- Workflow: who may edit, comment or return ----
+  const canEdit = !!document && !document.isLocked && document.status !== "approved";
+  // Anyone who can open the document can comment; on a locked document comments are private notes and tags
+  const canComment = !!document;
+  const isWithdrawn = document?.lifecycleStatus === "obsolete" || document?.lifecycleStatus === "quarantine";
+  const isUnderRevision = !!document && (document.lifecycleStatus === "under_revision" || !!document.activeChangeRequestId);
+  const canRaiseChangeRequest = !!document && !!document.isLocked && document.hubStatus === "stored" && !isUnderRevision && !isWithdrawn;
+  // Associated procedures: the people working on a draft change them; the COO, admins and the QM at any time
+  const isDocManager = !!currentUser && (currentUser.email === "coo@sahihcertify.com" || currentUser.role === "admin" || currentUser.role === "quality_manager");
+  const isWorkflowMember = !!document && !!currentUser &&
+    [document.createdById, document.preparedById, document.reviewerId, document.approverId].includes(currentUser.id);
+  const canEditLinks = isDocManager || (isWorkflowMember && !document?.isLocked);
+  const canConfirmLinkReview = isDocManager || (!!document && !!currentUser && [document.createdById, document.preparedById].includes(currentUser.id));
+  const submitCrMutation = useMutation({
+    mutationFn: async () => {
+      if (!crDraft) throw new Error("Add at least one point first");
+      const res = await apiRequest("POST", `/api/change-requests/${crDraft.id}/submit`, { summary: crSummary || undefined });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [crDraftKey] });
+      invalidateComments();
+      setCrMode(false);
+      setCrSummary("");
+      toast({ title: `${crDraft?.crNumber} submitted to the COO`, description: "The approved version stays valid until the COO decides." });
+    },
+    onError: (error: any) => toast({ title: "Could not submit", description: error.message, variant: "destructive" }),
+  });
+  const discardCrMutation = useMutation({
+    mutationFn: async () => { if (crDraft) await apiRequest("DELETE", `/api/change-requests/${crDraft.id}`); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [crDraftKey] });
+      invalidateComments();
+      setCrMode(false);
+      setCrSummary("");
+    },
+  });
+  const userName = (id: number | null | undefined) => users?.find(u => u.id === id)?.name || "Unknown user";
+  const returnTarget = (() => {
+    if (!document || !currentUser) return null;
+    if (document.status === "in_review" && document.reviewerId === currentUser.id) {
+      return { role: "preparer", name: userName(document.preparedById ?? document.createdById) };
+    }
+    if (document.status === "pending_approval" && document.approverId === currentUser.id) {
+      return { role: "reviewer", name: userName(document.reviewerId) };
+    }
+    if (document.status === "approved" && document.hubStatus === "pending_coo_approval" && currentUser.email === "coo@sahihcertify.com") {
+      return { role: "approver", name: userName(document.approverId) };
+    }
+    return null;
+  })();
+  const myOpenComments = openComments.filter(c => c.authorId === currentUser?.id);
+  const [showReturnDialog, setShowReturnDialog] = useState(false);
+  const [returnNote, setReturnNote] = useState("");
+  // Revising after a return gets 2 days by default; a return to the reviewer or approver gets 1 day
+  const returnDays = returnTarget?.role === "preparer" ? TARGET_DAYS.revise : TARGET_DAYS.review;
+  const [returnTargetDate, setReturnTargetDate] = useState(defaultTargetInput(TARGET_DAYS.revise));
+  useEffect(() => {
+    setReturnTargetDate(defaultTargetInput(returnDays));
+  }, [returnDays]);
+
+  const returnMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/documents/${documentId}/return`, { note: returnNote || undefined, targetDate: targetToIso(returnTargetDate) });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/documents'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/documents?status=approved'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/my-tasks'] });
+      setShowReturnDialog(false);
+      setReturnNote("");
+      toast({ title: "Document returned", description: `Sent back to the ${returnTarget?.role}, ${returnTarget?.name}.` });
+      navigate("/documents");
+    },
+    onError: (error: any) => {
+      toast({ title: "Could not return document", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const commentEditorProps = {
+    editable: canEdit,
+    comments: openComments,
+    activeCommentId,
+    onRequestComment: canComment ? (selection: CommentSelection) => setCommentSelection(selection) : undefined,
+    onCommentClick: (id: number) => {
+      setActiveCommentId(id);
+      setShowComments(true);
+    },
+    onEditorReady: setEditorInstance,
+    commentLabel: crMode ? "Add to Change Request" : "Comment",
+  };
 
   // Fetch revision history for this document
   const { data: revisionHistory = [] } = useQuery<RevisionHistoryEntry[]>({
@@ -326,12 +534,50 @@ export default function EditDocument() {
           <div>
             <h1 className="text-xl font-bold flex items-center gap-2">
               <FileText className="w-5 h-5" />
-              Edit Document
+              {canEdit ? "Edit Document" : "View Document"}
+              {!canEdit && (
+                <Badge variant="secondary" className="gap-1" data-testid="badge-read-only">
+                  <Lock className="w-3 h-3" />
+                  Read-only
+                </Badge>
+              )}
             </h1>
             <p className="text-sm text-muted-foreground font-mono">{document.documentCode}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <Button
+            variant={showComments ? "secondary" : "outline"}
+            onClick={() => setShowComments(v => !v)}
+            data-testid="button-toggle-comments"
+          >
+            <MessageSquare className="w-4 h-4 mr-2" />
+            Comments
+            {openComments.length > 0 && <Badge className="ml-2" variant="destructive">{openComments.length}</Badge>}
+          </Button>
+          {canRaiseChangeRequest && !crMode && (
+            <Button
+              variant="outline"
+              className="border-orange-400 text-orange-700 hover:bg-orange-50 dark:text-orange-300"
+              onClick={() => { setCrMode(true); setShowComments(true); }}
+              data-testid="button-raise-change-request"
+            >
+              <FilePen className="w-4 h-4 mr-2" />
+              {crDraft ? `Continue ${crDraft.crNumber}` : "Change Request"}
+            </Button>
+          )}
+          {returnTarget && (
+            <Button
+              variant="outline"
+              className="border-amber-400 text-amber-700 hover:bg-amber-50 dark:text-amber-300"
+              onClick={() => setShowReturnDialog(true)}
+              data-testid="button-return-document"
+            >
+              <Undo2 className="w-4 h-4 mr-2" />
+              Return for Revision
+            </Button>
+          )}
+          {canEdit && (
           <Button 
             variant="outline" 
             onClick={handleAIReview}
@@ -350,9 +596,11 @@ export default function EditDocument() {
               </>
             )}
           </Button>
+          )}
           <Button variant="outline" onClick={() => navigate("/documents")} data-testid="button-cancel">
-            Cancel
+            {canEdit ? "Cancel" : "Back"}
           </Button>
+          {canEdit && (
           <Button 
             onClick={handleUpdate} 
             disabled={updateMutation.isPending || !formData.title}
@@ -361,6 +609,7 @@ export default function EditDocument() {
             <Save className="w-4 h-4 mr-2" />
             {updateMutation.isPending ? "Saving..." : "Save Changes"}
           </Button>
+          )}
         </div>
       </div>
 
@@ -368,6 +617,67 @@ export default function EditDocument() {
         <div className={`flex-1 overflow-y-auto transition-all ${showAISuggestions ? 'pr-0' : ''}`}>
         <div className="p-6 max-w-5xl mx-auto">
           <div className="grid gap-6">
+            {crMode && canRaiseChangeRequest && (
+              <div className="rounded-lg border border-orange-300 bg-orange-50 dark:bg-orange-900/20 dark:border-orange-700 p-4 space-y-3" data-testid="banner-change-request">
+                <div className="flex items-start gap-3">
+                  <FilePen className="w-5 h-5 text-orange-600 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm space-y-1">
+                    <p className="font-semibold text-orange-900 dark:text-orange-200">
+                      Change request {crDraft ? crDraft.crNumber : "(new)"}: {crDraft?.points.length ?? 0} point{(crDraft?.points.length ?? 0) === 1 ? "" : "s"}
+                    </p>
+                    <p className="text-orange-800 dark:text-orange-300">
+                      Highlight the text that should change, right-click and choose <strong>Add to Change Request</strong>, then give the reason.
+                      The approved version stays valid until the COO accepts the change.
+                    </p>
+                  </div>
+                </div>
+                <Textarea
+                  value={crSummary}
+                  onChange={(e) => setCrSummary(e.target.value)}
+                  placeholder="Overall summary of the change (optional)"
+                  rows={2}
+                  data-testid="input-cr-summary"
+                />
+                <div className="flex flex-wrap gap-2 justify-end">
+                  <Button variant="ghost" onClick={() => setCrMode(false)}>Close</Button>
+                  {crDraft && (
+                    <Button variant="outline" onClick={() => discardCrMutation.mutate()} disabled={discardCrMutation.isPending} data-testid="button-discard-cr">
+                      Discard draft
+                    </Button>
+                  )}
+                  <Button
+                    onClick={() => submitCrMutation.mutate()}
+                    disabled={!crDraft || crDraft.points.length === 0 || submitCrMutation.isPending}
+                    className="bg-orange-600 hover:bg-orange-700 text-white"
+                    data-testid="button-submit-cr"
+                  >
+                    {submitCrMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
+                    Submit to COO
+                  </Button>
+                </div>
+              </div>
+            )}
+            {isUnderRevision && document.isLocked && (
+              <div className="rounded-lg border border-blue-300 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-700 p-4 text-sm text-blue-900 dark:text-blue-200" data-testid="banner-under-revision">
+                <strong>Current, under revision.</strong> A change request was accepted. This approved version (Ed.{document.editionNumber} Rev.{document.revisionNumber}) stays in force until the new version is approved.
+              </div>
+            )}
+            {document.returnedAt && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 p-4 flex gap-3" data-testid="banner-returned">
+                <Undo2 className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div className="text-sm space-y-1">
+                  <p className="font-semibold text-amber-800 dark:text-amber-200">
+                    Returned for revision by {userName(document.returnedById)} on {format(new Date(document.returnedAt), "MMM d, yyyy 'at' h:mm a")}
+                  </p>
+                  {document.returnNote && <p className="text-amber-800 dark:text-amber-200">"{document.returnNote}"</p>}
+                  <p className="text-amber-700 dark:text-amber-300">
+                    {openComments.length > 0
+                      ? <>There {openComments.length === 1 ? "is 1 open comment" : `are ${openComments.length} open comments`} in the document. Highlighted text shows where changes are needed.</>
+                      : <>All comments have been resolved.</>}
+                  </p>
+                </div>
+              </div>
+            )}
             <Card>
               <CardHeader>
                 <CardTitle>Document Details</CardTitle>
@@ -581,11 +891,26 @@ export default function EditDocument() {
             </CardContent>
           </Card>
 
+          {document && (
+            <AssociatedProceduresCard
+              documentId={document.id}
+              canEdit={canEditLinks}
+              canConfirmReview={canConfirmLinkReview}
+              onRaiseChangeRequest={canRaiseChangeRequest ? () => { setCrMode(true); setShowComments(true); } : undefined}
+            />
+          )}
+
+          {document?.sourceType === "google_link" ? (
+            <GoogleFileCard url={document.sourceFileUrl} title={document.documentCode} />
+          ) : (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2">
               <div>
                 <CardTitle>Document Content</CardTitle>
-                <CardDescription>Edit the document content using the rich text editor</CardDescription>
+                <CardDescription>
+                  {canEdit ? "Edit the document content using the rich text editor." : "This document is read-only."}
+                  {canComment && " To comment, select text, right-click and choose Comment."}
+                </CardDescription>
               </div>
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" onClick={() => setShowPreviewDialog(true)} data-testid="button-preview">
@@ -608,14 +933,30 @@ export default function EditDocument() {
                 <TiptapEditor
                   content={formData.content}
                   onChange={(content) => setFormData({ ...formData, content })}
+                  {...commentEditorProps}
                 />
               </div>
             </CardContent>
           </Card>
+          )}
 
           </div>
         </div>
         </div>
+
+        {showComments && (
+          <CommentsPanel
+            comments={comments}
+            users={users || []}
+            currentUser={currentUser}
+            activeCommentId={activeCommentId}
+            onSelect={selectComment}
+            onResolve={(c) => resolveCommentMutation.mutate(c.id)}
+            onDelete={(c) => deleteCommentMutation.mutate(c.id)}
+            onClose={() => setShowComments(false)}
+            canComment={canComment}
+          />
+        )}
 
         {/* AI Suggestions Panel */}
         {showAISuggestions && (
@@ -858,12 +1199,92 @@ export default function EditDocument() {
             <TiptapEditor
               content={formData.content}
               onChange={(content) => setFormData({ ...formData, content })}
+              {...commentEditorProps}
             />
           </div>
           <DialogFooter className="flex-shrink-0 border-t pt-4">
             <Button variant="outline" onClick={() => setIsFullscreen(false)}>
               <Minimize2 className="w-4 h-4 mr-2" />
               Close Editor
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <CommentComposer
+        open={!!commentSelection}
+        onOpenChange={(open) => { if (!open) setCommentSelection(null); }}
+        quotedText={commentSelection?.text || ""}
+        users={users || []}
+        isPending={addCommentMutation.isPending}
+        onSubmit={(data) => addCommentMutation.mutate(data)}
+        mode={crMode ? "change_request" : "comment"}
+        allowAssign={!document.isLocked}
+      />
+
+      <Dialog open={showReturnDialog} onOpenChange={setShowReturnDialog}>
+        <DialogContent className="max-w-lg" data-testid="dialog-return-document">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Undo2 className="w-5 h-5 text-amber-600" />
+              Return for Revision
+            </DialogTitle>
+            <DialogDescription>
+              {document.documentCode} will go back to the {returnTarget?.role}, <strong>{returnTarget?.name}</strong>, with your comments.
+            </DialogDescription>
+          </DialogHeader>
+          {myOpenComments.length === 0 ? (
+            <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-900/20 p-3 text-sm text-amber-800 dark:text-amber-200" data-testid="text-return-needs-comment">
+              The reason for returning must be written in the document. Select the text that needs changing, right-click, choose <strong>Comment</strong>, and @mention who should fix it. Then return the document.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <Label className="text-sm font-medium">Your comments ({myOpenComments.length})</Label>
+                <ScrollArea className="max-h-40 mt-2">
+                  <ul className="space-y-2 pr-2">
+                    {myOpenComments.map(c => (
+                      <li key={c.id} className="text-sm border-l-2 border-amber-400 pl-2">
+                        <span className="italic text-muted-foreground">"{c.quotedText.slice(0, 80)}{c.quotedText.length > 80 ? "…" : ""}"</span>
+                        <br />
+                        {c.content}
+                      </li>
+                    ))}
+                  </ul>
+                </ScrollArea>
+              </div>
+              <div>
+                <Label htmlFor="return-note" className="text-sm font-medium">Overall note (optional)</Label>
+                <Textarea
+                  id="return-note"
+                  value={returnNote}
+                  onChange={(e) => setReturnNote(e.target.value)}
+                  placeholder="e.g. Please address the comments and resubmit"
+                  className="mt-2"
+                  data-testid="input-return-note"
+                />
+              </div>
+              <TargetDateField
+                id="return-target"
+                label={`${returnTarget?.name || "They"} must finish by`}
+                value={returnTargetDate}
+                onChange={setReturnTargetDate}
+                defaultDays={returnDays}
+              />
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowReturnDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => returnMutation.mutate()}
+              disabled={myOpenComments.length === 0 || !returnTargetDate || returnMutation.isPending}
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+              data-testid="button-confirm-return"
+            >
+              {returnMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Undo2 className="w-4 h-4 mr-2" />}
+              Return to {returnTarget?.role}
             </Button>
           </DialogFooter>
         </DialogContent>

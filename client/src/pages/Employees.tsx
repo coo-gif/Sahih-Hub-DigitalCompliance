@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { TargetDateField, TARGET_DAYS, defaultTargetInput, targetToIso } from "@/components/TargetDateField";
 import { Link } from "wouter";
 import { useEmployees, useCreateEmployee, useUpdateEmployee, useDeleteEmployee, useEmployeeTasks, useCreateEmployeeTask, useCompleteEmployeeTask, useDeleteEmployeeTask, useSubmitEmployeeForReview, useSubmitEmployeeForApproval, useApproveEmployee, useRejectEmployee } from "@/hooks/use-employees";
 import { useDocuments } from "@/hooks/use-documents";
@@ -114,6 +115,7 @@ export default function Employees() {
   const [showTaskDialog, setShowTaskDialog] = useState(false);
   const [showWorkflowDialog, setShowWorkflowDialog] = useState(false);
   const [workflowAction, setWorkflowAction] = useState<'submit_review' | 'submit_approval' | 'approve' | 'reject' | null>(null);
+  const [workflowTarget, setWorkflowTarget] = useState(defaultTargetInput(TARGET_DAYS.employee_review));
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [workflowNotes, setWorkflowNotes] = useState("");
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
@@ -302,6 +304,7 @@ export default function Employees() {
   const openWorkflowDialog = (employee: Employee, action: 'submit_review' | 'submit_approval' | 'approve' | 'reject') => {
     setSelectedEmployee(employee);
     setWorkflowAction(action);
+    setWorkflowTarget(defaultTargetInput(action === 'submit_approval' ? TARGET_DAYS.employee_approve : TARGET_DAYS.employee_review));
     
     // Auto-select COO for review and CEO for approval
     if (action === 'submit_review') {
@@ -332,6 +335,7 @@ export default function Employees() {
             id: selectedEmployee.id,
             reviewerId: Number(selectedUserId),
             notes: workflowNotes || undefined,
+            targetDate: targetToIso(workflowTarget),
           });
           toast({ title: "Employee submitted for review" });
           break;
@@ -344,6 +348,7 @@ export default function Employees() {
             id: selectedEmployee.id,
             approverId: Number(selectedUserId),
             notes: workflowNotes || undefined,
+            targetDate: targetToIso(workflowTarget),
           });
           toast({ title: "Employee submitted for approval" });
           break;
@@ -1143,6 +1148,15 @@ export default function Employees() {
                   </SelectContent>
                 </Select>
               </div>
+            )}
+            {(workflowAction === 'submit_review' || workflowAction === 'submit_approval') && (
+              <TargetDateField
+                id="workflow-target"
+                label={workflowAction === 'submit_review' ? 'Review due by' : 'Approval due by'}
+                value={workflowTarget}
+                onChange={setWorkflowTarget}
+                defaultDays={TARGET_DAYS.employee_review}
+              />
             )}
             <div className="space-y-2">
               <Label htmlFor="workflow-notes">Notes</Label>

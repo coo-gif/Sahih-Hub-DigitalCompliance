@@ -7,25 +7,32 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Clock, AlertTriangle, CheckCircle2, FileText, Target, Eye, Send, ThumbsUp, UserCheck, Download, X, Lock, Unlock, RefreshCw } from "lucide-react";
+import { Clock, AlertTriangle, CheckCircle2, FileText, Target, Eye, Send, ThumbsUp, UserCheck, Download, X, Lock, Unlock, RefreshCw, MessageSquare } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { useMyTasks, useCompleteTask, MyTask } from "@/hooks/use-tasks";
+import { useMyTasks, useCompleteTask, MyTask, useTaskPerformance, SPECIAL_TASK_TYPES } from "@/hooks/use-tasks";
+import { format } from "date-fns";
+import { TargetDateField, TARGET_DAYS, defaultTargetInput, targetToIso } from "@/components/TargetDateField";
+import { AssignedByMe } from "@/components/AssignedByMe";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAuth } from "@/hooks/use-auth";
 import { useUsers } from "@/hooks/use-users";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
-function TaskTypeBadge({ type }: { type: string }) {
+function TaskTypeBadge({ type, label }: { type: string; label?: string }) {
   const variants: Record<string, { className: string; label: string }> = {
     review: { className: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200", label: "Review" },
     approve: { className: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200", label: "Approve" },
     prepare: { className: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200", label: "Prepare" },
+    revise: { className: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200", label: "Returned for Revision" },
+    comment: { className: "bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-200", label: "Comment Assigned" },
     download_approval: { className: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200", label: "Download Request" },
     access_approval: { className: "bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200", label: "Access Request" },
     employee_review: { className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200", label: "Employee Review" },
     employee_approve: { className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200", label: "Employee Approval" },
   };
-  const config = variants[type] || { className: "", label: type };
+  const config = variants[type] || { className: "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200", label: label || type };
   return <Badge className={config.className}>{config.label}</Badge>;
 }
 
@@ -57,19 +64,21 @@ function ReassignTaskDialog({
   task: MyTask; 
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onReassign: (newAssigneeId: number, newApproverId?: number, reason?: string) => void;
+  onReassign: (newAssigneeId: number, newApproverId?: number, reason?: string, targetDate?: string) => void;
   isPending: boolean;
   users?: UserOption[];
 }) {
   const [selectedAssigneeId, setSelectedAssigneeId] = useState<string>("");
   const [selectedApproverId, setSelectedApproverId] = useState<string>("");
   const [reason, setReason] = useState("");
+  const reassignDays = task.taskType === 'approve' ? TARGET_DAYS.approve : task.taskType === 'prepare' ? TARGET_DAYS.prepare : TARGET_DAYS.review;
+  const [target, setTarget] = useState(defaultTargetInput(reassignDays));
 
   const handleReassign = () => {
     if (!selectedAssigneeId) return;
     const assigneeId = parseInt(selectedAssigneeId);
     const approverId = selectedApproverId ? parseInt(selectedApproverId) : undefined;
-    onReassign(assigneeId, approverId, reason);
+    onReassign(assigneeId, approverId, reason, targetToIso(target));
     setSelectedAssigneeId("");
     setSelectedApproverId("");
     setReason("");
@@ -147,11 +156,15 @@ function ReassignTaskDialog({
           </div>
         </div>
         
+        <div className="pt-2">
+          <TargetDateField id="reassign-target" label="New person must finish by" value={target} onChange={setTarget} defaultDays={reassignDays} />
+        </div>
+
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button 
             onClick={handleReassign} 
-            disabled={isPending || !selectedAssigneeId}
+            disabled={isPending || !selectedAssigneeId || !target}
             className="gap-1"
           >
             <RefreshCw className="h-4 w-4" />
@@ -174,16 +187,19 @@ function CompleteTaskDialog({
   task: MyTask; 
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onComplete: (comments: string, approverId?: number) => void;
+  onComplete: (comments: string, approverId?: number, nextTargetDate?: string) => void;
   isPending: boolean;
   users?: UserOption[];
 }) {
   const [comments, setComments] = useState("");
   const [selectedApproverId, setSelectedApproverId] = useState<string>("");
+  // The next person's deadline: the approver after a review, the COO after an approval
+  const nextDays = task.taskType === 'review' ? TARGET_DAYS.approve : TARGET_DAYS.hub_approval;
+  const [nextTarget, setNextTarget] = useState(defaultTargetInput(nextDays));
 
   const handleComplete = () => {
     const approverId = selectedApproverId ? parseInt(selectedApproverId) : undefined;
-    onComplete(comments, approverId);
+    onComplete(comments, approverId, targetToIso(nextTarget));
     setComments("");
     setSelectedApproverId("");
   };
@@ -235,6 +251,16 @@ function CompleteTaskDialog({
             </div>
           )}
           
+          {(task.taskType === 'review' || task.taskType === 'approve') && (
+            <TargetDateField
+              id="next-target"
+              label={task.taskType === 'review' ? 'Approval due by' : "COO's final approval due by"}
+              value={nextTarget}
+              onChange={setNextTarget}
+              defaultDays={nextDays}
+            />
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="comments">Comments (optional)</Label>
             <Textarea
@@ -251,7 +277,7 @@ function CompleteTaskDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button 
             onClick={handleComplete} 
-            disabled={isPending || (task.taskType === 'review' && !selectedApproverId)}
+            disabled={isPending || (task.taskType === 'review' && !selectedApproverId) || !nextTarget}
           >
             {isPending ? "Processing..." : actionLabel}
           </Button>
@@ -273,18 +299,20 @@ export default function MyTasks() {
   const completeMutation = useCompleteTask();
   
   const reassignMutation = useMutation({
-    mutationFn: async ({ documentId, taskType, newAssigneeId, newApproverId, reason }: { 
+    mutationFn: async ({ documentId, taskType, newAssigneeId, newApproverId, reason, targetDate }: { 
       documentId: number; 
       taskType: string; 
       newAssigneeId: number; 
       newApproverId?: number;
       reason?: string;
+      targetDate?: string;
     }) => {
       const res = await apiRequest('POST', `/api/documents/${documentId}/reassign`, {
         taskType,
         newAssigneeId,
         newApproverId: newApproverId === -1 ? undefined : newApproverId,
         reason,
+        targetDate,
       });
       return res.json();
     },
@@ -344,10 +372,14 @@ export default function MyTasks() {
     },
   });
 
-  const pendingTasks = tasks.filter(t => t.taskType === 'review' || t.taskType === 'approve' || t.taskType === 'download_approval' || t.taskType === 'access_approval' || t.taskType === 'employee_review' || t.taskType === 'employee_approve');
-  const completedCount = 0;
+  const pendingTasks = tasks;
+  const { data: currentUser } = useAuth();
+  const canSeeAllTasks = currentUser?.role === 'admin' || currentUser?.role === 'quality_manager' || currentUser?.email === 'coo@sahihcertify.com';
+  const { data: performance } = useTaskPerformance();
+  const overdueCount = tasks.filter(t => t.isOverdue).length;
+  const completedCount = performance?.tasksCompleted ?? 0;
 
-  const handleCompleteTask = (comments: string, approverId?: number) => {
+  const handleCompleteTask = (comments: string, approverId?: number, nextTargetDate?: string) => {
     if (!selectedTask || !selectedTask.documentId) return;
     
     completeMutation.mutate(
@@ -355,7 +387,8 @@ export default function MyTasks() {
         documentId: selectedTask.documentId, 
         taskType: selectedTask.taskType as 'prepare' | 'review' | 'approve',
         comments,
-        approverId 
+        approverId,
+        nextTargetDate,
       },
       {
         onSuccess: () => {
@@ -390,7 +423,7 @@ export default function MyTasks() {
     setShowReassignDialog(true);
   };
 
-  const handleReassignTask = (newAssigneeId: number, newApproverId?: number, reason?: string) => {
+  const handleReassignTask = (newAssigneeId: number, newApproverId?: number, reason?: string, targetDate?: string) => {
     if (!selectedTask || !selectedTask.documentId) return;
     
     reassignMutation.mutate(
@@ -400,6 +433,7 @@ export default function MyTasks() {
         newAssigneeId,
         newApproverId: newApproverId && newApproverId !== -1 ? newApproverId : undefined,
         reason,
+        targetDate,
       },
       {
         onSuccess: (data) => {
@@ -438,7 +472,7 @@ export default function MyTasks() {
       <div>
         <h1 className="text-2xl md:text-3xl font-bold text-foreground" data-testid="text-page-title">My Tasks</h1>
         <p className="text-muted-foreground mt-1" data-testid="text-page-description">
-          Document workflow tasks assigned to you
+          Everything assigned to you across the system, soonest due first
         </p>
       </div>
 
@@ -456,7 +490,7 @@ export default function MyTasks() {
           <CardContent className="p-4">
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-red-500" />
-              <span className="text-2xl font-bold" data-testid="text-overdue-count">0</span>
+              <span className="text-2xl font-bold" data-testid="text-overdue-count">{overdueCount}</span>
             </div>
             <p className="text-sm text-muted-foreground mt-1">Overdue</p>
           </CardContent>
@@ -467,20 +501,31 @@ export default function MyTasks() {
               <CheckCircle2 className="h-5 w-5 text-green-500" />
               <span className="text-2xl font-bold" data-testid="text-completed-count">{completedCount}</span>
             </div>
-            <p className="text-sm text-muted-foreground mt-1">Completed</p>
+            <p className="text-sm text-muted-foreground mt-1">Completed this month</p>
           </CardContent>
         </Card>
         <Card data-testid="card-points">
           <CardContent className="p-4">
             <div className="flex items-center gap-2">
               <Clock className="h-5 w-5 text-amber-500" />
-              <span className="text-2xl font-bold" data-testid="text-points">0</span>
+              <span className="text-2xl font-bold" data-testid="text-on-time-rate">
+                {performance?.onTimeRate !== null && performance?.onTimeRate !== undefined ? `${performance.onTimeRate}%` : '-'}
+              </span>
             </div>
-            <p className="text-sm text-muted-foreground mt-1">Points Earned</p>
+            <p className="text-sm text-muted-foreground mt-1">On time this month</p>
           </CardContent>
         </Card>
       </div>
 
+      <Tabs defaultValue="mine" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="mine" data-testid="tab-assigned-to-me">Assigned to me ({pendingTasks.length})</TabsTrigger>
+          <TabsTrigger value="initiated" data-testid="tab-assigned-by-me">Assigned by me</TabsTrigger>
+        </TabsList>
+        <TabsContent value="initiated">
+          <AssignedByMe canSeeAll={canSeeAllTasks} />
+        </TabsContent>
+        <TabsContent value="mine">
       <div className="space-y-4">
         <h2 className="text-xl font-semibold">Pending Tasks</h2>
         {pendingTasks.length === 0 ? (
@@ -508,8 +553,22 @@ export default function MyTasks() {
                           {task.employeeName}
                         </span>
                       )}
-                      <TaskTypeBadge type={task.taskType} />
-                      <StatusBadge status={task.status} />
+                      {!task.documentCode && !task.employeeName && task.reference && (
+                        <span className="font-mono text-sm bg-muted px-2 py-1 rounded" data-testid={`task-code-${task.id}`}>
+                          {task.reference}
+                        </span>
+                      )}
+                      <TaskTypeBadge type={task.taskType} label={task.typeLabel} />
+                      {task.dueDate && (
+                        <Badge
+                          variant="outline"
+                          className={task.isOverdue ? "border-red-300 text-red-700 dark:text-red-300" : "text-muted-foreground"}
+                          data-testid={`task-due-${task.id}`}
+                        >
+                          {task.isOverdue ? "Overdue · was due " : "Due "}
+                          {format(new Date(task.dueDate), "MMM d, h:mm a")}
+                        </Badge>
+                      )}
                     </div>
                   </div>
                   <CardTitle className="text-lg mt-2">
@@ -523,10 +582,14 @@ export default function MyTasks() {
                     </div>
                   </CardTitle>
                   <CardDescription>
-                    {task.taskType === 'review' 
+                    {task.description || (task.taskType === 'review' 
                       ? 'This document requires your review before it can proceed to approval.'
                       : task.taskType === 'approve'
                       ? 'This document is awaiting your final approval.'
+                      : task.taskType === 'revise'
+                      ? `${task.returnedByName || 'Your reviewer'} returned this document for revision.${task.returnNote ? ` Note: "${task.returnNote}"` : ''} Address the comments in the document and resubmit it.`
+                      : task.taskType === 'comment'
+                      ? `You were mentioned in ${task.commentCount === 1 ? 'an open comment' : `${task.commentCount} open comments`} on this document.`
                       : task.taskType === 'download_approval'
                       ? `A user has requested permission to download this document.${task.reason ? ` Reason: "${task.reason}"` : ''}`
                       : task.taskType === 'access_approval'
@@ -535,9 +598,16 @@ export default function MyTasks() {
                       ? 'This employee record requires your review before it can proceed to approval.'
                       : task.taskType === 'employee_approve'
                       ? 'This employee record is awaiting your final approval.'
-                      : 'This task requires your attention.'
+                      : 'This task requires your attention.')
                     }
                   </CardDescription>
+                  {(task.initiatorName || task.dueDate) && (
+                    <p className="text-xs text-muted-foreground mt-2" data-testid={`task-initiator-${task.id}`}>
+                      {task.initiatorName && <>Assigned by <span className="font-medium text-foreground">{task.initiatorName}</span></>}
+                      {task.initiatorName && task.dueDate && " · "}
+                      {task.dueDate && <>{task.hasTarget ? "Target" : "Default deadline"}: {format(new Date(task.dueDate), "EEE d MMM yyyy")}</>}
+                    </p>
+                  )}
                   {(task.taskType === 'review' || task.taskType === 'approve') && (task.reviewerName || task.approverName) && (
                     <div className="flex flex-wrap gap-4 mt-3 text-sm">
                       {task.reviewerName && (
@@ -580,7 +650,7 @@ export default function MyTasks() {
                         <UserCheck className="h-4 w-4" />
                         View Employee Record
                       </Button>
-                    ) : (
+                    ) : task.documentId ? (
                       <>
                         <Button 
                           variant="outline"
@@ -591,6 +661,17 @@ export default function MyTasks() {
                           <Eye className="h-4 w-4" />
                           View Document
                         </Button>
+                        {(task.taskType === 'review' || task.taskType === 'approve') && (
+                          <Button
+                            variant="outline"
+                            onClick={() => navigate(`/documents/${task.documentId}/edit`)}
+                            className="gap-1"
+                            data-testid={`button-comment-return-${task.id}`}
+                          >
+                            <MessageSquare className="h-4 w-4" />
+                            Comment / Return
+                          </Button>
+                        )}
                         {(task.taskType === 'review' || task.taskType === 'approve') && (
                           <Button 
                             variant="outline"
@@ -603,7 +684,7 @@ export default function MyTasks() {
                           </Button>
                         )}
                       </>
-                    )}
+                    ) : null}
                     {task.taskType === 'download_approval' ? (
                       <>
                         <Button 
@@ -720,6 +801,18 @@ export default function MyTasks() {
                           {rejectAccessMutation.isPending ? "Denying..." : "Deny"}
                         </Button>
                       </>
+                    ) : !SPECIAL_TASK_TYPES.has(task.taskType) ? (
+                      <Button
+                        onClick={() => navigate(task.link || `/documents/${task.documentId}/edit`)}
+                        className="gap-1"
+                        data-testid={`button-open-task-${task.id}`}
+                      >
+                        <FileText className="h-4 w-4" />
+                        {task.taskType === 'revise' ? 'Revise Document'
+                          : task.taskType === 'comment' ? 'Open Comments'
+                          : task.taskType === 'hub_approval' ? 'Open Document Hub'
+                          : 'Open'}
+                      </Button>
                     ) : (
                       <Button 
                         onClick={() => openCompleteDialog(task)}
@@ -751,6 +844,9 @@ export default function MyTasks() {
           </div>
         )}
       </div>
+
+        </TabsContent>
+      </Tabs>
 
       {selectedTask && (
         <CompleteTaskDialog
