@@ -5869,9 +5869,12 @@ export async function registerRoutes(
           ${report.reviewComments ? `<p style="margin-top:12px"><strong>COO review:</strong> ${esc(report.reviewComments)}</p>` : ''}
           ${report.approvalComments ? `<p><strong>CEO approval:</strong> ${esc(report.approvalComments)}</p>` : ''}
         `;
-        const pdf = await generateReportPdf('monthly_performance', 'Monthly Performance Report', content, {
-          employeeName: user?.name, employeeNumber: user?.email, department: user?.role?.replace('_', ' '), jobTitle: user?.designation ?? undefined,
-          hireDate: period,
+        // HR details from the person's employee record (linked by user or by email)
+        const employee = (await storage.getEmployees()).find(e => e.userId === report.userId || (!!user?.email && e.email?.toLowerCase() === user.email.toLowerCase()));
+        const pdf = await generateReportPdf('monthly_performance', `Monthly Performance Report – ${period}`, content, {
+          employeeName: user?.name, employeeNumber: employee?.employeeNumber, department: employee?.department,
+          jobTitle: employee?.jobTitle ?? user?.designation ?? undefined,
+          hireDate: employee?.hireDate ? new Date(employee.hireDate).toLocaleDateString('en-GB') : undefined,
           reviewerName: reviewer?.name, reviewerSignature: reviewer?.signatureDataUrl, reviewerSignedAt: report.reviewedAt,
           approverName: approver?.name, approverSignature: approver?.signatureDataUrl, approverSignedAt: report.approvedAt,
           reportNumber: `MPR-${period}-${report.id}`, generatedAt: new Date(),
