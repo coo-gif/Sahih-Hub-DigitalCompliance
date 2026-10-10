@@ -8,6 +8,8 @@ export default defineConfig({
   out: "./migrations",
   schema: "./shared/schema.ts",
   dialect: "postgresql",
+  // Login sessions are managed by connect-pg-simple, not this schema: never offer to rename or drop them
+  tablesFilter: ["!user_sessions"],
   dbCredentials: {
     url: process.env.DATABASE_URL,
   },

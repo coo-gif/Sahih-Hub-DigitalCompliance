@@ -103,6 +103,7 @@ import {
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { collectOpenTasks, TASK_TYPE_LABELS, type OpenTask } from "./task-sources";
 import { registerDocumentControlRoutes, presentForReader, recordApprovedVersion, setDocumentLinks } from "./document-control";
+import { registerInternalAuditRoutes } from "./internal-audit";
 import { convertUploadedFile, isGoogleFileUrl, UnsupportedFileError } from "./document-import";
 import {
   reconcileTasks, scheduleReconcile, getOpenTaskRecords, computeTaskMetrics, monthRange, refreshPerformanceReports,
@@ -495,6 +496,7 @@ export async function registerRoutes(
 
   // Change requests, version records and the Records & Data Hive
   registerDocumentControlRoutes(app, { requireAuth, canViewDocument });
+  registerInternalAuditRoutes(app, { requireAuth });
 
   // ============================================
   // AUTHENTICATION ROUTES

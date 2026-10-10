@@ -34,6 +34,7 @@ import {
   UserPlus,
   TrendingUp,
   Archive,
+  ClipboardCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -76,6 +77,12 @@ const navItems: NavItem[] = [
     label: "Records & Data Hive",
     icon: Archive,
     canAccess: (user) => user.role === 'admin' || user.role === 'quality_manager' || user.email === 'coo@sahihcertify.com'
+  },
+  {
+    href: "/internal-audits",
+    label: "Internal Audit",
+    icon: ClipboardCheck,
+    canAccess: (user) => ['admin', 'quality_manager', 'auditor'].includes(user.role) || user.email === 'coo@sahihcertify.com' || user.email === 'ceo@sahihcertify.com'
   },
   { href: "/tasks", label: "My Tasks", icon: ClipboardList },
   { href: "/email", label: "Email", icon: Mail, showBadge: 'email' },
