@@ -286,6 +286,7 @@ export interface IStorage {
   reviewReport(id: number, reviewerId: number, comments?: string): Promise<MonthlyPerformanceReport>;
   approveReport(id: number, approverId: number, comments?: string): Promise<MonthlyPerformanceReport | undefined>;
   setUserRecordPdf(reportNumber: string, pdfDataUrl: string): Promise<void>;
+  nextSequenceValue(name: string, existingMax: number): Promise<number>;
   rejectReport(id: number, comments: string): Promise<MonthlyPerformanceReport>;
 
   // Certification Applications
@@ -1838,6 +1839,18 @@ export class DatabaseStorage implements IStorage {
       });
       return updated;
     });
+  }
+
+  /**
+   * Next number in a named sequence, atomically. The sequence never goes back, so numbers of deleted
+   * records are not reused; `existingMax` (the highest number already in use) seeds it the first time.
+   */
+  async nextSequenceValue(name: string, existingMax: number): Promise<number> {
+    const result = await db.execute(sql`
+      INSERT INTO number_sequences (name, last_value) VALUES (${name}, ${existingMax + 1})
+      ON CONFLICT (name) DO UPDATE SET last_value = GREATEST(number_sequences.last_value + 1, ${existingMax + 1})
+      RETURNING last_value`);
+    return Number((result.rows[0] as { last_value: number }).last_value);
   }
 
   async setUserRecordPdf(reportNumber: string, pdfDataUrl: string): Promise<void> {

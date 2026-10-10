@@ -1785,3 +1785,11 @@ export const internalAudits = pgTable("internal_audits", {
 });
 
 export type InternalAudit = typeof internalAudits.$inferSelect;
+
+// ============================================
+// NUMBER SEQUENCES (ticket, application and certificate numbers are never reused, even after a delete)
+// ============================================
+export const numberSequences = pgTable("number_sequences", {
+  name: text("name").primaryKey(), // e.g. "BUG", "APP-2026", "TC-2026"
+  lastValue: integer("last_value").notNull().default(0),
+});
