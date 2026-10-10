@@ -166,6 +166,12 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
   });
   const hasAssignedBugs = !!user && !!visibleBugReports?.some(b => b.assignedToId === user.id && b.status !== 'closed');
 
+  // Staff with leads assigned to them (or an update asked of them) get the CRM - Leads page for those
+  const isCrmManagerUser = !!user && (user.role === 'admin' || user.role === 'quality_manager' || user.email === 'coo@sahihcertify.com');
+  const { data: myLeads } = useQuery<unknown[]>({ queryKey: ["/api/leads"], enabled: !!user && !isCrmManagerUser });
+  const { data: myLeadRequests } = useQuery<unknown[]>({ queryKey: ["/api/lead-update-requests/pending"], enabled: !!user && !isCrmManagerUser });
+  const hasAssignedLeads = !!myLeads?.length || !!myLeadRequests?.length;
+
   const unreadCount = notifications?.filter(n => !n.isRead).length || 0;
   const emailUnreadCount = emailUnreadData?.count || 0;
 
@@ -197,6 +203,7 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
           .filter((item) => {
             if (item.adminOnly && user?.role !== 'admin') return false;
             if (item.href === "/bug-reports" && hasAssignedBugs) return true;
+            if (item.href === "/crm/leads" && hasAssignedLeads) return true;
             if (item.canAccess && (!user || !item.canAccess(user))) return false;
             return true;
           })

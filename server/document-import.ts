@@ -38,6 +38,23 @@ export function textToHtml(text: string): string {
     .join('');
 }
 
+// No scripts in imported files: drop script-like tags (even unclosed ones), on* handlers and javascript: / vbscript: / non-image data: links
+function stripActiveContent(html: string): string {
+  return html
+    .replace(/<(script|iframe|object|embed|frame|frameset|applet|base|form)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
+    .replace(/<\/?(script|iframe|object|embed|frame|frameset|applet|base|form)\b[^>]*>/gi, '')
+    .replace(/<([a-z][a-z0-9]*)([\s/][^>]*)>/gi, (_tag, name: string, attrs: string) => {
+      const kept = attrs
+        .replace(/[\s/]on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]*)/gi, '')
+        .replace(/(\s(?:href|src|action|formaction|xlink:href|background|poster)\s*=\s*)("[^"]*"|'[^']*'|[^\s>]*)/gi, (whole, prefix: string, value: string) => {
+          const plain = value.replace(/^["']|["']$/g, '').replace(/&#x?0*(9|a|d|10|13);?/gi, '').replace(/[\s\u0000-\u001f]/g, '').toLowerCase();
+          // Word images arrive as data:image/... and are kept
+          return /^(javascript|vbscript|&#)/.test(plain) || (plain.startsWith('data:') && !plain.startsWith('data:image/')) ? `${prefix}"#"` : whole;
+        });
+      return `<${name}${kept}>`;
+    });
+}
+
 /**
  * Turns exported HTML (Google Docs, Word via mammoth) into what the editor keeps:
  * Google Docs puts formatting in class rules, so those are copied inline (bold, italic,
@@ -94,5 +111,5 @@ export function cleanImportedHtml(raw: string): string {
   // Empty spans and paragraphs left by the export
   html = html.replace(/<a(\s+id="[^"]*")?\s*>\s*<\/a>/gi, '').replace(/<span>([\s\S]*?)<\/span>/gi, '$1').replace(/<p[^>]*>\s*<\/p>/gi, '');
 
-  return html.trim();
+  return stripActiveContent(html).trim();
 }

@@ -1955,11 +1955,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createBugReport(data: Omit<InsertBugReport, 'ticketNumber'>): Promise<BugReport> {
-    // Next ticket number after the highest one issued, so deleted tickets never cause a clash
+    // Numbers come from a sequence (seeded from the highest one issued), so deleting the newest ticket never frees its number
     const [{ maxNumber }] = await db.select({
       maxNumber: sql<number>`coalesce(max(nullif(regexp_replace(${bugReports.ticketNumber}, '[^0-9]', '', 'g'), '')::int), 0)`,
     }).from(bugReports);
-    const ticketNumber = `BUG-${String(Number(maxNumber) + 1).padStart(4, '0')}`;
+    const ticketNumber = `BUG-${String(await this.nextSequenceValue('BUG', Number(maxNumber))).padStart(4, '0')}`;
     
     const [report] = await db.insert(bugReports).values({
       ...data,

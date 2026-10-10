@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { CheckCircle2, AlertCircle, Loader2, FileCheck } from "lucide-react";
+import { sanitizeFormHtml } from "@/lib/sanitize-form-html";
 
 interface DocuGenieForm {
   id: number;
@@ -180,7 +181,7 @@ export default function FormSubmit() {
 
               {form.htmlForm ? (
                 <div 
-                  dangerouslySetInnerHTML={{ __html: form.htmlForm.replace(/<form[^>]*>|<\/form>/gi, '') }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeFormHtml(form.htmlForm) }}
                   className="space-y-4"
                   data-testid="dynamic-form-content"
                 />
