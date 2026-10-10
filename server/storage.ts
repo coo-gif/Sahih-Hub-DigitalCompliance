@@ -325,7 +325,8 @@ export interface IStorage {
   getLeadUpdateRequests(leadId: number): Promise<Array<LeadUpdateRequest & { requestedByName: string; requestedFromName: string }>>;
   getPendingLeadUpdateRequests(userId: number): Promise<Array<LeadUpdateRequest & { leadName: string; requestedByName: string }>>;
   createLeadUpdateRequest(request: InsertLeadUpdateRequest): Promise<LeadUpdateRequest>;
-  resolveLeadUpdateRequest(id: number): Promise<LeadUpdateRequest | undefined>;
+  getLeadUpdateRequest(id: number): Promise<LeadUpdateRequest | undefined>;
+  resolveLeadUpdateRequest(id: number, response?: string | null): Promise<LeadUpdateRequest | undefined>;
 
   // CRM - Customers
   getCustomers(filters?: { accountOwnerId?: number }): Promise<Customer[]>;
@@ -1846,17 +1847,21 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Bug Reports
-  async getBugReports(filters?: { status?: string; reportedById?: number }): Promise<BugReport[]> {
-    let query = db.select().from(bugReports).orderBy(desc(bugReports.createdAt));
-    
+  async getBugReports(filters?: { status?: string; reportedById?: number; involvingUserId?: number }): Promise<BugReport[]> {
+    const conditions = [];
     if (filters?.status) {
-      query = query.where(eq(bugReports.status, filters.status)) as typeof query;
+      conditions.push(eq(bugReports.status, filters.status));
     }
     if (filters?.reportedById) {
-      query = query.where(eq(bugReports.reportedById, filters.reportedById)) as typeof query;
+      conditions.push(eq(bugReports.reportedById, filters.reportedById));
     }
-    
-    return query;
+    // Reported by or assigned to this user
+    if (filters?.involvingUserId) {
+      conditions.push(or(eq(bugReports.reportedById, filters.involvingUserId), eq(bugReports.assignedToId, filters.involvingUserId))!);
+    }
+    return db.select().from(bugReports)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(bugReports.createdAt));
   }
 
   async getBugReport(id: number): Promise<BugReport | undefined> {
@@ -1865,9 +1870,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createBugReport(data: Omit<InsertBugReport, 'ticketNumber'>): Promise<BugReport> {
-    // Generate ticket number
-    const count = await db.select({ count: sql<number>`count(*)` }).from(bugReports);
-    const ticketNumber = `BUG-${String(Number(count[0].count) + 1).padStart(4, '0')}`;
+    // Next ticket number after the highest one issued, so deleted tickets never cause a clash
+    const [{ maxNumber }] = await db.select({
+      maxNumber: sql<number>`coalesce(max(nullif(regexp_replace(${bugReports.ticketNumber}, '[^0-9]', '', 'g'), '')::int), 0)`,
+    }).from(bugReports);
+    const ticketNumber = `BUG-${String(Number(maxNumber) + 1).padStart(4, '0')}`;
     
     const [report] = await db.insert(bugReports).values({
       ...data,
@@ -2407,6 +2414,8 @@ export class DatabaseStorage implements IStorage {
         message: leadUpdateRequests.message,
         isResolved: leadUpdateRequests.isResolved,
         resolvedAt: leadUpdateRequests.resolvedAt,
+        response: leadUpdateRequests.response,
+        respondedAt: leadUpdateRequests.respondedAt,
         createdAt: leadUpdateRequests.createdAt,
         requestedByName: sql<string>`(SELECT name FROM users WHERE id = ${leadUpdateRequests.requestedById})`,
         requestedFromName: sql<string>`(SELECT name FROM users WHERE id = ${leadUpdateRequests.requestedFromId})`,
@@ -2432,6 +2441,8 @@ export class DatabaseStorage implements IStorage {
         message: leadUpdateRequests.message,
         isResolved: leadUpdateRequests.isResolved,
         resolvedAt: leadUpdateRequests.resolvedAt,
+        response: leadUpdateRequests.response,
+        respondedAt: leadUpdateRequests.respondedAt,
         createdAt: leadUpdateRequests.createdAt,
         leadName: leads.leadName,
         requestedByName: sql<string>`(SELECT name FROM users WHERE id = ${leadUpdateRequests.requestedById})`,
@@ -2456,10 +2467,16 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async resolveLeadUpdateRequest(id: number): Promise<LeadUpdateRequest | undefined> {
+  async getLeadUpdateRequest(id: number): Promise<LeadUpdateRequest | undefined> {
+    const [result] = await db.select().from(leadUpdateRequests).where(eq(leadUpdateRequests.id, id));
+    return result;
+  }
+
+  async resolveLeadUpdateRequest(id: number, response?: string | null): Promise<LeadUpdateRequest | undefined> {
+    const now = new Date();
     const [result] = await db
       .update(leadUpdateRequests)
-      .set({ isResolved: true, resolvedAt: new Date() })
+      .set({ isResolved: true, resolvedAt: now, response: response ?? null, respondedAt: response ? now : null })
       .where(eq(leadUpdateRequests.id, id))
       .returning();
     return result;

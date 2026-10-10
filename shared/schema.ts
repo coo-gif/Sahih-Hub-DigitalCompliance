@@ -1643,6 +1643,8 @@ export const leadUpdateRequests = pgTable("lead_update_requests", {
   message: text("message"),
   isResolved: boolean("is_resolved").default(false),
   resolvedAt: timestamp("resolved_at"),
+  response: text("response"), // The reply given when the request is resolved
+  respondedAt: timestamp("responded_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -1651,6 +1653,8 @@ export const insertLeadUpdateRequestSchema = createInsertSchema(leadUpdateReques
   createdAt: true,
   isResolved: true,
   resolvedAt: true,
+  response: true,
+  respondedAt: true,
 });
 
 export type LeadUpdateRequest = typeof leadUpdateRequests.$inferSelect;

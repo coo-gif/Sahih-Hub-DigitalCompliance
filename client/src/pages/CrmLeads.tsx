@@ -17,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { uploadToStorage } from "@/hooks/use-upload";
 import { Plus, Trash2, Pencil, Phone, Building2, User, Calendar, MessageSquare, Search, Filter, Users, History, Eye, FileText, Upload, Bell, ArrowRight } from "lucide-react";
 import { format } from "date-fns";
@@ -132,9 +133,8 @@ export default function CrmLeads() {
     queryKey: ["/api/users"],
   });
 
-  const { data: currentUser } = useQuery<UserType>({
-    queryKey: ["/api/user"],
-  });
+  // The signed-in user (there is no /api/user route; it returned nothing, so COO/Admin actions never showed)
+  const { data: currentUser } = useAuth();
 
   const { data: statusHistory = [] } = useQuery<StatusHistoryEntry[]>({
     queryKey: ["/api/leads", selectedLead?.id, "status-history"],
@@ -147,6 +147,24 @@ export default function CrmLeads() {
   });
 
   const isCooOrAdmin = currentUser?.email === 'coo@sahihcertify.com' || currentUser?.role === 'admin';
+  const isCrmManager = isCooOrAdmin || currentUser?.role === 'quality_manager';
+
+  // Answering an update request: the person asked (or a manager) writes the update and resolves it
+  const [requestReplies, setRequestReplies] = useState<Record<number, string>>({});
+  const resolveUpdateRequest = useMutation({
+    mutationFn: async ({ id, response }: { id: number; response: string }) => {
+      const res = await apiRequest("POST", `/api/lead-update-requests/${id}/resolve`, { response });
+      return res.json();
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leads", selectedLead?.id, "update-requests"] });
+      setRequestReplies((prev) => ({ ...prev, [variables.id]: "" }));
+      toast({ title: "Update sent", description: "The request is resolved and the requester has been notified." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
 
   const createLead = useMutation({
     mutationFn: async (data: CreateLeadData) => {
@@ -827,8 +845,8 @@ export default function CrmLeads() {
                   name="leadStatus"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Status</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
+                      <FormLabel>Status (use Change Status to change it)</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value} disabled>
                         <FormControl>
                           <SelectTrigger data-testid="edit-select-lead-status">
                             <SelectValue placeholder="Select status" />
@@ -1080,10 +1098,34 @@ export default function CrmLeads() {
                             </Badge>
                           </div>
                           <p className="text-sm bg-muted p-2 rounded">{request.message}</p>
+                          {request.response && (
+                            <div className="text-sm border-l-2 border-green-500 pl-2" data-testid={`text-request-response-${request.id}`}>
+                              <span className="font-medium">{request.requestedFromName} replied:</span> {request.response}
+                            </div>
+                          )}
                           <div className="text-xs text-muted-foreground">
                             {request.createdAt ? format(new Date(request.createdAt), "MMM d, yyyy 'at' HH:mm") : "N/A"}
                             {request.resolvedAt && ` • Resolved: ${format(new Date(request.resolvedAt), "MMM d, yyyy 'at' HH:mm")}`}
                           </div>
+                          {!request.isResolved && (request.requestedFromId === currentUser?.id || isCrmManager) && (
+                            <div className="flex gap-2 items-start">
+                              <Textarea
+                                placeholder="Write the update..."
+                                className="min-h-[60px]"
+                                value={requestReplies[request.id] || ""}
+                                onChange={(e) => setRequestReplies((prev) => ({ ...prev, [request.id]: e.target.value }))}
+                                data-testid={`input-request-response-${request.id}`}
+                              />
+                              <Button
+                                size="sm"
+                                onClick={() => resolveUpdateRequest.mutate({ id: request.id, response: (requestReplies[request.id] || "").trim() })}
+                                disabled={!(requestReplies[request.id] || "").trim() || resolveUpdateRequest.isPending}
+                                data-testid={`button-resolve-request-${request.id}`}
+                              >
+                                Reply &amp; resolve
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
