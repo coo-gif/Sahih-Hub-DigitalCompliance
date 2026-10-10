@@ -1,6 +1,5 @@
 import { db } from "./db";
 import { users } from "@shared/schema";
-import { sql } from "drizzle-orm";
 import bcrypt from "bcrypt";
 
 const SALT_ROUNDS = 10;
@@ -26,9 +25,8 @@ export async function initializeDefaultUsers(): Promise<void> {
         const existingUsers = await db.select({ id: users.id, email: users.email }).from(users);
         const existing = existingUsers.find(u => u.email.toLowerCase() === user.email.toLowerCase());
         
-        const hashedPassword = await bcrypt.hash(user.password, SALT_ROUNDS);
-        
         if (!existing) {
+          const hashedPassword = await bcrypt.hash(user.password, SALT_ROUNDS);
           console.log(`[init] Creating user: ${user.email}`);
           await db.insert(users).values({
             name: user.name,
@@ -39,14 +37,10 @@ export async function initializeDefaultUsers(): Promise<void> {
             isActive: true,
           });
           console.log(`[init] Successfully created user: ${user.email}`);
+          console.warn(`[init] WARNING: ${user.email} was created with the default initial password. Change it after first login.`);
         } else {
-          // Update password for existing user to ensure it matches
-          console.log(`[init] Updating password for existing user: ${user.email} (id: ${existing.id})`);
-          await db.update(users).set({ 
-            passwordHash: hashedPassword,
-            isActive: true 
-          }).where(sql`${users.id} = ${existing.id}`);
-          console.log(`[init] Password updated for: ${user.email}`);
+          // Existing accounts are left untouched so changed passwords and deactivations persist
+          console.log(`[init] User already exists, leaving unchanged: ${user.email} (id: ${existing.id})`);
         }
       } catch (err: any) {
         console.error(`[init] Error creating user ${user.email}:`, err.message || err);

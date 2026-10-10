@@ -48,13 +48,41 @@ import {
   type WallPost, type InsertWallPost,
   DocumentStatus, DocumentCommentStatus, InductionStatus, TaskStatus, FeedbackStatus, DocumentTaskStatus,
   EmployeeRecordStatus, DocumentAccessRequestStatus, BuddyState, MonthlyReportStatus,
-  BugReportStatus,
+  BugReportStatus, taskRecords, TaskRecordStatus,
 } from "@shared/schema";
 import { eq, desc, and, lt, gt, or, sql } from "drizzle-orm";
 import { computeTaskMetrics, reportFieldsFromMetrics } from "./task-ledger";
 import bcrypt from "bcrypt";
 
 const SALT_ROUNDS = 10;
+
+// Columns that tie a user to business or audit records: a user referenced here is deactivated, never deleted
+const USER_RECORD_COLUMNS: Array<[string, string]> = [
+  ['audit_logs', 'user_id'], ['documents', 'created_by_id'], ['documents', 'prepared_by_id'],
+  ['documents', 'reviewer_id'], ['documents', 'approver_id'], ['documents', 'reviewed_by_id'],
+  ['documents', 'approved_by_id'], ['documents', 'hub_approved_by_id'], ['document_versions', 'approved_by_id'],
+  ['workflow_logs', 'action_by_id'], ['workflow_logs', 'assigned_to_id'], ['document_comments', 'author_id'],
+  ['document_feedback', 'author_id'], ['document_access', 'user_id'], ['document_access', 'granted_by_id'],
+  ['document_access_requests', 'requester_id'], ['download_requests', 'requester_id'], ['change_requests', 'initiator_id'],
+  ['revision_history', 'prepared_by_id'], ['revision_history', 'reviewed_by_id'], ['revision_history', 'approved_by_id'],
+  ['employees', 'user_id'], ['employees', 'created_by_user_id'], ['employees', 'reviewer_id'], ['employees', 'approver_id'],
+  ['employee_tasks', 'assigned_by_user_id'], ['task_records', 'user_id'], ['user_records', 'user_id'],
+  ['monthly_performance_reports', 'user_id'], ['bug_reports', 'reported_by_id'], ['bug_reports', 'assigned_to_id'],
+  ['wall_posts', 'author_id'], ['leads', 'created_by_id'], ['leads', 'assigned_to_id'], ['customers', 'created_by_id'],
+  ['opportunities', 'created_by_id'], ['trainings', 'created_by_id'], ['training_assignments', 'assigned_by_id'],
+  ['certificates', 'issued_by_id'], ['docugenie_forms', 'created_by_id'],
+];
+// Personal data removed together with the account
+const USER_EPHEMERAL_COLUMNS: Array<[string, string]> = [
+  ['notifications', 'user_id'], ['buddy_status', 'user_id'], ['buddy_dialogues', 'user_id'],
+  ['push_subscriptions', 'user_id'], ['user_activity_logs', 'user_id'],
+];
+
+export class UserHasRecordsError extends Error {
+  constructor() {
+    super('This user has records in the system and cannot be deleted. Deactivate the account instead.');
+  }
+}
 
 async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, SALT_ROUNDS);
@@ -100,7 +128,7 @@ export interface IStorage {
   // Notifications
   getNotifications(userId?: number): Promise<Notification[]>;
   createNotification(notification: InsertNotification): Promise<Notification>;
-  markNotificationRead(id: number): Promise<Notification>;
+  markNotificationRead(id: number, userId?: number): Promise<Notification | undefined>;
   markDocumentNotificationsRead(userId: number, documentId: number): Promise<number>;
   markAllNotificationsRead(userId: number): Promise<number>;
 
@@ -217,6 +245,7 @@ export interface IStorage {
 
   // User Records (Completion Reports)
   getUserRecords(userId: number): Promise<UserRecord[]>;
+  getAllUserRecords(): Promise<UserRecord[]>;
   getUserRecord(id: number): Promise<UserRecord | undefined>;
   createUserRecord(record: InsertUserRecord): Promise<UserRecord>;
   generateReportNumber(reportType: string): Promise<string>;
@@ -238,7 +267,7 @@ export interface IStorage {
   // Buddy Dialogues
   getBuddyDialogues(userId: number, unacknowledgedOnly?: boolean): Promise<BuddyDialogue[]>;
   createBuddyDialogue(dialogue: InsertBuddyDialogue): Promise<BuddyDialogue>;
-  acknowledgeBuddyDialogue(id: number): Promise<BuddyDialogue>;
+  acknowledgeBuddyDialogue(id: number, userId?: number): Promise<BuddyDialogue | undefined>;
 
   // User Activity Logs
   startUserSession(userId: number): Promise<UserActivityLog>;
@@ -254,7 +283,7 @@ export interface IStorage {
   generateMonthlyReport(userId: number, month: number, year: number): Promise<MonthlyPerformanceReport>;
   submitReportForReview(id: number): Promise<MonthlyPerformanceReport>;
   reviewReport(id: number, reviewerId: number, comments?: string): Promise<MonthlyPerformanceReport>;
-  approveReport(id: number, approverId: number, comments?: string): Promise<MonthlyPerformanceReport>;
+  approveReport(id: number, approverId: number, comments?: string): Promise<MonthlyPerformanceReport | undefined>;
   rejectReport(id: number, comments: string): Promise<MonthlyPerformanceReport>;
 
   // Certification Applications
@@ -285,6 +314,7 @@ export interface IStorage {
 
   // Wall Posts
   getWallPosts(limit?: number): Promise<Array<WallPost & { authorName: string; authorRole: string }>>;
+  getWallPost(id: number): Promise<WallPost | undefined>;
   createWallPost(post: InsertWallPost): Promise<WallPost>;
   updateWallPost(id: number, post: Partial<InsertWallPost>): Promise<WallPost>;
   deleteWallPost(id: number): Promise<void>;
@@ -437,8 +467,9 @@ export class DatabaseStorage implements IStorage {
       ...insertUser,
       passwordHash: hashedPassword,
     }).returning();
-    const { passwordHash, ...userWithoutPassword } = user;
-    return userWithoutPassword;
+    // Never hand back the password hash or Gmail tokens
+    const { passwordHash, gmailAccessToken, gmailRefreshToken, ...userWithoutPassword } = user;
+    return userWithoutPassword as Omit<User, 'passwordHash'>;
   }
 
   async updateUser(id: number, updates: Partial<InsertUser>): Promise<Omit<User, 'passwordHash'>> {
@@ -450,12 +481,27 @@ export class DatabaseStorage implements IStorage {
       .set(updateData)
       .where(eq(users.id, id))
       .returning();
-    const { passwordHash, ...userWithoutPassword } = user;
-    return userWithoutPassword;
+    const { passwordHash, gmailAccessToken, gmailRefreshToken, ...userWithoutPassword } = user;
+    return userWithoutPassword as Omit<User, 'passwordHash'>;
   }
 
   async deleteUser(id: number): Promise<void> {
+    if (await this.userHasRecords(id)) {
+      throw new UserHasRecordsError();
+    }
+    // Personal, non-record data goes with the account
+    for (const [table, column] of USER_EPHEMERAL_COLUMNS) {
+      await db.execute(sql`DELETE FROM ${sql.identifier(table)} WHERE ${sql.identifier(column)} = ${id}`);
+    }
     await db.delete(users).where(eq(users.id, id));
+  }
+
+  // True when the user appears in any business or audit record (the tables have no foreign keys)
+  async userHasRecords(id: number): Promise<boolean> {
+    const checks = USER_RECORD_COLUMNS.map(([table, column]) =>
+      sql`EXISTS (SELECT 1 FROM ${sql.identifier(table)} WHERE ${sql.identifier(column)} = ${id})`);
+    const result = await db.execute(sql`SELECT (${sql.join(checks, sql` OR `)}) AS has_records`);
+    return !!(result.rows[0] as any)?.has_records;
   }
 
   // ============================================
@@ -548,10 +594,10 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async markNotificationRead(id: number): Promise<Notification> {
+  async markNotificationRead(id: number, userId?: number): Promise<Notification | undefined> {
     const [updated] = await db.update(notifications)
       .set({ isRead: true })
-      .where(eq(notifications.id, id))
+      .where(userId !== undefined ? and(eq(notifications.id, id), eq(notifications.userId, userId)) : eq(notifications.id, id))
       .returning();
     return updated;
   }
@@ -568,10 +614,11 @@ export class DatabaseStorage implements IStorage {
 
 
   async markAllNotificationsRead(userId: number): Promise<number> {
-    const result = await db.update(notifications)
+    const updated = await db.update(notifications)
       .set({ isRead: true })
-      .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
-    return 0; // Drizzle doesn't return count easily, return 0 as placeholder
+      .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)))
+      .returning({ id: notifications.id });
+    return updated.length;
   }
 
   // ============================================
@@ -1328,6 +1375,11 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(userRecords.createdAt));
   }
 
+  async getAllUserRecords(): Promise<UserRecord[]> {
+    return await db.select().from(userRecords)
+      .orderBy(desc(userRecords.createdAt));
+  }
+
   async getUserRecord(id: number): Promise<UserRecord | undefined> {
     const [record] = await db.select().from(userRecords)
       .where(eq(userRecords.id, id));
@@ -1342,9 +1394,12 @@ export class DatabaseStorage implements IStorage {
   async generateReportNumber(reportType: string): Promise<string> {
     const prefix = reportType === 'document_approval' ? 'DAR' : 'SCR';
     const year = new Date().getFullYear();
-    const existingRecords = await db.select().from(userRecords)
+    // One report is saved once per recipient, so continue from the highest number used (not the row count)
+    const [row] = await db.select({
+      maxNumber: sql<number | null>`MAX(CAST(SUBSTRING(${userRecords.reportNumber} FROM '[0-9]+$') AS INTEGER))`,
+    }).from(userRecords)
       .where(sql`${userRecords.reportNumber} LIKE ${prefix + '-' + year + '-%'}`);
-    const nextNumber = existingRecords.length + 1;
+    const nextNumber = Number(row?.maxNumber || 0) + 1;
     return `${prefix}-${year}-${String(nextNumber).padStart(4, '0')}`;
   }
 
@@ -1377,109 +1432,68 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
+  // Compliance is measured from the task ledger (task_records): tasks completed on time over the
+  // last 30 days against those completed late and those still open past their target date
+  private async ledgerTaskStats(userId?: number): Promise<{ totalTasks: number; completedTasks: number; overdueTasks: number; score: number }> {
+    const now = new Date();
+    const since = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const scope = or(
+      eq(taskRecords.status, TaskRecordStatus.OPEN),
+      and(eq(taskRecords.status, TaskRecordStatus.COMPLETED), gt(taskRecords.closedAt, since)),
+    );
+    const rows = await db.select().from(taskRecords)
+      .where(userId !== undefined ? and(eq(taskRecords.userId, userId), scope) : scope);
+
+    const completed = rows.filter(r => r.status === TaskRecordStatus.COMPLETED);
+    const onTime = completed.filter(r => r.completedOnTime === true).length;
+    const late = completed.filter(r => r.completedOnTime === false).length;
+    const open = rows.filter(r => r.status === TaskRecordStatus.OPEN);
+    const overdue = open.filter(r => r.dueAt && r.dueAt < now).length;
+
+    const measured = onTime + late + overdue;
+    const score = measured === 0 ? 100 : Math.max(0, Math.min(100, Math.round((onTime / measured) * 100)));
+    return { totalTasks: completed.length + open.length, completedTasks: completed.length, overdueTasks: overdue, score };
+  }
+
+  private complianceState(score: number): string {
+    if (score >= 90) return BuddyState.FLEXING;
+    if (score >= 80) return BuddyState.HEALTHY;
+    if (score >= 70) return BuddyState.TIRED;
+    if (score >= 60) return BuddyState.WEAK;
+    return BuddyState.CRITICAL;
+  }
+
   async calculateUserCompliance(userId: number): Promise<{ score: number; state: string }> {
-    const tasks = await db.select().from(documentTasks)
-      .where(eq(documentTasks.assignedToId, userId));
-
-    const totalTasks = tasks.length;
-    if (totalTasks === 0) {
-      return { score: 100, state: BuddyState.FLEXING };
-    }
-
-    const completedTasks = tasks.filter(t => t.status === 'completed').length;
-    const overdueTasks = tasks.filter(t => {
-      if (t.status === 'completed') return false;
-      if (!t.targetDate) return false;
-      return new Date(t.targetDate) < new Date();
-    }).length;
-
-    // Calculate compliance score
-    // Base score from completion rate
-    const completionRate = (completedTasks / totalTasks) * 100;
-    // Penalty for overdue tasks
-    const overduePenalty = (overdueTasks / totalTasks) * 30;
-    const score = Math.max(0, Math.min(100, Math.round(completionRate - overduePenalty)));
-
-    // Determine state based on score
-    let state: string;
-    if (score >= 90) state = BuddyState.FLEXING;
-    else if (score >= 80) state = BuddyState.HEALTHY;
-    else if (score >= 70) state = BuddyState.TIRED;
-    else if (score >= 60) state = BuddyState.WEAK;
-    else state = BuddyState.CRITICAL;
+    const stats = await this.ledgerTaskStats(userId);
+    const score = stats.score;
+    const state = this.complianceState(score);
 
     // Update buddy status
     await this.getOrCreateBuddyStatus(userId);
     await this.updateBuddyStatus(userId, {
       complianceScore: score,
       currentState: state,
-      totalTasksAssigned: totalTasks,
-      tasksCompleted: completedTasks,
-      tasksOverdue: overdueTasks,
+      totalTasksAssigned: stats.totalTasks,
+      tasksCompleted: stats.completedTasks,
+      tasksOverdue: stats.overdueTasks,
     });
 
     return { score, state };
   }
 
   async getUserTaskStats(userId: number): Promise<{ totalTasks: number; completedTasks: number; overdueTasks: number }> {
-    const tasks = await db.select().from(documentTasks)
-      .where(eq(documentTasks.assignedToId, userId));
-
-    const totalTasks = tasks.length;
-    const completedTasks = tasks.filter(t => t.status === 'completed').length;
-    const overdueTasks = tasks.filter(t => {
-      if (t.status === 'completed') return false;
-      if (!t.targetDate) return false;
-      return new Date(t.targetDate) < new Date();
-    }).length;
-
+    const { totalTasks, completedTasks, overdueTasks } = await this.ledgerTaskStats(userId);
     return { totalTasks, completedTasks, overdueTasks };
   }
 
   async calculateSystemCompliance(): Promise<{ score: number; state: string }> {
-    // Get ALL tasks across the entire system
-    const tasks = await db.select().from(documentTasks);
-
-    const totalTasks = tasks.length;
-    if (totalTasks === 0) {
-      return { score: 100, state: BuddyState.FLEXING };
-    }
-
-    const completedTasks = tasks.filter(t => t.status === 'completed').length;
-    const overdueTasks = tasks.filter(t => {
-      if (t.status === 'completed') return false;
-      if (!t.targetDate) return false;
-      return new Date(t.targetDate) < new Date();
-    }).length;
-
-    // Calculate compliance score
-    const completionRate = (completedTasks / totalTasks) * 100;
-    const overduePenalty = (overdueTasks / totalTasks) * 30;
-    const score = Math.max(0, Math.min(100, Math.round(completionRate - overduePenalty)));
-
-    // Determine state based on score
-    let state: string;
-    if (score >= 90) state = BuddyState.FLEXING;
-    else if (score >= 80) state = BuddyState.HEALTHY;
-    else if (score >= 70) state = BuddyState.TIRED;
-    else if (score >= 60) state = BuddyState.WEAK;
-    else state = BuddyState.CRITICAL;
-
-    return { score, state };
+    // All users' tasks combined
+    const { score } = await this.ledgerTaskStats();
+    return { score, state: this.complianceState(score) };
   }
 
   async getSystemTaskStats(): Promise<{ totalTasks: number; completedTasks: number; overdueTasks: number }> {
-    // Get ALL tasks across the entire system
-    const tasks = await db.select().from(documentTasks);
-
-    const totalTasks = tasks.length;
-    const completedTasks = tasks.filter(t => t.status === 'completed').length;
-    const overdueTasks = tasks.filter(t => {
-      if (t.status === 'completed') return false;
-      if (!t.targetDate) return false;
-      return new Date(t.targetDate) < new Date();
-    }).length;
-
+    const { totalTasks, completedTasks, overdueTasks } = await this.ledgerTaskStats();
     return { totalTasks, completedTasks, overdueTasks };
   }
 
@@ -1541,10 +1555,10 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async acknowledgeBuddyDialogue(id: number): Promise<BuddyDialogue> {
+  async acknowledgeBuddyDialogue(id: number, userId?: number): Promise<BuddyDialogue | undefined> {
     const [updated] = await db.update(buddyDialogues)
       .set({ isAcknowledged: true, acknowledgedAt: new Date() })
-      .where(eq(buddyDialogues.id, id))
+      .where(userId !== undefined ? and(eq(buddyDialogues.id, id), eq(buddyDialogues.userId, userId)) : eq(buddyDialogues.id, id))
       .returning();
     return updated;
   }
@@ -1582,7 +1596,7 @@ export class DatabaseStorage implements IStorage {
     if (activeSessions.length > 0) {
       const session = activeSessions[0];
       const lastHeartbeat = session.lastHeartbeat || session.sessionStart;
-      const minutesSinceLastHeartbeat = Math.floor((now.getTime() - lastHeartbeat.getTime()) / (1000 * 60));
+      const minutesSinceLastHeartbeat = Math.round((now.getTime() - lastHeartbeat.getTime()) / (1000 * 60));
       
       // Only count up to 10 minutes per heartbeat interval (to avoid counting inactive time)
       const activeMinutesToAdd = Math.min(minutesSinceLastHeartbeat, 10);
@@ -1657,23 +1671,8 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async generateMonthlyReport(userId: number, month: number, year: number): Promise<MonthlyPerformanceReport> {
-    // Check if report already exists
-    const existing = await db.select().from(monthlyPerformanceReports)
-      .where(and(
-        eq(monthlyPerformanceReports.userId, userId),
-        eq(monthlyPerformanceReports.reportMonth, month),
-        eq(monthlyPerformanceReports.reportYear, year)
-      ));
-    
-    if (existing.length > 0) {
-      return existing[0];
-    }
-
-    const startDate = new Date(year, month - 1, 1);
-    const endDate = new Date(year, month, 0, 23, 59, 59);
-
-    // Calculate activity metrics
+  // Online and active time for a month, from the activity sessions the client records
+  async getActivitySummary(userId: number, month: number, year: number): Promise<{ totalActiveHours: number; totalOnlineHours: number; totalDaysActive: number }> {
     const activityLogs = await this.getUserActivityLogs(userId, month, year);
     const totalActiveMinutes = activityLogs.reduce((sum, log) => sum + (log.totalActiveMinutes || 0), 0);
     const totalActiveHours = Math.round(totalActiveMinutes / 60);
@@ -1693,6 +1692,27 @@ export class DatabaseStorage implements IStorage {
     const uniqueDays = new Set(activityLogs.map(log => 
       log.activityDate ? log.activityDate.toISOString().split('T')[0] : ''
     )).size;
+
+    return { totalActiveHours, totalOnlineHours, totalDaysActive: uniqueDays };
+  }
+
+  async generateMonthlyReport(userId: number, month: number, year: number): Promise<MonthlyPerformanceReport> {
+    // Check if report already exists
+    const existing = await db.select().from(monthlyPerformanceReports)
+      .where(and(
+        eq(monthlyPerformanceReports.userId, userId),
+        eq(monthlyPerformanceReports.reportMonth, month),
+        eq(monthlyPerformanceReports.reportYear, year)
+      ));
+    
+    if (existing.length > 0) {
+      return existing[0];
+    }
+
+    const startDate = new Date(year, month - 1, 1);
+    const endDate = new Date(year, month, 0, 23, 59, 59);
+
+    const { totalActiveHours, totalOnlineHours, totalDaysActive: uniqueDays } = await this.getActivitySummary(userId, month, year);
 
     // Get document metrics from audit logs
     const allAuditLogs = await db.select().from(auditLogs)
@@ -1758,18 +1778,63 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async approveReport(id: number, approverId: number, comments?: string): Promise<MonthlyPerformanceReport> {
-    const [updated] = await db.update(monthlyPerformanceReports)
-      .set({ 
-        status: MonthlyReportStatus.APPROVED,
-        approverId,
-        approvedAt: new Date(),
-        approvalComments: comments,
-        updatedAt: new Date()
-      })
-      .where(eq(monthlyPerformanceReports.id, id))
-      .returning();
-    return updated;
+  // Approval and the User Records entry are saved together: either both are written or neither
+  async approveReport(id: number, approverId: number, comments?: string): Promise<MonthlyPerformanceReport | undefined> {
+    return await db.transaction(async (tx) => {
+      const [updated] = await tx.update(monthlyPerformanceReports)
+        .set({
+          status: MonthlyReportStatus.APPROVED,
+          approverId,
+          approvedAt: new Date(),
+          approvalComments: comments,
+          updatedAt: new Date()
+        })
+        .where(and(eq(monthlyPerformanceReports.id, id), eq(monthlyPerformanceReports.status, MonthlyReportStatus.PENDING_APPROVAL)))
+        .returning();
+      if (!updated) return undefined;
+
+      const [reviewer] = updated.reviewerId
+        ? await tx.select({ id: users.id, name: users.name, signatureDataUrl: users.signatureDataUrl }).from(users).where(eq(users.id, updated.reviewerId))
+        : [];
+      const [approver] = await tx.select({ id: users.id, name: users.name, signatureDataUrl: users.signatureDataUrl }).from(users).where(eq(users.id, approverId));
+      const period = `${updated.reportYear}-${String(updated.reportMonth).padStart(2, '0')}`;
+      await tx.insert(userRecords).values({
+        userId: updated.userId,
+        reportType: 'monthly_performance',
+        reportTitle: `Monthly Performance Report - ${updated.reportMonth}/${updated.reportYear}`,
+        reportNumber: `MPR-${period}-${updated.id}`,
+        reviewerId: reviewer?.id ?? null,
+        reviewerName: reviewer?.name ?? null,
+        reviewerSignatureDataUrl: reviewer?.signatureDataUrl ?? null,
+        reviewerSignedAt: updated.reviewedAt,
+        approverId: approver?.id ?? approverId,
+        approverName: approver?.name ?? null,
+        approverSignatureDataUrl: approver?.signatureDataUrl ?? null,
+        approverSignedAt: updated.approvedAt,
+        metadata: JSON.stringify({
+          reportId: updated.id,
+          reportMonth: updated.reportMonth,
+          reportYear: updated.reportYear,
+          totalActiveHours: updated.totalActiveHours,
+          totalOnlineHours: updated.totalOnlineHours,
+          totalDaysActive: updated.totalDaysActive,
+          documentsCreated: updated.documentsCreated,
+          documentsReviewed: updated.documentsReviewed,
+          documentsApproved: updated.documentsApproved,
+          tasksAssigned: updated.tasksAssigned,
+          tasksCompleted: updated.tasksCompleted,
+          tasksCompletedOnTime: updated.tasksCompletedOnTime,
+          tasksOverdue: updated.tasksOverdue,
+          tasksPending: updated.tasksPending,
+          onTimeRate: updated.onTimeRate,
+          completionRate: updated.completionRate,
+          performanceScore: updated.performanceScore,
+          reviewComments: updated.reviewComments,
+          approvalComments: updated.approvalComments,
+        }),
+      });
+      return updated;
+    });
   }
 
   async rejectReport(id: number, comments: string): Promise<MonthlyPerformanceReport> {
@@ -2091,6 +2156,11 @@ export class DatabaseStorage implements IStorage {
       authorName: p.authorName || 'Unknown',
       authorRole: p.authorRole || 'staff',
     }));
+  }
+
+  async getWallPost(id: number): Promise<WallPost | undefined> {
+    const [post] = await db.select().from(wallPosts).where(eq(wallPosts.id, id));
+    return post;
   }
 
   async createWallPost(data: InsertWallPost): Promise<WallPost> {

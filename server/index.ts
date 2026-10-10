@@ -29,6 +29,11 @@ const pool = new Pool({
 
 const PgStore = pgSession(session);
 
+if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET) {
+  console.error("[startup] SESSION_SECRET must be set in production. Refusing to start.");
+  process.exit(1);
+}
+
 // Trust proxy for production (behind reverse proxy)
 if (process.env.NODE_ENV === "production") {
   app.set("trust proxy", 1);

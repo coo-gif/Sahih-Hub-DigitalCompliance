@@ -35,6 +35,7 @@ import { MobileBottomNav } from "@/components/MobileBottomNav";
 import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
 import { HubEebiChat } from "@/components/HubEebiChat";
 import { UserAgreementModal } from "@/components/UserAgreementModal";
+import { useActivitySession, endActivitySession } from "@/hooks/use-users";
 
 interface User {
   id: number;
@@ -50,6 +51,7 @@ function ViewDocumentRedirect({ params }: { params: { id: string } }) {
 
 function AuthenticatedRouter({ user, onLogout }: { user: User; onLogout: () => void }) {
   const needsAgreement = !user.agreementAcceptedAt;
+  useActivitySession();
 
   return (
     <>
@@ -122,6 +124,7 @@ function App() {
 
   const handleLogout = async () => {
     try {
+      await endActivitySession();
       await apiRequest('POST', '/api/auth/logout');
       setUser(null);
       queryClient.clear();

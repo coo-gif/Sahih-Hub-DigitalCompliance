@@ -189,6 +189,15 @@ export default function Users() {
     setSelectedUser(user);
     setSignaturePreview(user.signatureDataUrl || null);
     setShowSignatureDialog(true);
+    // The users list only carries your own signature: load another user's on demand
+    if (!user.signatureDataUrl && user.hasSignature) {
+      fetch(`/api/users/${user.id}`, { credentials: "include" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((full) => {
+          if (full?.signatureDataUrl) setSignaturePreview((current) => current ?? full.signatureDataUrl);
+        })
+        .catch(() => {});
+    }
   };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -321,7 +330,7 @@ export default function Users() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      {user.signatureDataUrl ? (
+                      {user.signatureDataUrl || user.hasSignature ? (
                         <Badge variant="secondary" className="bg-blue-100 text-blue-700" data-testid={`badge-signature-${user.id}`}>
                           <PenTool className="w-3 h-3 mr-1" /> Uploaded
                         </Badge>
