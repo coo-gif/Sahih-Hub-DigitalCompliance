@@ -1,6 +1,6 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
-import { storage, verifyPassword } from "./storage";
+import { storage, verifyPassword, UserHasRecordsError } from "./storage";
 import { api } from "@shared/routes";
 import { 
   DocumentStatus, 
@@ -39,41 +39,95 @@ import fs from "fs";
 import { execSync } from "child_process";
 
 // Helper function to find chromium executable
+let cachedChromiumPath: string | undefined;
 function findChromiumPath(): string | undefined {
+  if (cachedChromiumPath && fs.existsSync(cachedChromiumPath)) return cachedChromiumPath;
+  const found = searchChromiumPath();
+  if (found) cachedChromiumPath = found;
+  return found;
+}
+
+function searchChromiumPath(): string | undefined {
   // Try common paths in order of preference
   const possiblePaths = [
     process.env.PUPPETEER_EXECUTABLE_PATH,
     '/nix/store/zi4f80l169xlmivz8vja8wlphq74qqk0-chromium-125.0.6422.141/bin/chromium',
   ];
-  
+
   // Check which paths exist
   for (const chromePath of possiblePaths) {
     if (chromePath && fs.existsSync(chromePath)) {
       return chromePath;
     }
   }
-  
+
   // Try to find using which command
   try {
-    const result = execSync('which chromium 2>/dev/null || which google-chrome 2>/dev/null', { encoding: 'utf-8' }).trim();
+    const result = execSync('which chromium 2>/dev/null || which chromium-browser 2>/dev/null || which google-chrome 2>/dev/null || which google-chrome-stable 2>/dev/null', { encoding: 'utf-8' }).trim();
     if (result && fs.existsSync(result)) {
       return result;
     }
   } catch (e) {
     // Ignore errors
   }
-  
+
+  // Playwright browser installs (/opt/pw-browsers/chromium-NNNN/chrome-linux/chrome)
+  try {
+    const pwRoot = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
+    if (fs.existsSync(pwRoot)) {
+      // Newest first; full Chromium before the headless shell, which is only a last resort
+      const entries = fs.readdirSync(pwRoot).filter(e => e.startsWith('chromium')).sort().reverse();
+      entries.sort((a, b) => Number(a.includes('headless')) - Number(b.includes('headless')));
+      for (const entry of entries) {
+        const candidates = [
+          path.join(pwRoot, entry, 'chrome-linux', 'chrome'),
+          path.join(pwRoot, entry, 'chrome-linux64', 'chrome'),
+          path.join(pwRoot, entry, 'chrome-linux', 'headless_shell'),
+          path.join(pwRoot, entry, 'chrome-headless-shell-linux64', 'chrome-headless-shell'),
+        ];
+        for (const candidate of candidates) {
+          if (fs.existsSync(candidate)) return candidate;
+        }
+      }
+    }
+  } catch (e) {
+    // Ignore errors
+  }
+
+  // Puppeteer's own downloaded browser
+  try {
+    const bundled = puppeteer.executablePath();
+    if (bundled && fs.existsSync(bundled)) {
+      return bundled;
+    }
+  } catch (e) {
+    // Ignore errors
+  }
+
   // Try to find in nix store
   try {
-    const result = execSync('find /nix/store -name "chromium" -type f -executable 2>/dev/null | head -1', { encoding: 'utf-8' }).trim();
-    if (result && fs.existsSync(result)) {
-      return result;
+    if (fs.existsSync('/nix/store')) {
+      const result = execSync('find /nix/store -name "chromium" -type f -executable 2>/dev/null | head -1', { encoding: 'utf-8' }).trim();
+      if (result && fs.existsSync(result)) {
+        return result;
+      }
     }
   } catch (e) {
     // Ignore errors
   }
-  
+
   return undefined;
+}
+
+// The browser every Puppeteer launch uses; fails loudly when none is installed
+function resolveChromiumPath(): string {
+  const chromiumPath = findChromiumPath();
+  if (!chromiumPath) {
+    const message = 'No Chromium/Chrome executable found for PDF generation. Set PUPPETEER_EXECUTABLE_PATH or install Chromium (e.g. "npx puppeteer browsers install chrome").';
+    console.error(`[pdf] ${message}`);
+    throw new Error(message);
+  }
+  return chromiumPath;
 }
 import { listEmails, getEmail, sendEmail as sendEmailGmail, getUnreadCount, markAsRead, getLabels } from "./gmail";
 import { isSmtpConfigured, sendEmailSmtp } from "./email-smtp";
@@ -119,6 +173,11 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
     const user = await storage.getUser(req.session.userId);
     if (user) {
+      // Deactivated accounts lose access immediately, even with a live session
+      if (!user.isActive) {
+        req.session.destroy(() => {});
+        return res.status(401).json({ message: 'Account is deactivated. Contact administrator.' });
+      }
       (req as any).user = user;
     }
   } catch (error) {
@@ -129,6 +188,20 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 const COO_EMAIL = 'coo@sahihcertify.com';
+const CEO_EMAIL = 'ceo@sahihcertify.com';
+const HR_EMAIL = 'hr@sahihcertify.com';
+
+// Managers: admin role, Quality Manager or the COO
+function isManagerUser(user: { role: string; email: string } | undefined): boolean {
+  if (!user) return false;
+  return user.role === UserRole.ADMIN || user.role === UserRole.QUALITY_MANAGER || user.email === COO_EMAIL;
+}
+
+// Managers plus HR (employee records and employee tasks)
+function isHrOrManager(user: { role: string; email: string } | undefined): boolean {
+  if (!user) return false;
+  return isManagerUser(user) || user.email === HR_EMAIL;
+}
 
 // Documents the COO stored in the Hub as public information are readable by every signed-in user
 function isPublicHubDocument(doc: { hubStatus?: string | null; classification?: string | null; lifecycleStatus?: string | null }): boolean {
@@ -455,7 +528,7 @@ async function generateReportPdf(
   try {
     browser = await puppeteer.launch({ 
       headless: true,
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/nix/store/zi4f80l169xlmivz8vja8wlphq74qqk0-chromium-125.0.6422.141/bin/chromium',
+      executablePath: resolveChromiumPath(),
       args: [
         '--no-sandbox', 
         '--disable-setuid-sandbox',
@@ -583,6 +656,10 @@ export async function registerRoutes(
       req.session.destroy(() => {});
       return res.status(401).json({ message: 'User not found' });
     }
+    if (!user.isActive) {
+      req.session.destroy(() => {});
+      return res.status(401).json({ message: 'Account is deactivated. Contact administrator.' });
+    }
 
     res.json({ user });
   });
@@ -611,17 +688,21 @@ export async function registerRoutes(
   // ============================================
   // DASHBOARD ROUTES
   // ============================================
-  app.get(api.dashboard.stats.path, async (req, res) => {
+  app.get(api.dashboard.stats.path, requireAuth, async (req, res) => {
     const stats = await storage.getDashboardStats();
     res.json(stats);
   });
 
-  app.get(api.dashboard.alerts.path, async (req, res) => {
+  app.get(api.dashboard.alerts.path, requireAuth, async (req, res) => {
     const alerts = await storage.getComplianceAlerts();
     res.json(alerts);
   });
 
-  app.get(api.dashboard.recentActivity.path, async (req, res) => {
+  app.get(api.dashboard.recentActivity.path, requireAuth, async (req, res) => {
+    const currentUser = (req as any).user;
+    if (!isManagerUser(currentUser) && currentUser?.email !== CEO_EMAIL) {
+      return res.status(403).json({ message: 'Only managers can view recent activity' });
+    }
     const activity = await storage.getAuditLogs(10);
     res.json(activity);
   });
@@ -653,12 +734,18 @@ export async function registerRoutes(
     }
   });
 
-  app.get(api.users.list.path, async (req, res) => {
+  app.get(api.users.list.path, requireAuth, async (req, res) => {
+    const currentUserId = getCurrentUserId(req);
     const users = await storage.getUsers();
-    res.json(users);
+    // Signatures are only sent to their owner; others just see whether one is on file
+    res.json(users.map(u => ({
+      ...u,
+      signatureDataUrl: u.id === currentUserId ? u.signatureDataUrl : null,
+      hasSignature: !!u.signatureDataUrl,
+    })));
   });
 
-  app.get(api.users.get.path, async (req, res) => {
+  app.get(api.users.get.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid user ID' });
@@ -667,12 +754,23 @@ export async function registerRoutes(
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
-    res.json(user);
+    const currentUser = (req as any).user;
+    if (user.id !== currentUser?.id && !isManagerUser(currentUser)) {
+      return res.json({ ...user, signatureDataUrl: null, hasSignature: !!user.signatureDataUrl });
+    }
+    res.json({ ...user, hasSignature: !!user.signatureDataUrl });
   });
 
-  app.post(api.users.create.path, async (req, res) => {
+  app.post(api.users.create.path, requireAuth, async (req, res) => {
     try {
+      const currentUser = (req as any).user;
+      if (!isManagerUser(currentUser)) {
+        return res.status(403).json({ message: 'Only managers can create users' });
+      }
       const input = api.users.create.input.parse(req.body);
+      if (input.role === UserRole.ADMIN && currentUser.role !== UserRole.ADMIN && currentUser.email !== COO_EMAIL) {
+        return res.status(403).json({ message: 'Only an admin can create admin accounts' });
+      }
       
       // Check if email already exists
       const existing = await storage.getUserByEmail(input.email);
@@ -710,7 +808,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.users.update.path, async (req, res) => {
+  app.put(api.users.update.path, requireAuth, async (req, res) => {
     try {
       const input = api.users.update.input.parse(req.body);
       const id = Number(req.params.id);
@@ -718,6 +816,19 @@ export async function registerRoutes(
       const existing = await storage.getUser(id);
       if (!existing) {
         return res.status(404).json({ message: 'User not found' });
+      }
+
+      const currentUser = (req as any).user;
+      const manager = isManagerUser(currentUser);
+      const canGrantAdmin = currentUser?.role === UserRole.ADMIN || currentUser?.email === COO_EMAIL;
+      if (!manager) {
+        // Staff may only change their own name
+        const changesOtherFields = input.role !== undefined || input.isActive !== undefined || input.inductionStatus !== undefined;
+        if (id !== currentUser?.id || changesOtherFields) {
+          return res.status(403).json({ message: 'You can only update your own name' });
+        }
+      } else if (!canGrantAdmin && (input.role === UserRole.ADMIN || (existing.role === UserRole.ADMIN && (input.role !== undefined || input.isActive !== undefined)))) {
+        return res.status(403).json({ message: 'Only an admin can grant or change admin accounts' });
       }
 
       const user = await storage.updateUser(id, input);
@@ -744,14 +855,30 @@ export async function registerRoutes(
     }
   });
 
-  app.delete(api.users.delete.path, async (req, res) => {
+  app.delete(api.users.delete.path, requireAuth, async (req, res) => {
+    const currentUser = (req as any).user;
+    if (!isManagerUser(currentUser)) {
+      return res.status(403).json({ message: 'Only managers can delete users' });
+    }
     const id = Number(req.params.id);
     const existing = await storage.getUser(id);
     if (!existing) {
       return res.status(404).json({ message: 'User not found' });
     }
+    if (existing.role === UserRole.ADMIN && currentUser.role !== UserRole.ADMIN && currentUser.email !== COO_EMAIL) {
+      return res.status(403).json({ message: 'Only an admin can delete admin accounts' });
+    }
 
-    await storage.deleteUser(id);
+    try {
+      await storage.deleteUser(id);
+    } catch (err: any) {
+      // The user is referenced by records that must be kept (23503 = foreign key violation)
+      if (err instanceof UserHasRecordsError || err?.code === '23503' || err?.cause?.code === '23503') {
+        return res.status(409).json({ message: 'This user has records in the system (documents, tasks, logs) and cannot be deleted. Deactivate the account instead.' });
+      }
+      console.error('Error deleting user:', err);
+      return res.status(500).json({ message: 'Failed to delete user' });
+    }
 
     // Audit log
     await storage.createAuditLog({
@@ -765,11 +892,15 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
-  app.put(api.users.updateSignature.path, async (req, res) => {
+  app.put(api.users.updateSignature.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
         return res.status(400).json({ message: 'Invalid user ID' });
+      }
+      const currentUser = (req as any).user;
+      if (id !== currentUser?.id && !isManagerUser(currentUser)) {
+        return res.status(403).json({ message: 'You can only update your own signature' });
       }
       
       const existing = await storage.getUser(id);
@@ -1662,26 +1793,33 @@ export async function registerRoutes(
             <p style="margin-top: 20px;">The document has been reviewed and approved according to the Quality Management System procedures.</p>
           `;
 
-          const pdfDataUrl = await generateReportPdf(
-            ReportType.DOCUMENT_APPROVAL,
-            reportTitle,
-            reportContent,
-            {
-              documentCode: doc.documentCode,
-              documentTitle: doc.title,
-              preparedByName: preparedBy?.name,
-              preparedBySignature: preparedBy?.signatureDataUrl,
-              preparedBySignedAt: doc.preparedBySignedAt,
-              reviewerName: reviewer?.name,
-              reviewerSignature: reviewer?.signatureDataUrl,
-              reviewerSignedAt: doc.reviewedBySignedAt,
-              approverName: approver?.name,
-              approverSignature: approver?.signatureDataUrl,
-              approverSignedAt: new Date(),
-              reportNumber,
-              generatedAt: new Date(),
-            }
-          );
+          // A PDF failure must not stop the records and notifications: they are saved without the PDF
+          let pdfDataUrl: string | null = null;
+          try {
+            pdfDataUrl = await generateReportPdf(
+              ReportType.DOCUMENT_APPROVAL,
+              reportTitle,
+              reportContent,
+              {
+                documentCode: doc.documentCode,
+                documentTitle: doc.title,
+                preparedByName: preparedBy?.name,
+                preparedBySignature: preparedBy?.signatureDataUrl,
+                preparedBySignedAt: doc.preparedBySignedAt,
+                reviewerName: reviewer?.name,
+                reviewerSignature: reviewer?.signatureDataUrl,
+                reviewerSignedAt: doc.reviewedBySignedAt,
+                approverName: approver?.name,
+                approverSignature: approver?.signatureDataUrl,
+                approverSignedAt: new Date(),
+                reportNumber,
+                generatedAt: new Date(),
+              }
+            );
+          } catch (pdfErr) {
+            console.error(`[reports] Document Approval Report ${reportNumber} PDF generation failed; saving records without the PDF:`, pdfErr);
+          }
+          const pdfNote = pdfDataUrl ? '' : ' (the PDF could not be generated; contact the administrator)';
 
           // Create user records for all admin users
           for (const admin of admins) {
@@ -1711,7 +1849,7 @@ export async function registerRoutes(
             await storage.createNotification({
               userId: admin.id,
               title: 'Document Approval Report Generated',
-              message: `Document "${doc.title}" (${doc.documentCode}) has been approved. A completion report has been saved to your User Records.`,
+              message: `Document "${doc.title}" (${doc.documentCode}) has been approved. A completion report has been saved to your User Records${pdfNote}.`,
               urgencyLevel: UrgencyLevel.LOW,
               relatedDocumentId: documentId,
             });
@@ -1746,7 +1884,7 @@ export async function registerRoutes(
             await storage.createNotification({
               userId: documentCreator.id,
               title: 'Your Document Has Been Approved',
-              message: `Document "${doc.title}" (${doc.documentCode}) that you created has been approved. A completion report has been saved to your User Records.`,
+              message: `Document "${doc.title}" (${doc.documentCode}) that you created has been approved. A completion report has been saved to your User Records${pdfNote}.`,
               urgencyLevel: UrgencyLevel.LOW,
               relatedDocumentId: documentId,
             });
@@ -1772,22 +1910,26 @@ export async function registerRoutes(
   // ============================================
   // NOTIFICATION ROUTES
   // ============================================
-  app.get(api.notifications.list.path, async (req, res) => {
-    const notifications = await storage.getNotifications();
+  app.get(api.notifications.list.path, requireAuth, async (req, res) => {
+    const notifications = await storage.getNotifications(getCurrentUserId(req));
     res.json(notifications);
   });
 
-  app.put(api.notifications.markRead.path, async (req, res) => {
+  app.put(api.notifications.markRead.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     try {
-      const notification = await storage.markNotificationRead(id);
+      // Only the recipient can mark a notification read
+      const notification = await storage.markNotificationRead(id, getCurrentUserId(req));
+      if (!notification) {
+        return res.status(404).json({ message: 'Notification not found' });
+      }
       res.json(notification);
     } catch {
       return res.status(404).json({ message: 'Notification not found' });
     }
   });
 
-  app.put(api.notifications.markAllRead.path, async (req, res) => {
+  app.put(api.notifications.markAllRead.path, requireAuth, async (req, res) => {
     const count = await storage.markAllNotificationsRead(getCurrentUserId(req));
     res.json({ count });
   });
@@ -1795,7 +1937,11 @@ export async function registerRoutes(
   // ============================================
   // AUDIT LOG ROUTES
   // ============================================
-  app.get(api.auditLogs.list.path, async (req, res) => {
+  app.get(api.auditLogs.list.path, requireAuth, async (req, res) => {
+    const currentUser = (req as any).user;
+    if (!isManagerUser(currentUser) && currentUser?.email !== CEO_EMAIL) {
+      return res.status(403).json({ message: 'Only managers can view the audit log' });
+    }
     const logs = await storage.getAuditLogs(100);
     res.json(logs);
   });
@@ -1803,7 +1949,7 @@ export async function registerRoutes(
   // ============================================
   // EMPLOYEE ROUTES (HR)
   // ============================================
-  app.get(api.employees.list.path, async (req, res) => {
+  app.get(api.employees.list.path, requireAuth, async (req, res) => {
     const filters = {
       status: req.query.status as string | undefined,
       department: req.query.department as string | undefined,
@@ -1812,7 +1958,7 @@ export async function registerRoutes(
     res.json(employees);
   });
 
-  app.get(api.employees.get.path, async (req, res) => {
+  app.get(api.employees.get.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid employee ID' });
@@ -1824,8 +1970,11 @@ export async function registerRoutes(
     res.json(employee);
   });
 
-  app.post(api.employees.create.path, async (req, res) => {
+  app.post(api.employees.create.path, requireAuth, async (req, res) => {
     try {
+      if (!isHrOrManager((req as any).user)) {
+        return res.status(403).json({ message: 'Only HR, admins or the Quality Manager can create employee records' });
+      }
       const input = api.employees.create.input.parse(req.body);
       
       // Check if employee number or email already exists
@@ -1880,8 +2029,11 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.employees.update.path, async (req, res) => {
+  app.put(api.employees.update.path, requireAuth, async (req, res) => {
     try {
+      if (!isHrOrManager((req as any).user)) {
+        return res.status(403).json({ message: 'Only HR, admins or the Quality Manager can edit employee records' });
+      }
       const input = api.employees.update.input.parse(req.body);
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -1932,7 +2084,10 @@ export async function registerRoutes(
     }
   });
 
-  app.delete(api.employees.delete.path, async (req, res) => {
+  app.delete(api.employees.delete.path, requireAuth, async (req, res) => {
+    if (!isHrOrManager((req as any).user)) {
+      return res.status(403).json({ message: 'Only HR, admins or the Quality Manager can delete employee records' });
+    }
     const id = Number(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid employee ID' });
@@ -1960,7 +2115,7 @@ export async function registerRoutes(
   // ============================================
   // EMPLOYEE WORKFLOW ROUTES
   // ============================================
-  app.post(api.employees.submitForReview.path, async (req, res) => {
+  app.post(api.employees.submitForReview.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -1972,6 +2127,11 @@ export async function registerRoutes(
       const existing = await storage.getEmployee(id);
       if (!existing) {
         return res.status(404).json({ message: 'Employee not found' });
+      }
+
+      const currentUser = (req as any).user;
+      if (!isHrOrManager(currentUser) && existing.createdByUserId !== currentUser?.id) {
+        return res.status(403).json({ message: 'Only HR, admins, the Quality Manager or the record creator can submit this record for review' });
       }
 
       if (existing.workflowStatus !== 'draft' && existing.workflowStatus !== 'rejected') {
@@ -2018,7 +2178,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.employees.submitForApproval.path, async (req, res) => {
+  app.post(api.employees.submitForApproval.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -2034,6 +2194,11 @@ export async function registerRoutes(
 
       if (existing.workflowStatus !== 'in_review') {
         return res.status(400).json({ message: 'Employee can only be submitted for approval from In-Review status' });
+      }
+
+      const currentUser = (req as any).user;
+      if (existing.reviewerId !== currentUser?.id && !isManagerUser(currentUser)) {
+        return res.status(403).json({ message: 'Only the assigned reviewer can forward this record for approval' });
       }
 
       const approver = await storage.getUser(input.approverId);
@@ -2076,7 +2241,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.employees.approve.path, async (req, res) => {
+  app.post(api.employees.approve.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -2095,6 +2260,9 @@ export async function registerRoutes(
       }
 
       const currentUserId = getCurrentUserId(req);
+      if (existing.approverId !== currentUserId && !isManagerUser((req as any).user)) {
+        return res.status(403).json({ message: 'Only the assigned approver can approve this record' });
+      }
       const approvedEmployee = await storage.approveEmployee(id, currentUserId, input.notes);
 
       // Create notification for creator
@@ -2139,26 +2307,33 @@ export async function registerRoutes(
           <p style="margin-top: 20px;">The employee record has been verified and approved according to HR procedures.</p>
         `;
 
-        const pdfDataUrl = await generateReportPdf(
-          ReportType.STAFF_CONFIRMATION,
-          reportTitle,
-          reportContent,
-          {
-            employeeName: approvedEmployee.name,
-            employeeNumber: approvedEmployee.employeeNumber,
-            department: approvedEmployee.department,
-            jobTitle: approvedEmployee.jobTitle,
-            hireDate: approvedEmployee.hireDate ? new Date(approvedEmployee.hireDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : undefined,
-            reviewerName: reviewer?.name,
-            reviewerSignature: reviewer?.signatureDataUrl,
-            reviewerSignedAt: existing.reviewedAt,
-            approverName: approver?.name,
-            approverSignature: approver?.signatureDataUrl,
-            approverSignedAt: new Date(),
-            reportNumber,
-            generatedAt: new Date(),
-          }
-        );
+        // A PDF failure must not stop the records and notifications: they are saved without the PDF
+        let pdfDataUrl: string | null = null;
+        try {
+          pdfDataUrl = await generateReportPdf(
+            ReportType.STAFF_CONFIRMATION,
+            reportTitle,
+            reportContent,
+            {
+              employeeName: approvedEmployee.name,
+              employeeNumber: approvedEmployee.employeeNumber,
+              department: approvedEmployee.department,
+              jobTitle: approvedEmployee.jobTitle,
+              hireDate: approvedEmployee.hireDate ? new Date(approvedEmployee.hireDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : undefined,
+              reviewerName: reviewer?.name,
+              reviewerSignature: reviewer?.signatureDataUrl,
+              reviewerSignedAt: existing.reviewedAt,
+              approverName: approver?.name,
+              approverSignature: approver?.signatureDataUrl,
+              approverSignedAt: new Date(),
+              reportNumber,
+              generatedAt: new Date(),
+            }
+          );
+        } catch (pdfErr) {
+          console.error(`[reports] Staff Confirmation Report ${reportNumber} PDF generation failed; saving records without the PDF:`, pdfErr);
+        }
+        const pdfNote = pdfDataUrl ? '' : ' (the PDF could not be generated; contact the administrator)';
 
         // Create user records for HR users
         for (const hrUser of hrUsers) {
@@ -2180,15 +2355,15 @@ export async function registerRoutes(
             metadata: JSON.stringify({ 
               employeeName: approvedEmployee.name, 
               employeeNumber: approvedEmployee.employeeNumber,
-              assignedBy: existing.createdById,
-              assignedByName: allUsers.find(u => u.id === existing.createdById)?.name || 'Unknown'
+              assignedBy: existing.createdByUserId,
+              assignedByName: allUsers.find(u => u.id === existing.createdByUserId)?.name || 'Unknown'
             }),
           });
 
           await storage.createNotification({
             userId: hrUser.id,
             title: 'Staff Confirmation Report Generated',
-            message: `Employee "${approvedEmployee.name}" (${approvedEmployee.employeeNumber}) has been confirmed. A Staff Confirmation report has been saved to your User Records.`,
+            message: `Employee "${approvedEmployee.name}" (${approvedEmployee.employeeNumber}) has been confirmed. A Staff Confirmation report has been saved to your User Records${pdfNote}.`,
             urgencyLevel: UrgencyLevel.LOW,
           });
         }
@@ -2213,15 +2388,15 @@ export async function registerRoutes(
             metadata: JSON.stringify({ 
               employeeName: approvedEmployee.name, 
               employeeNumber: approvedEmployee.employeeNumber,
-              assignedBy: existing.createdById,
-              assignedByName: allUsers.find(u => u.id === existing.createdById)?.name || 'Unknown'
+              assignedBy: existing.createdByUserId,
+              assignedByName: allUsers.find(u => u.id === existing.createdByUserId)?.name || 'Unknown'
             }),
           });
 
           await storage.createNotification({
             userId: linkedUser.id,
             title: 'Your Staff Confirmation Report',
-            message: `Your employee record has been confirmed. A Staff Confirmation report has been saved to your User Records.`,
+            message: `Your employee record has been confirmed. A Staff Confirmation report has been saved to your User Records${pdfNote}.`,
             urgencyLevel: UrgencyLevel.LOW,
           });
         }
@@ -2241,7 +2416,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.employees.reject.path, async (req, res) => {
+  app.post(api.employees.reject.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -2260,6 +2435,11 @@ export async function registerRoutes(
       }
 
       const currentUserId = getCurrentUserId(req);
+      // Reviewers reject at the review stage, approvers at the approval stage
+      const assignedId = existing.workflowStatus === 'in_review' ? existing.reviewerId : existing.approverId;
+      if (assignedId !== currentUserId && !isManagerUser((req as any).user)) {
+        return res.status(403).json({ message: existing.workflowStatus === 'in_review' ? 'Only the assigned reviewer can reject this record' : 'Only the assigned approver can reject this record' });
+      }
       const employee = await storage.rejectEmployee(id, currentUserId, input.notes);
 
       // Create notification for creator
@@ -2294,7 +2474,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.employees.reassign.path, async (req, res) => {
+  app.post(api.employees.reassign.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -2385,7 +2565,7 @@ export async function registerRoutes(
   // ============================================
   // EMPLOYEE TASK ROUTES (HR)
   // ============================================
-  app.get(api.employeeTasks.list.path, async (req, res) => {
+  app.get(api.employeeTasks.list.path, requireAuth, async (req, res) => {
     const filters = {
       employeeId: req.query.employeeId ? Number(req.query.employeeId) : undefined,
       status: req.query.status as string | undefined,
@@ -2395,7 +2575,7 @@ export async function registerRoutes(
     res.json(tasks);
   });
 
-  app.get(api.employeeTasks.get.path, async (req, res) => {
+  app.get(api.employeeTasks.get.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid task ID' });
@@ -2407,8 +2587,11 @@ export async function registerRoutes(
     res.json(task);
   });
 
-  app.post(api.employeeTasks.create.path, async (req, res) => {
+  app.post(api.employeeTasks.create.path, requireAuth, async (req, res) => {
     try {
+      if (!isHrOrManager((req as any).user)) {
+        return res.status(403).json({ message: 'Only HR, admins or the Quality Manager can assign employee tasks' });
+      }
       const input = api.employeeTasks.create.input.parse(req.body);
       
       // Verify employee exists
@@ -2437,6 +2620,17 @@ export async function registerRoutes(
         status: 'pending',
       });
 
+      // Tell the employee (through their linked user account) about the new task
+      if (employee.userId) {
+        await storage.createNotification({
+          userId: employee.userId,
+          title: 'New Task Assigned',
+          message: `You have been assigned a new task: "${task.title}"${task.dueDate ? ` (due ${new Date(task.dueDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })})` : ''}.`,
+          urgencyLevel: task.priority === 'high' || task.priority === 'critical' ? task.priority : 'medium',
+          relatedDocumentId: task.documentId || undefined,
+        });
+      }
+
       // Audit log
       await storage.createAuditLog({
         userId: getCurrentUserId(req),
@@ -2458,8 +2652,11 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.employeeTasks.update.path, async (req, res) => {
+  app.put(api.employeeTasks.update.path, requireAuth, async (req, res) => {
     try {
+      if (!isHrOrManager((req as any).user)) {
+        return res.status(403).json({ message: 'Only HR, admins or the Quality Manager can update employee tasks' });
+      }
       const input = api.employeeTasks.update.input.parse(req.body);
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -2500,7 +2697,10 @@ export async function registerRoutes(
     }
   });
 
-  app.delete(api.employeeTasks.delete.path, async (req, res) => {
+  app.delete(api.employeeTasks.delete.path, requireAuth, async (req, res) => {
+    if (!isHrOrManager((req as any).user)) {
+      return res.status(403).json({ message: 'Only HR, admins or the Quality Manager can delete employee tasks' });
+    }
     const id = Number(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid task ID' });
@@ -2525,7 +2725,7 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
-  app.post(api.employeeTasks.complete.path, async (req, res) => {
+  app.post(api.employeeTasks.complete.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid task ID' });
@@ -2534,6 +2734,13 @@ export async function registerRoutes(
     const existing = await storage.getEmployeeTask(id);
     if (!existing) {
       return res.status(404).json({ message: 'Task not found' });
+    }
+
+    // The employee the task belongs to (through their linked user account) or a manager completes it
+    const currentUser = (req as any).user;
+    const taskEmployee = await storage.getEmployee(existing.employeeId);
+    if (!isManagerUser(currentUser) && (!taskEmployee?.userId || taskEmployee.userId !== currentUser?.id)) {
+      return res.status(403).json({ message: 'Only the assigned employee or a manager can complete this task' });
     }
 
     const task = await storage.completeEmployeeTask(id);
@@ -3167,8 +3374,8 @@ export async function registerRoutes(
       `;
 
       console.log('Finding Chromium executable...');
-      const chromiumPath = findChromiumPath();
-      console.log(`Chromium path: ${chromiumPath || 'Not found, using bundled'}`);
+      const chromiumPath = resolveChromiumPath();
+      console.log(`Chromium path: ${chromiumPath}`);
       
       console.log('Launching Puppeteer browser...');
       const launchOptions: any = { 
@@ -3185,9 +3392,7 @@ export async function registerRoutes(
         timeout: 60000
       };
       
-      if (chromiumPath) {
-        launchOptions.executablePath = chromiumPath;
-      }
+      launchOptions.executablePath = chromiumPath;
       
       const browser = await puppeteer.launch(launchOptions);
       console.log('Puppeteer browser launched successfully');
@@ -5101,6 +5306,13 @@ export async function registerRoutes(
   app.get('/api/user-records', requireAuth, async (req, res) => {
     try {
       const userId = getCurrentUserId(req);
+      const currentUser = (req as any).user;
+      // Admins and the COO see every record; everyone else sees their own
+      if (currentUser?.role === UserRole.ADMIN || currentUser?.email === COO_EMAIL) {
+        const [records, allUsers] = await Promise.all([storage.getAllUserRecords(), storage.getUsers()]);
+        const names = new Map(allUsers.map(u => [u.id, u.name]));
+        return res.json(records.map(r => ({ ...r, userName: names.get(r.userId) || 'Unknown' })));
+      }
       const records = await storage.getUserRecords(userId);
       res.json(records);
     } catch (err) {
@@ -5300,7 +5512,11 @@ export async function registerRoutes(
   app.post('/api/buddy/dialogues/:id/acknowledge', requireAuth, async (req: Request, res: Response) => {
     try {
       const dialogueId = parseInt(req.params.id);
-      const dialogue = await storage.acknowledgeBuddyDialogue(dialogueId);
+      // Users can only acknowledge their own dialogues
+      const dialogue = isNaN(dialogueId) ? undefined : await storage.acknowledgeBuddyDialogue(dialogueId, getCurrentUserId(req));
+      if (!dialogue) {
+        return res.status(404).json({ message: 'Dialogue not found' });
+      }
       res.json(dialogue);
     } catch (err) {
       console.error('Error acknowledging dialogue:', err);
@@ -5469,6 +5685,14 @@ export async function registerRoutes(
       }
 
       const id = Number(req.params.id);
+      const existing = await storage.getMonthlyPerformanceReport(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Report not found' });
+      }
+      // Draft reports are submitted; a rejected report can be resubmitted after correction
+      if (existing.status !== 'draft' && existing.status !== 'rejected') {
+        return res.status(400).json({ message: `Only draft reports can be submitted (this report is ${existing.status})` });
+      }
       const report = await storage.submitReportForReview(id);
       
       // Notify COO
@@ -5503,7 +5727,15 @@ export async function registerRoutes(
 
       const id = Number(req.params.id);
       const { comments } = req.body;
-      
+
+      const existing = await storage.getMonthlyPerformanceReport(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Report not found' });
+      }
+      if (existing.status !== 'in_review') {
+        return res.status(400).json({ message: `Only reports in review can be reviewed (this report is ${existing.status})` });
+      }
+
       const report = await storage.reviewReport(id, currentUserId, comments);
       
       // Notify CEO
@@ -5538,33 +5770,23 @@ export async function registerRoutes(
 
       const id = Number(req.params.id);
       const { comments } = req.body;
-      
+
+      const existing = await storage.getMonthlyPerformanceReport(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Report not found' });
+      }
+      if (existing.status !== 'pending_approval') {
+        return res.status(400).json({ message: `Only reports pending approval can be approved (this report is ${existing.status})` });
+      }
+
+      // Approves the report and saves it to the user's records in one transaction
       const report = await storage.approveReport(id, currentUserId, comments);
-      
-      // Create user record for the approved report
+      if (!report) {
+        return res.status(400).json({ message: 'Report is no longer pending approval' });
+      }
+
       const user = await storage.getUser(report.userId);
       if (user) {
-        await storage.createUserRecord({
-          userId: report.userId,
-          recordType: 'monthly_performance',
-          recordTitle: `Monthly Performance Report - ${report.reportMonth}/${report.reportYear}`,
-          documentId: null,
-          employeeId: null,
-          recordData: JSON.stringify({
-            totalActiveHours: report.totalActiveHours,
-            totalOnlineHours: report.totalOnlineHours,
-            totalDaysActive: report.totalDaysActive,
-            documentsCreated: report.documentsCreated,
-            documentsReviewed: report.documentsReviewed,
-            documentsApproved: report.documentsApproved,
-            tasksCompleted: report.tasksCompleted,
-            tasksOverdue: report.tasksOverdue,
-            tasksPending: report.tasksPending,
-            reviewedBy: report.reviewerId,
-            approvedBy: report.approverId,
-          }),
-        });
-
         // Notify the user
         await storage.createNotification({
           userId: report.userId,
@@ -5598,7 +5820,15 @@ export async function registerRoutes(
       if (!comments) {
         return res.status(400).json({ message: 'Rejection comments are required' });
       }
-      
+
+      const existing = await storage.getMonthlyPerformanceReport(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Report not found' });
+      }
+      if (existing.status !== 'in_review' && existing.status !== 'pending_approval') {
+        return res.status(400).json({ message: `Only reports in review or pending approval can be rejected (this report is ${existing.status})` });
+      }
+
       const report = await storage.rejectReport(id, comments);
 
       res.json(report);
@@ -7664,7 +7894,17 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
     try {
       const id = parseInt(req.params.id);
       const { content } = req.body;
-      const post = await storage.updateWallPost(id, { content });
+      const existing = isNaN(id) ? undefined : await storage.getWallPost(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Post not found' });
+      }
+      if (existing.authorId !== (req as any).user?.id && !isManagerUser((req as any).user)) {
+        return res.status(403).json({ message: 'Only the author or a manager can edit this post' });
+      }
+      if (typeof content !== 'string' || !content.trim()) {
+        return res.status(400).json({ message: 'Content is required' });
+      }
+      const post = await storage.updateWallPost(id, { content: content.trim() });
       res.json(post);
     } catch (error: any) {
       console.error('Error updating wall post:', error);
@@ -7675,6 +7915,13 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
   app.delete('/api/wall-posts/:id', requireAuth, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      const existing = isNaN(id) ? undefined : await storage.getWallPost(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Post not found' });
+      }
+      if (existing.authorId !== (req as any).user?.id && !isManagerUser((req as any).user)) {
+        return res.status(403).json({ message: 'Only the author or a manager can delete this post' });
+      }
       await storage.deleteWallPost(id);
       res.json({ success: true });
     } catch (error: any) {
@@ -7687,7 +7934,14 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
     try {
       const id = parseInt(req.params.id);
       const { isPinned } = req.body;
-      const post = await storage.pinWallPost(id, isPinned);
+      if (!isManagerUser((req as any).user)) {
+        return res.status(403).json({ message: 'Only managers can pin or unpin posts' });
+      }
+      const existing = isNaN(id) ? undefined : await storage.getWallPost(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Post not found' });
+      }
+      const post = await storage.pinWallPost(id, !!isPinned);
       res.json(post);
     } catch (error: any) {
       console.error('Error pinning wall post:', error);
