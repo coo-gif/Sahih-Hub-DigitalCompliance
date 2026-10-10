@@ -71,6 +71,7 @@ const USER_RECORD_COLUMNS: Array<[string, string]> = [
   ['wall_posts', 'author_id'], ['leads', 'created_by_id'], ['leads', 'assigned_to_id'], ['customers', 'created_by_id'],
   ['opportunities', 'created_by_id'], ['trainings', 'created_by_id'], ['training_assignments', 'assigned_by_id'],
   ['certificates', 'issued_by_id'], ['docugenie_forms', 'created_by_id'],
+  ['internal_audits', 'created_by_id'], ['internal_audits', 'lead_auditor_id'], ['internal_audits', 'signed_off_by_id'],
 ];
 // Personal data removed together with the account
 const USER_EPHEMERAL_COLUMNS: Array<[string, string]> = [
