@@ -21,6 +21,7 @@ import {
   CheckCheck,
   Network,
   LogOut,
+  KeyRound,
   User,
   Shield,
   ClipboardList,
@@ -42,6 +43,8 @@ import { format } from "date-fns";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
 import sahihCertifyBanner from "@assets/WhatsApp_Image_2026-01-14_at_14.49.11_(1)_1768391647558.jpeg";
 import { NotificationManager } from "@/components/NotificationManager";
+import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
+import { useState } from "react";
 import { useUnreadCount } from "@/hooks/use-gmail";
 
 interface LayoutProps {
@@ -150,6 +153,7 @@ const navItems: NavItem[] = [
 
 export function Layout({ children, user, onLogout }: LayoutProps) {
   const [location, setLocation] = useLocation();
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const { data: notifications } = useNotifications();
   const markAllRead = useMarkAllNotificationsRead();
   const markRead = useMarkNotificationRead();
@@ -271,6 +275,7 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
 
           <div className="flex items-center gap-3 ml-auto">
             <NotificationManager />
+            <ChangePasswordDialog open={passwordOpen} onOpenChange={setPasswordOpen} />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="icon" className="relative" data-testid="button-notifications">
@@ -352,6 +357,10 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
                     </Badge>
                   </div>
                   <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setPasswordOpen(true)} className="cursor-pointer" data-testid="button-change-password">
+                    <KeyRound className="w-4 h-4 mr-2" />
+                    Change password
+                  </DropdownMenuItem>
                   <DropdownMenuItem 
                     onClick={onLogout}
                     className="text-destructive cursor-pointer"

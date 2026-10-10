@@ -285,6 +285,7 @@ export interface IStorage {
   submitReportForReview(id: number): Promise<MonthlyPerformanceReport>;
   reviewReport(id: number, reviewerId: number, comments?: string): Promise<MonthlyPerformanceReport>;
   approveReport(id: number, approverId: number, comments?: string): Promise<MonthlyPerformanceReport | undefined>;
+  setUserRecordPdf(reportNumber: string, pdfDataUrl: string): Promise<void>;
   rejectReport(id: number, comments: string): Promise<MonthlyPerformanceReport>;
 
   // Certification Applications
@@ -1837,6 +1838,10 @@ export class DatabaseStorage implements IStorage {
       });
       return updated;
     });
+  }
+
+  async setUserRecordPdf(reportNumber: string, pdfDataUrl: string): Promise<void> {
+    await db.update(userRecords).set({ pdfDataUrl }).where(eq(userRecords.reportNumber, reportNumber));
   }
 
   async rejectReport(id: number, comments: string): Promise<MonthlyPerformanceReport> {

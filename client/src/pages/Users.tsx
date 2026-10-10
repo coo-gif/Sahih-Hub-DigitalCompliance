@@ -48,7 +48,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
-import { Plus, MoreHorizontal, Pencil, Trash2, UserCheck, UserX, AlertCircle, PenTool, Upload, X } from "lucide-react";
+import { Plus, MoreHorizontal, Pencil, Trash2, UserCheck, UserX, AlertCircle, PenTool, Upload, X, KeyRound } from "lucide-react";
+import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
+import { useAuth } from "@/hooks/use-auth";
 import { format } from "date-fns";
 
 const roleColors: Record<string, string> = {
@@ -68,6 +70,10 @@ const roleLabels: Record<string, string> = {
 };
 
 export default function Users() {
+  const { data: currentUser } = useAuth();
+  // Only admins (and the COO) can set a new password for someone else
+  const canResetPasswords = currentUser?.role === "admin" || currentUser?.email === "coo@sahihcertify.com";
+  const [resetFor, setResetFor] = useState<{ id: number; name: string } | null>(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -358,6 +364,11 @@ export default function Users() {
                           <DropdownMenuItem onClick={() => openSignatureDialog(user)} data-testid={`menu-signature-${user.id}`}>
                             <PenTool className="w-4 h-4 mr-2" /> Manage Signature
                           </DropdownMenuItem>
+                          {canResetPasswords && (
+                            <DropdownMenuItem onClick={() => setResetFor({ id: user.id, name: user.name })} data-testid={`menu-reset-password-${user.id}`}>
+                              <KeyRound className="w-4 h-4 mr-2" /> Reset Password
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem onClick={() => handleToggleInduction(user)} data-testid={`menu-toggle-induction-${user.id}`}>
                             {user.inductionStatus === "completed" ? (
                               <>
@@ -647,6 +658,7 @@ export default function Users() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <ChangePasswordDialog open={!!resetFor} onOpenChange={(open) => { if (!open) setResetFor(null); }} resetFor={resetFor ?? undefined} />
     </div>
   );
 }

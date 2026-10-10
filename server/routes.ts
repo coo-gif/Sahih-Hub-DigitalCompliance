@@ -180,9 +180,14 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
         return res.status(401).json({ message: 'Account is deactivated. Contact administrator.' });
       }
       (req as any).user = user;
+    } else {
+      // The account was deleted: end its session
+      req.session.destroy(() => {});
+      return res.status(401).json({ message: 'Authentication required' });
     }
   } catch (error) {
     console.error('Error fetching user in requireAuth:', error);
+    return res.status(500).json({ message: 'Something went wrong. Please try again.' });
   }
   
   next();
@@ -363,6 +368,10 @@ function getCurrentUserId(req: any): number {
 
 const COMPANY_LOGO_BASE64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAMAAABlApw1AAAAYFBMVEUAAAD///+qqqqampra2tpDQ0Pj4+Pd3d34+PhPT0/x8fFISEi/v79YWFgQEBCWlpY2NjYjIyPp6emAgICNjY1hYWEaGhotLS2hoaEoKCh1dXW1tbXFxcVqamrLy8vS0tIYlW4WAAAI+UlEQVR4nO2ciZKzKhCFaRdEXKK4a4zv/5a30SxmMyYBJ39dvpqaGMelj8CxQRxCDAaDwWAwGAwGg8FgMBgMBsNPk+ysD+j8xYMG3aN9Ii0CfA8+IEwW43ce7pT9joB9vHRI93H8PyQgXDxi9OyIPyPgRfxPrv/vCNh/GP+vCAjLpcO5C4f7DQFhunS0J/7zQwKW689i/JoEuMM78X/oPxOtFgGkeKMIPvUfCcv1xI8K6Nr4l+uP/0fx45UTK6//ov8EyyWppwEc8fmq+D/3H83xo4IVZfCN/+iOHxW8bAdf+Y/2+F970cf5A8J2+uN/5UXL1//FzZDVi61HFUvt4Cv/kQoW+w/KFDz1oq/8Z6TeQsDTMviq/myqIHrYDr7yn4uCTWrRIy/6xn+uFGzSku+9aPn6v2y/F1jdbKHgtiV/334vaEqnFxW88M+34uf9JgKuvEiF/5wQ2xQAmXvRN/2Xv4v/4kWq/EfCN4z/VAbK/Gfz+DE6rtZ/to4f2yf7bPz2V+JHFuNfmz/8YfyLvNd+AbpNsoj1vBv/q/a0NUvjt89YduRtec9/Thz+Ouwz7/nP75XB4z7PqjLQ1KMpF/PNu/g/vP6SsNIiINgtPjG9Znn89hW6HnAs5/xz3st/NhPwImubxf/V9df5iGmdQ3wbv85nZOEKh3gv/9lYAIQvRwy+8Z8NBLz0uM/mhGwo4Nvx278XsOhFX7ffLQQsKPju/rWZgKe16Hv/0SpgdnUft2QF/qNTwNVUg+6Bm6rwH50Ckv38HPd3NDXtd0RP377srk5y25IVxs80De7W16e5zovU1R8AujxV82Mydn2euRep8p/pwJoecNxd5O7sRcr8Z0Tbc7797ZlOXqQkfzijb3xux27PNbVkhe1XMujpEiPV/ePhvfr4wdIVPyHd/dlCpf4jEa4+AeVdHcIyeGsu4ArWdrw/wlIc7APYG4M371OumnL2FZrnSmS64xdvjf+9T3N3L1CM9mfcxcqZlx+ywVSV/IETKWPQaKFnNDqRKDaIn1Sqjf8M22DSpSTR5aWbTLocFeiJv9sqfvl4/t+On5BefS3S1Q17QqtawfIbfxro1daibuv4sRujUoH1FzMMEnVJxWb+eY2qxI792SSb1FJRjbxN8ocnZN9Xo1DTMNxKim9HJPJt7f8e98FIxXq2mqO7yBf3tM3vXo+pDp+1ZbpR9ryC/IO5QexHLv+E371bCI7GNyY/IW7fsiNWB38d8R1Vvj7+wd/kPZm3CdeF/xPe+Rj/8NpShf3XUS7S7pdbs2f9kvc8JAufS6D13yY+62j6J21B5P9C+JI0eJAgiUzboy8t1Hxek9jh93z/Je2BThq4s82reepx7b0nhu53bX8FUf/ztmkwGAyG/xFReLmtdndjynGZ3kwUaLup7xh1LX4Jt3gK/JAySosxl8xmczHAu9mqqMN9l8//0WOSd1PvN5OzmGr4s2HciLZ8HAZpATuE6TQcDs7NVp0ThgegsyitIZ+evWfsbwUkebDzA8ufBNh8LIY7AWnWNmkGw2VNn0VZWe9uBAR2152l5LuGRHVozfs6hRWQXWepzsBbyCYBBZO/7wUMnDkRcfhUicrMSjG8inBxI2APHNhJgaAuCXHFMFNgQ+EBA64qD2wO4zS87CSAVExOargVYIGVQUes44SBZg9J6lGfMH5bAg1pWVeeBAQkSeMdzEbqbOAHubmq8Qt3mkd4LgGsGnLNrYABUtcbSvsoIEUBpef5hKOAltXXbSAU1UnA2EgKZl3GunajPxRc1ew5F/aB6yb5UUDiugU/JOhClTsj6WDXUyewWJ7I7/4BoojzrGG8SnJmJYl1FhDlHuTjXpUQhfwshulzPFINGf7OuKr3WpsBqOM4AksZbTTuPMeT87MBBmcOBaDAHA5i/OoxwFWOcADkvnzAvxwF1EJ0DoxbDQDeuMDHczjHZTEeT9mrxW5uj/hoIFGcycWsIvbOvma3O/6cv9ptkE0r5K+dPbVKG9Bz/OmYeZ4ft58f7bj8c/8i4Ihgl+Xab/+9LrOAIK4mEypZJzadpaKEjAPwY3MISPpvjXeNFLXd/tS/XzAY3iFOj9VXfqarBj3jRnpOmjSkeTwz+slqZQRFX5wzw+hk45y7gYD5dm5RFI/+cX0LmOj0DPb9PNe+EN31jdTSYiJweS/Ep3xa8A6BS+cCxiet4nrfJEPlGbVL1JsHGb0z/R0qbqnWlx7kqYtc3i8Tv5ICBOZz+C2KiEsZSU5lUzC2a3OZFaeyK1JWJHUxeULDHPuj4OBO41Bv6Urrb3y57EJdYulU59W4WxyMiamrbFgYxFgvCocKz5YC9lRe0iFMXCpCSndTDT4cZ46VNW4XkdazHKfAvEyUBc0x2WaiTRy81LkjvNwNqaBW2lLgtHWH/biaWiWxnNqjToJnE0JVNmoBl6H1hzwDUfkU9rgmIkyggOMykp6qUw5dhJ2YHKvToUJVrWwDpACaJQFW9gz7c3UbhDbWuAw7DV2f+EBxNS0OmKxjd612II+paHtlU+lqACZ7fFXp8UhWobKDnjCayCoUd1OWfGrQMfei+ABNLvtYsSXfaBgbMTgNCbAT1ME0uNIkOyyyWm7lM4qrsUbCIQ1xhxy3pyxXeLN2QwASDZwyKYCT9CwA5PIooKQwemoMjFLqlbL/cy0gkQLSA5MCqo5RjsFbJwGhFMCdJIRWCpAvWnBV03FkFfegCfFcznMBWPjSYuKY076pEjIKKMde2FwARio3r3HjbC5AHnEqgUkASXMBim4PXWdbjOGZ654fBYRXAqaM3uUQ1laIsYVZbpNTCXRWMhPgYYfXyeseNyr2WIVsGOxobAMwtB3UeBkmAXXee6oEyEfvXkF6AQPlUYBtYAyaT23gXAIkkvNI91g7MFu2yNgGsDeP7b6/CBhIgy2K58kB6B63aPDvvdSV2oyxuiKnEsCTMlVvZJVVksgG1SRVU8VxVcm0ICb4eV6+bIgXLU7kRykXcYsEN5O74ycuNNOqEvdKxi3wS3xeHU9HK3F7/Ps/2FEwGAwGg8FgMBgMBoPBYDAYDAbDKv4DRtuGaiLoaoAAAAAASUVORK5CYII=';
 
+// Text typed by users goes into report HTML: escape it so it can't add markup (or make the PDF browser fetch anything)
+const esc = (value: unknown) => String(value ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
 async function generateReportPdf(
   reportType: string,
   title: string,
@@ -402,8 +411,8 @@ async function generateReportPdf(
   const signatureHtml = (name: string | undefined, signature: string | null | undefined, signedAt: Date | null | undefined, role: string) => `
     <div class="signature-block">
       <div class="signature-role">${role}</div>
-      ${signature ? `<img src="${signature}" class="signature-img" alt="${name} signature" />` : '<div class="signature-placeholder"></div>'}
-      <div class="signature-line">${name || 'N/A'}</div>
+      ${signature?.startsWith('data:image/') ? `<img src="${esc(signature)}" class="signature-img" alt="${esc(name)} signature" />` : '<div class="signature-placeholder"></div>'}
+      <div class="signature-line">${esc(name || 'N/A')}</div>
       <div class="signature-date">${formatDate(signedAt)}</div>
     </div>
   `;
@@ -452,12 +461,12 @@ async function generateReportPdf(
           </div>
         </div>
         <div class="company-info">
-          <div class="report-number"><strong>Report No:</strong> ${metadata.reportNumber}</div>
+          <div class="report-number"><strong>Report No:</strong> ${esc(metadata.reportNumber)}</div>
           <div class="report-number"><strong>Generated:</strong> ${formatDate(metadata.generatedAt)}</div>
         </div>
       </div>
       
-      <div class="report-title">${title}</div>
+      <div class="report-title">${esc(title)}</div>
       
       ${reportType === ReportType.DOCUMENT_APPROVAL ? `
         <div class="section">
@@ -465,11 +474,11 @@ async function generateReportPdf(
           <div class="info-grid">
             <div class="info-item">
               <div class="info-label">Document Code</div>
-              <div class="info-value">${metadata.documentCode || 'N/A'}</div>
+              <div class="info-value">${esc(metadata.documentCode || 'N/A')}</div>
             </div>
             <div class="info-item">
               <div class="info-label">Document Title</div>
-              <div class="info-value">${metadata.documentTitle || 'N/A'}</div>
+              <div class="info-value">${esc(metadata.documentTitle || 'N/A')}</div>
             </div>
           </div>
         </div>
@@ -479,23 +488,23 @@ async function generateReportPdf(
           <div class="info-grid">
             <div class="info-item">
               <div class="info-label">Employee Name</div>
-              <div class="info-value">${metadata.employeeName || 'N/A'}</div>
+              <div class="info-value">${esc(metadata.employeeName || 'N/A')}</div>
             </div>
             <div class="info-item">
               <div class="info-label">Employee Number</div>
-              <div class="info-value">${metadata.employeeNumber || 'N/A'}</div>
+              <div class="info-value">${esc(metadata.employeeNumber || 'N/A')}</div>
             </div>
             <div class="info-item">
               <div class="info-label">Department</div>
-              <div class="info-value">${metadata.department || 'N/A'}</div>
+              <div class="info-value">${esc(metadata.department || 'N/A')}</div>
             </div>
             <div class="info-item">
               <div class="info-label">Job Title</div>
-              <div class="info-value">${metadata.jobTitle || 'N/A'}</div>
+              <div class="info-value">${esc(metadata.jobTitle || 'N/A')}</div>
             </div>
             <div class="info-item">
               <div class="info-label">Hire Date</div>
-              <div class="info-value">${metadata.hireDate || 'N/A'}</div>
+              <div class="info-value">${esc(metadata.hireDate || 'N/A')}</div>
             </div>
           </div>
         </div>
@@ -543,6 +552,9 @@ async function generateReportPdf(
     });
     
     const page = await browser.newPage();
+    // Only embedded images (logo, signatures) may load: no network requests from report PDFs
+    await page.setRequestInterception(true);
+    page.on('request', (request) => (request.url().startsWith('data:') ? request.continue() : request.abort()));
     await page.setContent(htmlContent, { waitUntil: 'domcontentloaded', timeout: 15000 });
     
     const pdfBuffer = await page.pdf({
@@ -666,6 +678,51 @@ export async function registerRoutes(
   });
 
   // Accept user agreement (ISO 27001 compliance)
+  // Everyone changes their own password (the current one is required)
+  app.post('/api/auth/change-password', requireAuth, async (req, res) => {
+    const parsed = z.object({
+      currentPassword: z.string().min(1, 'Enter your current password'),
+      newPassword: z.string().min(8, 'The new password must have at least 8 characters').max(200),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0].message, field: parsed.error.errors[0].path.join('.') });
+    const currentUser = (req as any).user;
+    const full = await storage.getUserByEmail(currentUser.email);
+    if (!full || !(await verifyPassword(parsed.data.currentPassword, full.passwordHash))) {
+      return res.status(400).json({ message: 'Your current password is not correct', field: 'currentPassword' });
+    }
+    if (parsed.data.currentPassword === parsed.data.newPassword) {
+      return res.status(400).json({ message: 'Choose a password different from the current one', field: 'newPassword' });
+    }
+    await storage.updateUser(currentUser.id, { passwordHash: parsed.data.newPassword } as any);
+    await storage.createAuditLog({
+      userId: currentUser.id, action: AuditAction.UPDATE, entityType: 'user', entityId: currentUser.id,
+      newValue: JSON.stringify({ passwordChanged: true }),
+    });
+    res.json({ success: true });
+  });
+
+  // Admins (and the COO) set a new password for someone who has lost theirs
+  app.post('/api/users/:id/reset-password', requireAuth, async (req, res) => {
+    const currentUser = (req as any).user;
+    if (currentUser.role !== UserRole.ADMIN && currentUser.email !== COO_EMAIL) {
+      return res.status(403).json({ message: 'Only an admin can reset passwords' });
+    }
+    const id = Number(req.params.id);
+    const parsed = z.object({ newPassword: z.string().min(8, 'The new password must have at least 8 characters').max(200) }).safeParse(req.body);
+    if (!Number.isInteger(id) || !parsed.success) return res.status(400).json({ message: parsed.success ? 'Invalid user' : parsed.error.errors[0].message });
+    const target = await storage.getUser(id);
+    if (!target) return res.status(404).json({ message: 'User not found' });
+    await storage.updateUser(id, { passwordHash: parsed.data.newPassword } as any);
+    await storage.createAuditLog({
+      userId: currentUser.id, action: AuditAction.UPDATE, entityType: 'user', entityId: id,
+      newValue: JSON.stringify({ passwordReset: true }),
+    });
+    if (id !== currentUser.id) {
+      await storage.createNotification({ userId: id, title: 'Password Reset', message: `${currentUser.name} set a new password for your account. Change it after you sign in.`, urgencyLevel: UrgencyLevel.HIGH });
+    }
+    res.json({ success: true });
+  });
+
   app.post('/api/auth/accept-agreement', async (req, res) => {
     if (!req.session.userId) {
       return res.status(401).json({ message: 'Not authenticated' });
@@ -828,7 +885,7 @@ export async function registerRoutes(
         if (id !== currentUser?.id || changesOtherFields) {
           return res.status(403).json({ message: 'You can only update your own name' });
         }
-      } else if (!canGrantAdmin && (input.role === UserRole.ADMIN || (existing.role === UserRole.ADMIN && (input.role !== undefined || input.isActive !== undefined)))) {
+      } else if (!canGrantAdmin && (input.role === UserRole.ADMIN || (existing.role === UserRole.ADMIN && id !== currentUser?.id))) {
         return res.status(403).json({ message: 'Only an admin can grant or change admin accounts' });
       }
 
@@ -1785,12 +1842,12 @@ export async function registerRoutes(
           const reportNumber = await storage.generateReportNumber(ReportType.DOCUMENT_APPROVAL);
           const reportTitle = 'Document Approval Completion Report';
           const reportContent = `
-            <p>This report confirms the successful approval of document <strong>${doc.documentCode}</strong>.</p>
-            <p><strong>Document Title:</strong> ${doc.title}</p>
-            <p><strong>Category:</strong> ${doc.category}</p>
+            <p>This report confirms the successful approval of document <strong>${esc(doc.documentCode)}</strong>.</p>
+            <p><strong>Document Title:</strong> ${esc(doc.title)}</p>
+            <p><strong>Category:</strong> ${esc(doc.category)}</p>
             <p><strong>Edition:</strong> Ed.${doc.editionNumber} Rev.${doc.revisionNumber}</p>
             <p><strong>Approval Date:</strong> ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
-            ${comments ? `<p><strong>Approval Comments:</strong> ${comments}</p>` : ''}
+            ${comments ? `<p><strong>Approval Comments:</strong> ${esc(comments)}</p>` : ''}
             <p style="margin-top: 20px;">The document has been reviewed and approved according to the Quality Management System procedures.</p>
           `;
 
@@ -2297,14 +2354,14 @@ export async function registerRoutes(
         const reportNumber = await storage.generateReportNumber(ReportType.STAFF_CONFIRMATION);
         const reportTitle = 'Staff Confirmation Report';
         const reportContent = `
-          <p>This report confirms the successful addition and approval of employee <strong>${approvedEmployee.name}</strong> to Sahih Certifications.</p>
-          <p><strong>Employee Number:</strong> ${approvedEmployee.employeeNumber}</p>
-          <p><strong>Job Title:</strong> ${approvedEmployee.jobTitle}</p>
-          <p><strong>Department:</strong> ${approvedEmployee.department}</p>
-          <p><strong>Employment Type:</strong> ${approvedEmployee.employmentType?.replace('_', ' ')}</p>
+          <p>This report confirms the successful addition and approval of employee <strong>${esc(approvedEmployee.name)}</strong> to Sahih Certifications.</p>
+          <p><strong>Employee Number:</strong> ${esc(approvedEmployee.employeeNumber)}</p>
+          <p><strong>Job Title:</strong> ${esc(approvedEmployee.jobTitle)}</p>
+          <p><strong>Department:</strong> ${esc(approvedEmployee.department)}</p>
+          <p><strong>Employment Type:</strong> ${esc(approvedEmployee.employmentType?.replace('_', ' '))}</p>
           <p><strong>Hire Date:</strong> ${approvedEmployee.hireDate ? new Date(approvedEmployee.hireDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'N/A'}</p>
           <p><strong>Approval Date:</strong> ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
-          ${input.notes ? `<p><strong>Approval Notes:</strong> ${input.notes}</p>` : ''}
+          ${input.notes ? `<p><strong>Approval Notes:</strong> ${esc(input.notes)}</p>` : ''}
           <p style="margin-top: 20px;">The employee record has been verified and approved according to HR procedures.</p>
         `;
 
@@ -5787,6 +5844,42 @@ export async function registerRoutes(
       }
 
       const user = await storage.getUser(report.userId);
+      // The approved report as a PDF in the person's records (a PDF failure leaves the record without one)
+      try {
+        const period = `${report.reportYear}-${String(report.reportMonth).padStart(2, '0')}`;
+        const reviewer = report.reviewerId ? await storage.getUser(report.reviewerId) : undefined;
+        const approver = await storage.getUser(currentUserId);
+        const row = (label: string, value: unknown) => `<tr><td style="padding:4px 8px;border-bottom:1px solid #e2e8f0">${esc(label)}</td><td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-weight:600">${esc(value ?? '-')}</td></tr>`;
+        const content = `
+          <p>Monthly performance for <strong>${esc(user?.name ?? 'Unknown')}</strong>, ${esc(period)}.</p>
+          <table style="width:100%;border-collapse:collapse;margin-top:10px;font-size:11pt">
+            ${row('Tasks assigned', report.tasksAssigned)}
+            ${row('Tasks completed', report.tasksCompleted)}
+            ${row('Completed on time', report.tasksCompletedOnTime)}
+            ${row('Completed late', report.tasksCompletedLate)}
+            ${row('Overdue', report.tasksOverdue)}
+            ${row('On-time rate', `${report.onTimeRate ?? 0}%`)}
+            ${row('Completion rate', `${report.completionRate ?? 0}%`)}
+            ${row('Efficiency', `${report.efficiencyPercent ?? 0}%`)}
+            ${row('Performance score', report.performanceScore)}
+            ${row('Active hours', report.totalActiveHours)}
+            ${row('Days active', report.totalDaysActive)}
+            ${row('Documents created / reviewed / approved', `${report.documentsCreated ?? 0} / ${report.documentsReviewed ?? 0} / ${report.documentsApproved ?? 0}`)}
+          </table>
+          ${report.reviewComments ? `<p style="margin-top:12px"><strong>COO review:</strong> ${esc(report.reviewComments)}</p>` : ''}
+          ${report.approvalComments ? `<p><strong>CEO approval:</strong> ${esc(report.approvalComments)}</p>` : ''}
+        `;
+        const pdf = await generateReportPdf('monthly_performance', 'Monthly Performance Report', content, {
+          employeeName: user?.name, employeeNumber: user?.email, department: user?.role?.replace('_', ' '), jobTitle: user?.designation ?? undefined,
+          hireDate: period,
+          reviewerName: reviewer?.name, reviewerSignature: reviewer?.signatureDataUrl, reviewerSignedAt: report.reviewedAt,
+          approverName: approver?.name, approverSignature: approver?.signatureDataUrl, approverSignedAt: report.approvedAt,
+          reportNumber: `MPR-${period}-${report.id}`, generatedAt: new Date(),
+        });
+        await storage.setUserRecordPdf(`MPR-${period}-${report.id}`, pdf);
+      } catch (pdfError) {
+        console.error('Monthly performance report PDF could not be generated:', pdfError);
+      }
       if (user) {
         // Notify the user
         await storage.createNotification({
