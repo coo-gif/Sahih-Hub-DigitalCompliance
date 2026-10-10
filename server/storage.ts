@@ -1945,15 +1945,25 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createCertificationApplication(data: InsertCertificationApplication): Promise<CertificationApplication> {
-    const count = await db.select({ count: sql<number>`count(*)` }).from(certificationApplications);
-    const year = new Date().getFullYear();
-    const appNumber = `APP-${year}-${String(Number(count[0].count) + 1).padStart(4, '0')}`;
-    
-    const [app] = await db.insert(certificationApplications).values({
-      ...data,
-      applicationNumber: appNumber,
-    }).returning();
-    return app;
+    // Next number after the highest one this year (a count would repeat numbers after a delete)
+    const prefix = `APP-${new Date().getFullYear()}-`;
+    for (let attempt = 0; ; attempt++) {
+      const [{ max }] = await db.select({
+        max: sql<number>`coalesce(max(cast(substring(${certificationApplications.applicationNumber} from '[0-9]+$') as integer)), 0)`,
+      }).from(certificationApplications)
+        .where(sql`${certificationApplications.applicationNumber} like ${prefix + '%'}`);
+      const appNumber = `${prefix}${String(Number(max) + 1).padStart(4, '0')}`;
+      try {
+        const [app] = await db.insert(certificationApplications).values({
+          ...data,
+          applicationNumber: appNumber,
+        }).returning();
+        return app;
+      } catch (err: any) {
+        // another application took the same number at the same moment: try the next one
+        if (err?.code !== '23505' || attempt >= 4) throw err;
+      }
+    }
   }
 
   async updateCertificationApplication(id: number, data: Partial<InsertCertificationApplication>): Promise<CertificationApplication> {

@@ -108,6 +108,7 @@ import {
   reconcileTasks, scheduleReconcile, getOpenTaskRecords, computeTaskMetrics, monthRange, refreshPerformanceReports,
   parseTargetDate, setTaskTarget, getTaskTarget, TargetDateError,
 } from "./task-ledger";
+import { CertificationApplicationStatus, AuditType, AuditStatus, FindingType, FindingStatus, TrainingType, TrainingStatus, TrainingAssignmentStatus } from "@shared/schema";
 
 async function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) {
@@ -5784,19 +5785,109 @@ export async function registerRoutes(
   // CERTIFICATION PROCESS MANAGEMENT ROUTES
   // ============================================
 
+  // ---- Input helpers shared by the certification and training routes ----
+  // Dates arrive as ISO strings or "yyyy-mm-dd" from date inputs; "" means the date was cleared
+  const ctToDate = (v: unknown) => (v === '' ? null : typeof v === 'string' || typeof v === 'number' ? new Date(v) : v);
+  const ctDate = z.preprocess(ctToDate, z.date({ invalid_type_error: 'Invalid date' }).nullable().optional());
+  const ctRequiredDate = (label: string) =>
+    z.preprocess(ctToDate, z.date({ required_error: `${label} is required`, invalid_type_error: `${label} must be a valid date` }));
+  const ctNumber = (v: unknown) => (v === '' || v === null ? null : typeof v === 'string' ? Number(v) : v);
+  const ctId = z.preprocess(ctNumber, z.number({ invalid_type_error: 'Invalid id' }).int().positive().nullable().optional());
+  const ctRequiredId = (label: string) =>
+    z.preprocess(ctNumber, z.number({ required_error: `${label} is required`, invalid_type_error: `${label} is required` }).int().positive());
+  const ctInt = (label: string, max?: number) => z.preprocess(ctNumber, (max === undefined
+    ? z.number({ invalid_type_error: `${label} must be a number` }).int().min(0, `${label} cannot be negative`)
+    : z.number({ invalid_type_error: `${label} must be a number` }).int().min(0, `${label} cannot be negative`).max(max, `${label} cannot be more than ${max}`)
+  ).nullable().optional());
+  const ctText = z.string().trim().nullable().optional();
+  const ctRequiredText = (label: string) => z.string({ required_error: `${label} is required` }).trim().min(1, `${label} is required`);
+  const ctEnum = (label: string, values: string[]) =>
+    z.enum(values as [string, ...string[]], { errorMap: () => ({ message: `Invalid ${label}. Allowed: ${values.join(', ')}` }) });
+  const ctBadRequest = (res: Response, err: z.ZodError) => {
+    const issue = err.errors[0];
+    const field = issue.path.join('.');
+    // Our own messages name the field; zod's generic ones ("Required", "Invalid date"...) get the field name in front
+    const generic = /^(Required|Expected|Invalid date|Invalid id|String must|Number must)/.test(issue.message);
+    const message = field && generic ? `${field}: ${issue.message}` : issue.message;
+    return res.status(400).json({ message, field });
+  };
+
+  // Managers: admin, quality manager or the COO
+  const isCertManager = (user?: { role: string; email: string } | null) =>
+    !!user && (user.role === UserRole.ADMIN || user.role === UserRole.QUALITY_MANAGER || user.email === COO_EMAIL);
+  // Roles that work on certification (the application list is open to these)
+  const CERT_ROLES: string[] = [UserRole.AUDITOR, UserRole.ADMIN, UserRole.QUALITY_MANAGER];
+  const isAssignedToApplication = (user: { id: number }, app: { assignedAuditorId: number | null; leadAuditorId: number | null }) =>
+    user.id === app.assignedAuditorId || user.id === app.leadAuditorId;
+  // Audit team: the lead auditor plus the comma-separated team member ids
+  const certAuditTeam = (audit: { leadAuditorId: number | null; auditTeamIds: string | null }) =>
+    [audit.leadAuditorId, ...(audit.auditTeamIds || '').split(',').map(s => parseInt(s.trim()))]
+      .filter((id): id is number => !!id && !isNaN(id));
+  const canViewCertification = (user: { id: number; role: string; email: string }, app?: { assignedAuditorId: number | null; leadAuditorId: number | null } | null, audit?: { leadAuditorId: number | null; auditTeamIds: string | null } | null) =>
+    isCertManager(user) || CERT_ROLES.includes(user.role) || (!!app && isAssignedToApplication(user, app)) || (!!audit && certAuditTeam(audit).includes(user.id));
+  const canWorkOnAudit = (user: { id: number; role: string; email: string }, audit: { leadAuditorId: number | null; auditTeamIds: string | null }, app?: { assignedAuditorId: number | null; leadAuditorId: number | null } | null) =>
+    isCertManager(user) || certAuditTeam(audit).includes(user.id) || (!!app && isAssignedToApplication(user, app));
+  // Auditors, lead auditors and audit team members must be users who can do certification work
+  const checkCertAuditor = async (id: number | null | undefined, label: string): Promise<string | null> => {
+    if (!id) return null;
+    const auditor = await storage.getUser(id);
+    return auditor && CERT_ROLES.includes(auditor.role) ? null : `${label} must be a user with the auditor, quality manager or admin role`;
+  };
+
+  // Application status order (ISO 17021 client cycle); rejected / suspended / withdrawn can end any open application
+  const APPLICATION_FLOW: string[] = [
+    CertificationApplicationStatus.SUBMITTED, CertificationApplicationStatus.UNDER_REVIEW, CertificationApplicationStatus.AUDIT_SCHEDULED,
+    CertificationApplicationStatus.STAGE1_COMPLETE, CertificationApplicationStatus.STAGE2_SCHEDULED, CertificationApplicationStatus.STAGE2_COMPLETE,
+    CertificationApplicationStatus.PENDING_DECISION, CertificationApplicationStatus.APPROVED, CertificationApplicationStatus.CERTIFICATE_ISSUED,
+  ];
+  const APPLICATION_EXITS: string[] = [CertificationApplicationStatus.REJECTED, CertificationApplicationStatus.SUSPENDED, CertificationApplicationStatus.WITHDRAWN];
+  // The certification decision is not made by the auditors (ISO 17021 9.5): only managers approve, reject or suspend
+  const MANAGER_DECISIONS: string[] = [CertificationApplicationStatus.APPROVED, CertificationApplicationStatus.REJECTED, CertificationApplicationStatus.SUSPENDED];
+  const applicationStatusError = (from: string, to: string): string | null => {
+    if (from === to) return null;
+    if (to === CertificationApplicationStatus.CERTIFICATE_ISSUED) return 'The status becomes "certificate_issued" when the certificate is issued';
+    const fromIdx = APPLICATION_FLOW.indexOf(from);
+    if (fromIdx === -1) return `The application is ${from} and its status can no longer change`;
+    if (APPLICATION_EXITS.includes(to)) {
+      if (from === CertificationApplicationStatus.CERTIFICATE_ISSUED && to === CertificationApplicationStatus.REJECTED) return 'A certified application cannot be rejected; suspend or withdraw it instead';
+      return null;
+    }
+    const next = APPLICATION_FLOW[fromIdx + 1];
+    if (to !== next) return next ? `Status can only move forward one step: from "${from}" the next status is "${next}"` : `The application is ${from}`;
+    return null;
+  };
+
+  const certApplicationCreateSchema = z.object({
+    clientName: ctRequiredText('Client name'),
+    clientLocation: ctRequiredText('Location'),
+    clientContactName: ctText,
+    clientContactEmail: ctText,
+    clientContactPhone: ctText,
+    isoStandard: ctRequiredText('ISO standard'),
+    standardName: ctRequiredText('Standard name'),
+    sectorCode: ctText,
+    certificationScope: ctRequiredText('Certification scope'),
+  });
+  const certApplicationUpdateSchema = certApplicationCreateSchema.partial().extend({
+    status: ctEnum('status', Object.values(CertificationApplicationStatus)).optional(),
+    assignedAuditorId: ctId,
+    leadAuditorId: ctId,
+    reviewNotes: ctText,
+  });
+
   // Get all certification applications
   app.get('/api/certification-applications', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
       const user = await storage.getUser(userId);
-      
+
       if (!user || (user.role !== UserRole.AUDITOR && user.role !== UserRole.ADMIN && user.role !== UserRole.QUALITY_MANAGER)) {
         return res.status(403).json({ message: 'Only auditors, admin, or quality managers can access certification applications' });
       }
 
       const status = req.query.status as string | undefined;
       const assignedAuditorId = req.query.assignedAuditorId ? parseInt(req.query.assignedAuditorId as string) : undefined;
-      
+
       const applications = await storage.getCertificationApplications({ status, assignedAuditorId });
       res.json(applications);
     } catch (err) {
@@ -5808,13 +5899,18 @@ export async function registerRoutes(
   // Get single certification application
   app.get('/api/certification-applications/:id', requireAuth, async (req: Request, res: Response) => {
     try {
+      const user = await storage.getUser(getCurrentUserId(req));
       const id = parseInt(req.params.id);
       const application = await storage.getCertificationApplication(id);
-      
+
       if (!application) {
         return res.status(404).json({ message: 'Application not found' });
       }
-      
+      // Same people as the list (auditors, admin, QM) plus whoever is assigned to it
+      if (!user || !canViewCertification(user, application)) {
+        return res.status(403).json({ message: 'Only managers, auditors or the assigned auditors can view this application' });
+      }
+
       res.json(application);
     } catch (err) {
       console.error('Error fetching certification application:', err);
@@ -5827,13 +5923,19 @@ export async function registerRoutes(
     try {
       const userId = getCurrentUserId(req);
       const user = await storage.getUser(userId);
-      
+
       if (!user || (user.role !== UserRole.AUDITOR && user.role !== UserRole.ADMIN && user.role !== UserRole.QUALITY_MANAGER)) {
         return res.status(403).json({ message: 'Only auditors, admin, or quality managers can create certification applications' });
       }
 
-      const application = await storage.createCertificationApplication(req.body);
-      
+      const parsed = certApplicationCreateSchema.safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+
+      const application = await storage.createCertificationApplication({
+        ...parsed.data,
+        status: CertificationApplicationStatus.SUBMITTED,
+      });
+
       await storage.createAuditLog({
         action: AuditAction.CREATE,
         entityType: 'certification_application',
@@ -5841,7 +5943,7 @@ export async function registerRoutes(
         userId,
         newValue: JSON.stringify({ applicationNumber: application.applicationNumber, clientName: application.clientName }),
       });
-      
+
       res.status(201).json(application);
     } catch (err) {
       console.error('Error creating certification application:', err);
@@ -5849,22 +5951,62 @@ export async function registerRoutes(
     }
   });
 
-  // Update certification application
+  // Update certification application (review, auditor assignment, status)
   app.put('/api/certification-applications/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
       const id = parseInt(req.params.id);
-      
-      const updated = await storage.updateCertificationApplication(id, req.body);
-      
+      const application = await storage.getCertificationApplication(id);
+      if (!application) {
+        return res.status(404).json({ message: 'Application not found' });
+      }
+      if (!user || !(isCertManager(user) || isAssignedToApplication(user, application))) {
+        return res.status(403).json({ message: 'Only managers or the assigned auditor / lead auditor can update this application' });
+      }
+
+      const parsed = certApplicationUpdateSchema.safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+      const input = parsed.data;
+      const updates: Parameters<typeof storage.updateCertificationApplication>[1] = { ...input };
+
+      for (const [field, label] of [['assignedAuditorId', 'Auditor'], ['leadAuditorId', 'Lead auditor']] as const) {
+        if (input[field] === undefined || input[field] === application[field]) continue;
+        if (!isCertManager(user)) {
+          return res.status(403).json({ message: 'Only managers can assign the auditor and lead auditor' });
+        }
+        const error = await checkCertAuditor(input[field], label);
+        if (error) return res.status(400).json({ message: error, field });
+      }
+
+      if (input.status !== undefined && input.status !== application.status) {
+        const error = applicationStatusError(application.status, input.status);
+        if (error) return res.status(400).json({ message: error, field: 'status' });
+        if (MANAGER_DECISIONS.includes(input.status) && !isCertManager(user)) {
+          return res.status(403).json({ message: 'Only managers can approve, reject or suspend an application' });
+        }
+        const assignedAuditorId = input.assignedAuditorId !== undefined ? input.assignedAuditorId : application.assignedAuditorId;
+        const leadAuditorId = input.leadAuditorId !== undefined ? input.leadAuditorId : application.leadAuditorId;
+        if (input.status === CertificationApplicationStatus.AUDIT_SCHEDULED && !assignedAuditorId && !leadAuditorId) {
+          return res.status(400).json({ message: 'Assign an auditor or lead auditor before scheduling the audit', field: 'status' });
+        }
+        if (input.status === CertificationApplicationStatus.UNDER_REVIEW) {
+          updates.reviewedAt = new Date();
+          updates.reviewedById = userId;
+        }
+      }
+
+      const updated = await storage.updateCertificationApplication(id, updates);
+
       await storage.createAuditLog({
         action: AuditAction.UPDATE,
         entityType: 'certification_application',
         entityId: id,
         userId,
-        newValue: JSON.stringify(req.body),
+        previousValue: JSON.stringify({ status: application.status, assignedAuditorId: application.assignedAuditorId, leadAuditorId: application.leadAuditorId }),
+        newValue: JSON.stringify(input),
       });
-      
+
       res.json(updated);
     } catch (err) {
       console.error('Error updating certification application:', err);
@@ -5878,20 +6020,20 @@ export async function registerRoutes(
       const userId = getCurrentUserId(req);
       const user = await storage.getUser(userId);
       const id = parseInt(req.params.id);
-      
+
       if (!user || user.role !== UserRole.ADMIN) {
         return res.status(403).json({ message: 'Only admin can delete certification applications' });
       }
 
       await storage.deleteCertificationApplication(id);
-      
+
       await storage.createAuditLog({
         action: AuditAction.DELETE,
         entityType: 'certification_application',
         entityId: id,
         userId,
       });
-      
+
       res.json({ success: true });
     } catch (err) {
       console.error('Error deleting certification application:', err);
@@ -5899,11 +6041,48 @@ export async function registerRoutes(
     }
   });
 
+  const auditTeamIdsField = z.preprocess(
+    (v) => (Array.isArray(v) ? v.join(',') : v === '' ? null : v),
+    z.string().regex(/^\s*\d+(\s*,\s*\d+)*\s*$/, 'Audit team must be a list of user ids').nullable().optional(),
+  );
+  const certAuditCreateSchema = z.object({
+    applicationId: ctRequiredId('Application'),
+    auditType: ctEnum('audit type', Object.values(AuditType)),
+    scheduledDate: ctDate,
+    leadAuditorId: ctId,
+    auditTeamIds: auditTeamIdsField,
+    auditPlanUrl: ctText,
+    notes: ctText,
+  });
+  const certAuditUpdateSchema = z.object({
+    auditType: ctEnum('audit type', Object.values(AuditType)).optional(),
+    scheduledDate: ctDate,
+    completedDate: ctDate,
+    status: ctEnum('audit status', Object.values(AuditStatus)).optional(),
+    leadAuditorId: ctId,
+    auditTeamIds: auditTeamIdsField,
+    auditPlanUrl: ctText,
+    auditReportUrl: ctText,
+    recommendation: ctText,
+    notes: ctText,
+  });
+  const LOCKED_AUDIT_STATUSES: string[] = [AuditStatus.COMPLETED, AuditStatus.CANCELLED];
+
   // Get audits for an application
   app.get('/api/certification-audits', requireAuth, async (req: Request, res: Response) => {
     try {
+      const user = await storage.getUser(getCurrentUserId(req));
       const applicationId = req.query.applicationId ? parseInt(req.query.applicationId as string) : undefined;
-      const audits = await storage.getCertificationAudits(applicationId);
+      const application = applicationId ? await storage.getCertificationApplication(applicationId) : undefined;
+      if (applicationId && !application) {
+        return res.status(404).json({ message: 'Application not found' });
+      }
+      if (!user) return res.status(401).json({ message: 'Authentication required' });
+      let audits = await storage.getCertificationAudits(applicationId);
+      // Others only see the audits they lead or are on the team of
+      if (!canViewCertification(user, application)) {
+        audits = audits.filter(a => certAuditTeam(a).includes(user.id));
+      }
       res.json(audits);
     } catch (err) {
       console.error('Error fetching certification audits:', err);
@@ -5914,13 +6093,18 @@ export async function registerRoutes(
   // Get single audit
   app.get('/api/certification-audits/:id', requireAuth, async (req: Request, res: Response) => {
     try {
+      const user = await storage.getUser(getCurrentUserId(req));
       const id = parseInt(req.params.id);
       const audit = await storage.getCertificationAudit(id);
-      
+
       if (!audit) {
         return res.status(404).json({ message: 'Audit not found' });
       }
-      
+      const application = await storage.getCertificationApplication(audit.applicationId);
+      if (!user || !canViewCertification(user, application, audit)) {
+        return res.status(403).json({ message: 'You do not have access to this audit' });
+      }
+
       res.json(audit);
     } catch (err) {
       console.error('Error fetching certification audit:', err);
@@ -5932,16 +6116,39 @@ export async function registerRoutes(
   app.post('/api/certification-audits', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
-      const audit = await storage.createCertificationAudit(req.body);
-      
+      const user = await storage.getUser(userId);
+      const parsed = certAuditCreateSchema.safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+      const input = parsed.data;
+
+      const application = await storage.getCertificationApplication(input.applicationId);
+      if (!application) {
+        return res.status(404).json({ message: 'Application not found' });
+      }
+      if (!user || !(isCertManager(user) || isAssignedToApplication(user, application))) {
+        return res.status(403).json({ message: 'Only managers or the assigned auditor / lead auditor can plan audits for this application' });
+      }
+      if (!APPLICATION_FLOW.includes(application.status)) {
+        return res.status(400).json({ message: `Audits cannot be planned for a ${application.status} application` });
+      }
+      const leadAuditorId = input.leadAuditorId !== undefined ? input.leadAuditorId : (application.leadAuditorId ?? application.assignedAuditorId);
+      const leadError = await checkCertAuditor(leadAuditorId, 'Lead auditor');
+      if (leadError) return res.status(400).json({ message: leadError, field: 'leadAuditorId' });
+
+      const audit = await storage.createCertificationAudit({
+        ...input,
+        leadAuditorId,
+        status: AuditStatus.PLANNED,
+      });
+
       await storage.createAuditLog({
         action: AuditAction.CREATE,
         entityType: 'certification_audit',
         entityId: audit.id,
         userId,
-        newValue: JSON.stringify({ auditType: audit.auditType, applicationId: audit.applicationId }),
+        newValue: JSON.stringify({ auditType: audit.auditType, applicationId: audit.applicationId, scheduledDate: audit.scheduledDate, leadAuditorId }),
       });
-      
+
       res.status(201).json(audit);
     } catch (err) {
       console.error('Error creating certification audit:', err);
@@ -5949,22 +6156,65 @@ export async function registerRoutes(
     }
   });
 
-  // Update audit
+  // Update audit (schedule, status, recommendation, completion)
   app.put('/api/certification-audits/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
       const id = parseInt(req.params.id);
-      
-      const updated = await storage.updateCertificationAudit(id, req.body);
-      
+      const audit = await storage.getCertificationAudit(id);
+      if (!audit) {
+        return res.status(404).json({ message: 'Audit not found' });
+      }
+      const application = await storage.getCertificationApplication(audit.applicationId);
+      if (!user || !canWorkOnAudit(user, audit, application)) {
+        return res.status(403).json({ message: 'Only managers or the audit\'s lead auditor / assigned auditors can update this audit' });
+      }
+      if (LOCKED_AUDIT_STATUSES.includes(audit.status)) {
+        return res.status(400).json({ message: `This audit is ${audit.status} and can no longer be changed` });
+      }
+
+      const parsed = certAuditUpdateSchema.safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+      const input = parsed.data;
+      const updates: Parameters<typeof storage.updateCertificationAudit>[1] = { ...input };
+
+      if ((input.leadAuditorId !== undefined && input.leadAuditorId !== audit.leadAuditorId) ||
+          (input.auditTeamIds !== undefined && input.auditTeamIds !== audit.auditTeamIds)) {
+        if (!isCertManager(user)) {
+          return res.status(403).json({ message: 'Only managers can change the lead auditor or the audit team' });
+        }
+        const leadError = await checkCertAuditor(input.leadAuditorId, 'Lead auditor');
+        if (leadError) return res.status(400).json({ message: leadError, field: 'leadAuditorId' });
+      }
+
+      if (input.status === AuditStatus.COMPLETED) {
+        const openMajor = (await storage.getAuditFindings(id))
+          .filter(f => f.findingType === FindingType.MAJOR_NC && f.status !== FindingStatus.CLOSED);
+        if (openMajor.length > 0) {
+          return res.status(400).json({
+            message: `The audit cannot be completed while ${openMajor.length} major nonconformit${openMajor.length === 1 ? 'y is' : 'ies are'} open (${openMajor.map(f => f.findingNumber).join(', ')})`,
+            field: 'status',
+          });
+        }
+        const recommendation = input.recommendation !== undefined ? input.recommendation : audit.recommendation;
+        if (!recommendation) {
+          return res.status(400).json({ message: 'Record the audit recommendation before completing the audit', field: 'recommendation' });
+        }
+        if (!input.completedDate) updates.completedDate = new Date();
+      }
+
+      const updated = await storage.updateCertificationAudit(id, updates);
+
       await storage.createAuditLog({
         action: AuditAction.UPDATE,
         entityType: 'certification_audit',
         entityId: id,
         userId,
-        newValue: JSON.stringify(req.body),
+        previousValue: JSON.stringify({ status: audit.status }),
+        newValue: JSON.stringify(input),
       });
-      
+
       res.json(updated);
     } catch (err) {
       console.error('Error updating certification audit:', err);
@@ -5972,10 +6222,44 @@ export async function registerRoutes(
     }
   });
 
+  const certFindingCreateSchema = z.object({
+    auditId: ctRequiredId('Audit'),
+    findingNumber: ctText,
+    findingType: ctEnum('finding type', Object.values(FindingType)),
+    clauseReference: ctText,
+    description: ctRequiredText('Description'),
+    objectiveEvidence: ctText,
+    correctiveAction: ctText,
+    targetClosureDate: ctDate,
+  });
+  const certFindingUpdateSchema = z.object({
+    findingType: ctEnum('finding type', Object.values(FindingType)).optional(),
+    clauseReference: ctText,
+    description: ctRequiredText('Description').optional(),
+    objectiveEvidence: ctText,
+    correctiveAction: ctText,
+    targetClosureDate: ctDate,
+    status: ctEnum('finding status', Object.values(FindingStatus)).optional(),
+    // Closing a finding without a corrective action (e.g. an observation) needs a note from the verifier
+    verificationNote: ctText,
+  });
+
   // Get findings for an audit
   app.get('/api/audit-findings', requireAuth, async (req: Request, res: Response) => {
     try {
+      const user = await storage.getUser(getCurrentUserId(req));
       const auditId = req.query.auditId ? parseInt(req.query.auditId as string) : undefined;
+      if (!user) return res.status(401).json({ message: 'Authentication required' });
+      if (auditId) {
+        const audit = await storage.getCertificationAudit(auditId);
+        if (!audit) return res.status(404).json({ message: 'Audit not found' });
+        const application = await storage.getCertificationApplication(audit.applicationId);
+        if (!canViewCertification(user, application, audit)) {
+          return res.status(403).json({ message: 'You do not have access to this audit' });
+        }
+      } else if (!canViewCertification(user)) {
+        return res.status(403).json({ message: 'Only managers and auditors can list audit findings' });
+      }
       const findings = await storage.getAuditFindings(auditId);
       res.json(findings);
     } catch (err) {
@@ -5988,16 +6272,45 @@ export async function registerRoutes(
   app.post('/api/audit-findings', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
-      const finding = await storage.createAuditFinding(req.body);
-      
+      const user = await storage.getUser(userId);
+      const parsed = certFindingCreateSchema.safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+      const input = parsed.data;
+
+      const audit = await storage.getCertificationAudit(input.auditId);
+      if (!audit) {
+        return res.status(404).json({ message: 'Audit not found' });
+      }
+      const application = await storage.getCertificationApplication(audit.applicationId);
+      if (!user || !canWorkOnAudit(user, audit, application)) {
+        return res.status(403).json({ message: 'Only managers or the audit\'s lead auditor / assigned auditors can record findings' });
+      }
+      if (LOCKED_AUDIT_STATUSES.includes(audit.status)) {
+        return res.status(400).json({ message: `Findings cannot be added to a ${audit.status} audit` });
+      }
+
+      // Number findings per audit after the highest existing one
+      let findingNumber = input.findingNumber || '';
+      if (!findingNumber) {
+        const existing = await storage.getAuditFindings(audit.id);
+        const highest = Math.max(0, ...existing.map(f => parseInt(f.findingNumber.match(/(\d+)$/)?.[1] || '0')));
+        findingNumber = `F-${audit.id}-${String(highest + 1).padStart(2, '0')}`;
+      }
+
+      const finding = await storage.createAuditFinding({
+        ...input,
+        findingNumber,
+        status: input.correctiveAction ? FindingStatus.PENDING_VERIFICATION : FindingStatus.OPEN,
+      });
+
       await storage.createAuditLog({
         action: AuditAction.CREATE,
         entityType: 'audit_finding',
         entityId: finding.id,
         userId,
-        newValue: JSON.stringify({ findingType: finding.findingType, auditId: finding.auditId }),
+        newValue: JSON.stringify({ findingNumber: finding.findingNumber, findingType: finding.findingType, auditId: finding.auditId }),
       });
-      
+
       res.status(201).json(finding);
     } catch (err) {
       console.error('Error creating audit finding:', err);
@@ -6005,22 +6318,60 @@ export async function registerRoutes(
     }
   });
 
-  // Update finding
+  // Update finding (corrective action, verification and closure)
   app.put('/api/audit-findings/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
       const id = parseInt(req.params.id);
-      
-      const updated = await storage.updateAuditFinding(id, req.body);
-      
+      const finding = await storage.getAuditFinding(id);
+      if (!finding) {
+        return res.status(404).json({ message: 'Finding not found' });
+      }
+      const audit = await storage.getCertificationAudit(finding.auditId);
+      const application = audit ? await storage.getCertificationApplication(audit.applicationId) : undefined;
+      if (!user || !audit || !canWorkOnAudit(user, audit, application)) {
+        return res.status(403).json({ message: 'Only managers or the audit\'s lead auditor / assigned auditors can update findings' });
+      }
+      if (finding.status === FindingStatus.CLOSED) {
+        return res.status(400).json({ message: 'This finding is closed and can no longer be changed' });
+      }
+
+      const parsed = certFindingUpdateSchema.safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+      const { verificationNote, ...input } = parsed.data;
+      const updates: Parameters<typeof storage.updateAuditFinding>[1] = { ...input };
+      const correctiveAction = input.correctiveAction !== undefined ? input.correctiveAction : finding.correctiveAction;
+
+      let status = input.status ?? finding.status;
+      // A corrective action on an open finding sends it for verification
+      if (input.status === undefined && finding.status === FindingStatus.OPEN && input.correctiveAction) {
+        status = FindingStatus.PENDING_VERIFICATION;
+      }
+      if (status === FindingStatus.PENDING_VERIFICATION && !correctiveAction) {
+        return res.status(400).json({ message: 'Add the corrective action before sending the finding for verification', field: 'correctiveAction' });
+      }
+      if (status === FindingStatus.CLOSED) {
+        if (!correctiveAction && !verificationNote) {
+          return res.status(400).json({ message: 'Closing a finding requires a corrective action or a verification note', field: 'correctiveAction' });
+        }
+        if (!correctiveAction) updates.correctiveAction = `Verification note: ${verificationNote}`;
+        updates.verifiedAt = new Date();
+        updates.verifiedById = userId;
+      }
+      updates.status = status;
+
+      const updated = await storage.updateAuditFinding(id, updates);
+
       await storage.createAuditLog({
         action: AuditAction.UPDATE,
         entityType: 'audit_finding',
         entityId: id,
         userId,
-        newValue: JSON.stringify(req.body),
+        previousValue: JSON.stringify({ status: finding.status }),
+        newValue: JSON.stringify({ ...input, status, ...(verificationNote ? { verificationNote } : {}) }),
       });
-      
+
       res.json(updated);
     } catch (err) {
       console.error('Error updating audit finding:', err);
@@ -6028,12 +6379,33 @@ export async function registerRoutes(
     }
   });
 
+  const certificateSchema = z.object({
+    applicationId: ctRequiredId('Application'),
+    certificateNumber: ctRequiredText('Certificate number'),
+    clientName: ctRequiredText('Client name'),
+    clientLocation: ctText,
+    isoStandard: ctRequiredText('ISO standard'),
+    standardName: ctRequiredText('Standard name'),
+    sectorCode: ctText,
+    certificationScope: ctRequiredText('Certification scope'),
+    issueDate: ctRequiredDate('Issue date'),
+    expiryDate: ctRequiredDate('Expiry date'),
+    firstSurveillanceDate: ctDate,
+    secondSurveillanceDate: ctDate,
+    status: ctEnum('certificate status', ['active', 'suspended', 'withdrawn', 'expired']).optional(),
+    certificateImageUrl: ctText,
+    certificatePdfUrl: ctText,
+    leftBackgroundImage: ctText,
+    rightBackgroundImage: ctText,
+  });
+  const isUniqueViolation = (err: unknown) => (err as { code?: string })?.code === '23505';
+
   // Get certificates
   app.get('/api/certificates', requireAuth, async (req: Request, res: Response) => {
     try {
       const applicationId = req.query.applicationId ? parseInt(req.query.applicationId as string) : undefined;
       const status = req.query.status as string | undefined;
-      
+
       const certs = await storage.getCertificates({ applicationId, status });
       res.json(certs);
     } catch (err) {
@@ -6047,11 +6419,11 @@ export async function registerRoutes(
     try {
       const id = parseInt(req.params.id);
       const cert = await storage.getCertificate(id);
-      
+
       if (!cert) {
         return res.status(404).json({ message: 'Certificate not found' });
       }
-      
+
       res.json(cert);
     } catch (err) {
       console.error('Error fetching certificate:', err);
@@ -6064,31 +6436,64 @@ export async function registerRoutes(
     try {
       const userId = getCurrentUserId(req);
       const user = await storage.getUser(userId);
-      
-      if (!user || (user.role !== UserRole.AUDITOR && user.role !== UserRole.ADMIN && user.role !== UserRole.QUALITY_MANAGER)) {
-        return res.status(403).json({ message: 'Only auditors, admin, or quality managers can issue certificates' });
+
+      if (!isCertManager(user)) {
+        return res.status(403).json({ message: 'Only managers (admin, quality manager or COO) can issue certificates' });
       }
 
-      const cert = await storage.createCertificate({
-        ...req.body,
-        issuedById: userId,
-      });
-      
-      // Update application status
-      if (req.body.applicationId) {
-        await storage.updateCertificationApplication(req.body.applicationId, {
-          status: 'certificate_issued',
-        });
+      const parsed = certificateSchema.safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+      const input = parsed.data;
+      if (input.expiryDate <= input.issueDate) {
+        return res.status(400).json({ message: 'Expiry date must be after the issue date', field: 'expiryDate' });
       }
-      
+
+      const application = await storage.getCertificationApplication(input.applicationId);
+      if (!application) {
+        return res.status(404).json({ message: 'Application not found' });
+      }
+      if (application.status !== CertificationApplicationStatus.APPROVED) {
+        return res.status(400).json({ message: `A certificate can only be issued for an approved application (this one is ${application.status.replace(/_/g, ' ')})` });
+      }
+      if (await storage.getCertificateByNumber(input.certificateNumber)) {
+        return res.status(409).json({ message: `Certificate number ${input.certificateNumber} is already in use`, field: 'certificateNumber' });
+      }
+
+      let cert;
+      try {
+        cert = await storage.createCertificate({
+          ...input,
+          status: input.status ?? 'active',
+          issuedById: userId,
+        });
+      } catch (err) {
+        if (isUniqueViolation(err)) {
+          return res.status(409).json({ message: `Certificate number ${input.certificateNumber} is already in use`, field: 'certificateNumber' });
+        }
+        throw err;
+      }
+
+      // Update application status
+      await storage.updateCertificationApplication(application.id, {
+        status: CertificationApplicationStatus.CERTIFICATE_ISSUED,
+      });
+
       await storage.createAuditLog({
         action: AuditAction.CREATE,
         entityType: 'certificate',
         entityId: cert.id,
         userId,
-        newValue: JSON.stringify({ certificateNumber: cert.certificateNumber, clientName: cert.clientName }),
+        newValue: JSON.stringify({ certificateNumber: cert.certificateNumber, clientName: cert.clientName, applicationId: application.id }),
       });
-      
+      await storage.createAuditLog({
+        action: AuditAction.UPDATE,
+        entityType: 'certification_application',
+        entityId: application.id,
+        userId,
+        previousValue: JSON.stringify({ status: application.status }),
+        newValue: JSON.stringify({ status: CertificationApplicationStatus.CERTIFICATE_ISSUED, certificateNumber: cert.certificateNumber }),
+      });
+
       res.status(201).json(cert);
     } catch (err) {
       console.error('Error creating certificate:', err);
@@ -6100,18 +6505,37 @@ export async function registerRoutes(
   app.put('/api/certificates/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
       const id = parseInt(req.params.id);
-      
-      const updated = await storage.updateCertificate(id, req.body);
-      
+      if (!isCertManager(user)) {
+        return res.status(403).json({ message: 'Only managers (admin, quality manager or COO) can change certificates' });
+      }
+      const existing = await storage.getCertificate(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Certificate not found' });
+      }
+
+      const parsed = certificateSchema.omit({ applicationId: true }).partial().safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+
+      let updated;
+      try {
+        updated = await storage.updateCertificate(id, parsed.data);
+      } catch (err) {
+        if (isUniqueViolation(err)) {
+          return res.status(409).json({ message: `Certificate number ${parsed.data.certificateNumber} is already in use`, field: 'certificateNumber' });
+        }
+        throw err;
+      }
+
       await storage.createAuditLog({
         action: AuditAction.UPDATE,
         entityType: 'certificate',
         entityId: id,
         userId,
-        newValue: JSON.stringify(req.body),
+        newValue: JSON.stringify(parsed.data),
       });
-      
+
       res.json(updated);
     } catch (err) {
       console.error('Error updating certificate:', err);
@@ -6122,7 +6546,44 @@ export async function registerRoutes(
   // ===========================================
   // TRAININGS AND ASSESSMENTS
   // ===========================================
-  
+
+  // Managers and HR create trainings, assign them and complete / certify them
+  const isTrainingManager = (user?: { role: string; email: string } | null) =>
+    isCertManager(user) || user?.email === 'hr@sahihcertify.com';
+  const trainingSchema = z.object({
+    title: ctRequiredText('Title'),
+    description: ctText,
+    type: ctEnum('training type', [...Object.values(TrainingType), 'induction']).optional(),
+    category: ctText,
+    duration: ctInt('Duration'),
+    passingScore: ctInt('Passing score', 100),
+    content: ctText,
+    documentId: ctId,
+    status: ctEnum('training status', Object.values(TrainingStatus)).optional(),
+    validityPeriod: ctInt('Validity period'),
+  });
+  const trainingAssignmentCreateSchema = z.object({
+    trainingId: ctRequiredId('Training'),
+    employeeId: ctRequiredId('Employee'),
+    dueDate: ctDate,
+    notes: ctText,
+  });
+  const trainingAssignmentUpdateSchema = z.object({
+    // completion goes through /complete so that the result and certificate are recorded
+    status: ctEnum('assignment status', Object.values(TrainingAssignmentStatus).filter(s => s !== TrainingAssignmentStatus.COMPLETED)).optional(),
+    dueDate: ctDate,
+    startedAt: ctDate,
+    notes: ctText,
+  });
+  const trainingCompleteSchema = z.object({
+    score: ctInt('Score', 100),
+    passed: z.boolean().optional(),
+    remarks: ctText,
+  });
+  // The login of an employee: linked by userId, or else the user with the same email
+  const employeeLoginId = async (employee: { userId: number | null; email: string }) =>
+    employee.userId ?? (await storage.getUserByEmail(employee.email))?.id ?? null;
+
   // Get all trainings
   app.get('/api/trainings', requireAuth, async (req: Request, res: Response) => {
     try {
@@ -6153,11 +6614,16 @@ export async function registerRoutes(
   app.post('/api/trainings', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
+      if (!isTrainingManager(await storage.getUser(userId))) {
+        return res.status(403).json({ message: 'Only managers or HR can create trainings' });
+      }
+      const parsed = trainingSchema.safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
       const training = await storage.createTraining({
-        ...req.body,
+        ...parsed.data,
         createdById: userId,
       });
-      
+
       await storage.createAuditLog({
         action: AuditAction.CREATE,
         entityType: 'training',
@@ -6165,7 +6631,7 @@ export async function registerRoutes(
         userId,
         newValue: JSON.stringify({ title: training.title, type: training.type }),
       });
-      
+
       res.status(201).json(training);
     } catch (err) {
       console.error('Error creating training:', err);
@@ -6178,17 +6644,25 @@ export async function registerRoutes(
     try {
       const userId = getCurrentUserId(req);
       const id = parseInt(req.params.id);
-      
-      const updated = await storage.updateTraining(id, req.body);
-      
+      if (!isTrainingManager(await storage.getUser(userId))) {
+        return res.status(403).json({ message: 'Only managers or HR can change trainings' });
+      }
+      if (!(await storage.getTraining(id))) {
+        return res.status(404).json({ message: 'Training not found' });
+      }
+      const parsed = trainingSchema.partial().safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+
+      const updated = await storage.updateTraining(id, parsed.data);
+
       await storage.createAuditLog({
         action: AuditAction.UPDATE,
         entityType: 'training',
         entityId: id,
         userId,
-        newValue: JSON.stringify(req.body),
+        newValue: JSON.stringify(parsed.data),
       });
-      
+
       res.json(updated);
     } catch (err) {
       console.error('Error updating training:', err);
@@ -6201,16 +6675,22 @@ export async function registerRoutes(
     try {
       const userId = getCurrentUserId(req);
       const id = parseInt(req.params.id);
-      
+      if (!isTrainingManager(await storage.getUser(userId))) {
+        return res.status(403).json({ message: 'Only managers or HR can delete trainings' });
+      }
+      if ((await storage.getTrainingAssignments({ trainingId: id })).length > 0) {
+        return res.status(400).json({ message: 'This training has assignments and cannot be deleted; set it to inactive or archived instead' });
+      }
+
       await storage.deleteTraining(id);
-      
+
       await storage.createAuditLog({
         action: AuditAction.DELETE,
         entityType: 'training',
         entityId: id,
         userId,
       });
-      
+
       res.status(204).send();
     } catch (err) {
       console.error('Error deleting training:', err);
@@ -6221,14 +6701,14 @@ export async function registerRoutes(
   // ===========================================
   // TRAINING ASSIGNMENTS
   // ===========================================
-  
+
   // Get all training assignments
   app.get('/api/training-assignments', requireAuth, async (req: Request, res: Response) => {
     try {
       const filters: { employeeId?: number; trainingId?: number } = {};
       if (req.query.employeeId) filters.employeeId = parseInt(req.query.employeeId as string);
       if (req.query.trainingId) filters.trainingId = parseInt(req.query.trainingId as string);
-      
+
       const result = await storage.getTrainingAssignments(filters);
       res.json(result);
     } catch (err) {
@@ -6256,35 +6736,45 @@ export async function registerRoutes(
   app.post('/api/training-assignments', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
+      if (!isTrainingManager(await storage.getUser(userId))) {
+        return res.status(403).json({ message: 'Only managers or HR can assign trainings' });
+      }
+      const parsed = trainingAssignmentCreateSchema.safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+      const training = await storage.getTraining(parsed.data.trainingId);
+      if (!training) {
+        return res.status(400).json({ message: 'Training not found', field: 'trainingId' });
+      }
+      const employee = await storage.getEmployee(parsed.data.employeeId);
+      if (!employee) {
+        return res.status(400).json({ message: 'Employee not found', field: 'employeeId' });
+      }
+
       const assignment = await storage.createTrainingAssignment({
-        ...req.body,
+        ...parsed.data,
+        status: TrainingAssignmentStatus.ASSIGNED,
         assignedById: userId,
       });
-      
+
       await storage.createAuditLog({
         action: AuditAction.ASSIGN_TASK,
         entityType: 'training_assignment',
         entityId: assignment.id,
         userId,
-        newValue: JSON.stringify({ trainingId: assignment.trainingId, employeeId: assignment.employeeId }),
+        newValue: JSON.stringify({ trainingId: assignment.trainingId, employeeId: assignment.employeeId, dueDate: assignment.dueDate }),
       });
-      
-      // Create notification for the employee
-      const employee = await storage.getEmployee(assignment.employeeId);
-      if (employee) {
-        const training = await storage.getTraining(assignment.trainingId);
-        // Find user by employee email to send notification
-        const employeeUser = await storage.getUserByEmail(employee.email);
-        if (employeeUser) {
-          await storage.createNotification({
-            userId: employeeUser.id,
-            title: 'New Training Assigned',
-            message: `You have been assigned to complete: ${training?.title || 'Training'}`,
-            urgency: UrgencyLevel.MEDIUM,
-          });
-        }
+
+      // Notify the employee's login (linked user, or the user with the same email)
+      const employeeUserId = await employeeLoginId(employee);
+      if (employeeUserId) {
+        await storage.createNotification({
+          userId: employeeUserId,
+          title: 'New Training Assigned',
+          message: `You have been assigned to complete: ${training.title}${assignment.dueDate ? ` (due ${assignment.dueDate.toLocaleDateString('en-GB')})` : ''}`,
+          urgencyLevel: UrgencyLevel.MEDIUM,
+        });
       }
-      
+
       res.status(201).json(assignment);
     } catch (err) {
       console.error('Error creating training assignment:', err);
@@ -6292,22 +6782,49 @@ export async function registerRoutes(
     }
   });
 
-  // Update training assignment
+  // Update training assignment (managers/HR; the employee can start their own training)
   app.put('/api/training-assignments/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
       const id = parseInt(req.params.id);
-      
-      const updated = await storage.updateTrainingAssignment(id, req.body);
-      
+      const assignment = await storage.getTrainingAssignment(id);
+      if (!assignment) {
+        return res.status(404).json({ message: 'Training assignment not found' });
+      }
+      const parsed = trainingAssignmentUpdateSchema.safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+      const input = parsed.data;
+
+      if (!isTrainingManager(user)) {
+        const employee = await storage.getEmployee(assignment.employeeId);
+        const isAssignee = !!employee && (await employeeLoginId(employee)) === userId;
+        const onlyStarts = input.status === TrainingAssignmentStatus.IN_PROGRESS &&
+          Object.keys(input).every(k => k === 'status' || k === 'notes');
+        if (!isAssignee || !onlyStarts) {
+          return res.status(403).json({ message: 'Only managers or HR can change this assignment; the assigned employee can only start it' });
+        }
+      }
+      if (assignment.status === TrainingAssignmentStatus.COMPLETED) {
+        return res.status(400).json({ message: 'This training is already completed' });
+      }
+
+      const updates: Parameters<typeof storage.updateTrainingAssignment>[1] = { ...input };
+      if (input.status === TrainingAssignmentStatus.IN_PROGRESS && !assignment.startedAt && !input.startedAt) {
+        updates.startedAt = new Date();
+      }
+
+      const updated = await storage.updateTrainingAssignment(id, updates);
+
       await storage.createAuditLog({
         action: AuditAction.UPDATE,
         entityType: 'training_assignment',
         entityId: id,
         userId,
-        newValue: JSON.stringify(req.body),
+        previousValue: JSON.stringify({ status: assignment.status }),
+        newValue: JSON.stringify(input),
       });
-      
+
       res.json(updated);
     } catch (err) {
       console.error('Error updating training assignment:', err);
@@ -6320,47 +6837,72 @@ export async function registerRoutes(
     try {
       const userId = getCurrentUserId(req);
       const id = parseInt(req.params.id);
-      const { score, passed, remarks } = req.body;
-      
+      if (!isTrainingManager(await storage.getUser(userId))) {
+        return res.status(403).json({ message: 'Only managers or HR can complete trainings and issue certificates' });
+      }
+      const parsed = trainingCompleteSchema.safeParse(req.body ?? {});
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+      const { remarks } = parsed.data;
+      const score = parsed.data.score ?? null;
+
       const assignment = await storage.getTrainingAssignment(id);
       if (!assignment) {
         return res.status(404).json({ message: 'Training assignment not found' });
       }
-      
-      // Update assignment status
-      const updated = await storage.updateTrainingAssignment(id, {
-        status: 'completed',
-        completedAt: new Date(),
-        score,
-      });
-      
-      // Get training for validity period
+      if (assignment.status === TrainingAssignmentStatus.COMPLETED) {
+        return res.status(400).json({ message: 'This training is already completed' });
+      }
+      if (assignment.status === TrainingAssignmentStatus.CANCELLED) {
+        return res.status(400).json({ message: 'This assignment was cancelled' });
+      }
+
+      // Get training for passing score and validity period
       const training = await storage.getTraining(assignment.trainingId);
-      
+      // With a score and a passing score, the score decides; otherwise the result given
+      const passed = score !== null && training?.passingScore != null
+        ? score >= training.passingScore
+        : parsed.data.passed !== false;
+      const now = new Date();
+
       // Calculate expiry date if training has validity period
       let expiryDate: Date | undefined;
-      if (training?.validityPeriod) {
-        expiryDate = new Date();
+      if (passed && training?.validityPeriod) {
+        expiryDate = new Date(now);
         expiryDate.setMonth(expiryDate.getMonth() + training.validityPeriod);
       }
-      
-      // Generate certificate number
-      const certNumber = `TC-${new Date().getFullYear()}-${String(id).padStart(5, '0')}`;
-      
+
+      // Certificate number: next after the highest one this year (only for a pass)
+      let certNumber: string | null = null;
+      if (passed) {
+        const prefix = `TC-${now.getFullYear()}-`;
+        const highest = Math.max(0, ...(await storage.getTrainingCompletions())
+          .map(c => c.certificateNumber?.startsWith(prefix) ? parseInt(c.certificateNumber.slice(prefix.length)) || 0 : 0));
+        certNumber = `${prefix}${String(highest + 1).padStart(5, '0')}`;
+      }
+
+      // A pass completes the assignment; a fail is recorded as an attempt and the training stays open for a retake
+      const updated = await storage.updateTrainingAssignment(id, {
+        status: passed ? TrainingAssignmentStatus.COMPLETED : TrainingAssignmentStatus.IN_PROGRESS,
+        completedAt: passed ? now : null,
+        startedAt: assignment.startedAt ?? now,
+        attempts: (assignment.attempts ?? 0) + 1,
+        score,
+      });
+
       // Create training completion record
       const completion = await storage.createTrainingCompletion({
         assignmentId: id,
         trainingId: assignment.trainingId,
         employeeId: assignment.employeeId,
-        completionDate: new Date(),
+        completionDate: now,
         score,
-        passed: passed !== false,
+        passed,
         certificateNumber: certNumber,
         expiryDate,
         issuedById: userId,
         remarks,
       });
-      
+
       await storage.createAuditLog({
         action: AuditAction.COMPLETE_TASK,
         entityType: 'training_assignment',
@@ -6368,7 +6910,7 @@ export async function registerRoutes(
         userId,
         newValue: JSON.stringify({ score, passed, certificateNumber: certNumber }),
       });
-      
+
       res.json({ assignment: updated, completion });
     } catch (err) {
       console.error('Error completing training assignment:', err);

@@ -433,7 +433,8 @@ export async function collectOpenTasks(): Promise<TaskSnapshot> {
     const assigned = at(audit.createdAt);
     tasks.push({
       key: `certification_audit:${audit.id}`, userId: audit.leadAuditorId, dueSource: audit.scheduledDate ? 'source' : 'default', taskType: 'certification_audit',
-      title: `${audit.auditType.replace(/_|\d/g, ' ').trim()} audit: ${app?.clientName || 'Client'}`, reference: app?.applicationNumber || 'Audit',
+      // "stage2" -> "Stage 2 audit", "surveillance1" -> "Surveillance 1 audit"
+      title: `${audit.auditType.replace(/_/g, ' ').replace(/(\D)(\d)/, '$1 $2').replace(/^./, c => c.toUpperCase())} audit: ${app?.clientName || 'Client'}`, reference: app?.applicationNumber || 'Audit',
       description: audit.scheduledDate ? `Scheduled for ${audit.scheduledDate.toLocaleDateString('en-GB')}.` : 'Audit not yet scheduled.',
       link: '/certification', assignedAt: assigned,
       dueAt: audit.scheduledDate ? due(endOfDay(audit.scheduledDate), 'certification_audit') : null,

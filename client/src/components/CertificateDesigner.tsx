@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Download, Save, Eye, FileImage } from "lucide-react";
+import { Download, Save, Eye, FileImage, Printer } from "lucide-react";
 import { format, addYears, addMonths } from "date-fns";
 import sahihLogo from "@assets/sahih_logo-1.png";
 
@@ -21,6 +21,55 @@ const ISO_STANDARDS = [
   { value: "ISO 27001:2022", label: "ISO 27001:2022", name: "Information Security Management System" },
   { value: "ISO 50001:2018", label: "ISO 50001:2018", name: "Energy Management System" },
 ];
+
+// Decorative bands down the left and right edge of the certificate (stored as leftBackgroundImage / rightBackgroundImage)
+const BACKGROUND_PRESETS: { value: string; label: string; css: string }[] = [
+  { value: "none", label: "None", css: "none" },
+  { value: "preset:cyan", label: "Cyan wave", css: "linear-gradient(180deg, #0e7490 0%, #22d3ee 50%, #0e7490 100%)" },
+  { value: "preset:teal", label: "Teal band", css: "linear-gradient(180deg, #115e59 0%, #2dd4bf 100%)" },
+  { value: "preset:gold", label: "Gold", css: "linear-gradient(180deg, #a16207 0%, #fde68a 50%, #a16207 100%)" },
+  { value: "preset:navy", label: "Navy", css: "linear-gradient(180deg, #1e3a8a 0%, #3b82f6 100%)" },
+];
+
+function backgroundCss(value: string): string {
+  if (!value || value === "none") return "none";
+  if (value.startsWith("data:") || value.startsWith("http") || value.startsWith("/")) return `url("${value}") center / cover no-repeat`;
+  return BACKGROUND_PRESETS.find(p => p.value === value)?.css || "none";
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+// The page's own CSS (Tailwind), so the printed / exported certificate looks like the preview
+function collectPageCss(): string {
+  return Array.from(document.styleSheets).map(sheet => {
+    try {
+      return Array.from(sheet.cssRules).map(rule => rule.cssText).join("\n");
+    } catch {
+      return "";
+    }
+  }).join("\n");
+}
+
+// Standalone copy of the certificate at full size (no preview scaling), with images inlined
+async function certificateClone(node: HTMLElement): Promise<HTMLElement> {
+  const clone = node.cloneNode(true) as HTMLElement;
+  clone.style.transform = "none";
+  clone.style.margin = "0";
+  clone.style.boxShadow = "none";
+  await Promise.all(Array.from(clone.querySelectorAll("img")).map(async img => {
+    if (img.src.startsWith("data:")) return;
+    const res = await fetch(img.src);
+    img.src = await blobToDataUrl(await res.blob());
+  }));
+  return clone;
+}
 
 interface CertificateDesignerProps {
   isOpen: boolean;
@@ -63,7 +112,10 @@ export default function CertificateDesigner({
     expiryDate: format(threeYearsLater, "yyyy-MM-dd"),
     firstSurveillanceDate: format(oneYearLater, "yyyy-MM-dd"),
     secondSurveillanceDate: format(twoYearsLater, "yyyy-MM-dd"),
+    leftBackgroundImage: "preset:cyan",
+    rightBackgroundImage: "preset:cyan",
   });
+  const [isExporting, setIsExporting] = useState(false);
 
   function generateCertNumber(standard: string): string {
     const year = new Date().getFullYear();
@@ -87,6 +139,8 @@ export default function CertificateDesigner({
         expiryDate: new Date(formData.expiryDate).toISOString(),
         firstSurveillanceDate: formData.firstSurveillanceDate ? new Date(formData.firstSurveillanceDate).toISOString() : null,
         secondSurveillanceDate: formData.secondSurveillanceDate ? new Date(formData.secondSurveillanceDate).toISOString() : null,
+        leftBackgroundImage: formData.leftBackgroundImage === "none" ? null : formData.leftBackgroundImage,
+        rightBackgroundImage: formData.rightBackgroundImage === "none" ? null : formData.rightBackgroundImage,
         status: "active",
       });
     },
@@ -94,9 +148,84 @@ export default function CertificateDesigner({
       onCertificateCreated();
     },
     onError: (error: Error) => {
-      toast({ title: "Error creating certificate", description: error.message, variant: "destructive" });
+      const raw = error.message.replace(/^\d+: /, "");
+      let description = raw;
+      try { description = JSON.parse(raw).message || raw; } catch { /* plain text */ }
+      toast({ title: "Error creating certificate", description, variant: "destructive" });
     },
   });
+
+  // Print the certificate on its own A4 page (the browser's print dialog also offers "Save as PDF")
+  const handlePrint = async () => {
+    if (!previewRef.current) return;
+    const clone = await certificateClone(previewRef.current);
+    const frame = document.createElement("iframe");
+    frame.setAttribute("aria-hidden", "true");
+    frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+    document.body.appendChild(frame);
+    const doc = frame.contentDocument!;
+    doc.open();
+    doc.write(`<!doctype html><html><head><title>Certificate ${formData.certificateNumber}</title>
+      <style>${collectPageCss()}</style>
+      <style>@page { size: A4 portrait; margin: 0; } html, body { margin: 0; background: #fff; }
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }</style>
+      </head><body>${clone.outerHTML}</body></html>`);
+    doc.close();
+    const win = frame.contentWindow!;
+    setTimeout(() => {
+      win.focus();
+      win.print();
+      setTimeout(() => frame.remove(), 1000);
+    }, 300);
+  };
+
+  // Download the certificate as a PNG image (drawn from the live preview)
+  const handleDownloadPng = async () => {
+    if (!previewRef.current) return;
+    setIsExporting(true);
+    try {
+      const node = previewRef.current;
+      const clone = await certificateClone(node);
+      // web fonts are not available inside the SVG image: use a system sans-serif rather than the serif fallback
+      clone.style.fontFamily = "Helvetica, Arial, sans-serif";
+      const width = node.offsetWidth;
+      const height = node.offsetHeight;
+      const css = collectPageCss().replace(/&/g, "&amp;").replace(/</g, "&lt;");
+      const xhtml = new XMLSerializer().serializeToString(clone);
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml"><style>${css}</style>${xhtml}</div></foreignObject></svg>`;
+      const img = new Image();
+      img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+      await img.decode();
+      const scale = 2;
+      const canvas = document.createElement("canvas");
+      canvas.width = width * scale;
+      canvas.height = height * scale;
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.scale(scale, scale);
+      ctx.drawImage(img, 0, 0, width, height);
+      const link = document.createElement("a");
+      link.download = `${formData.certificateNumber || "certificate"}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    } catch (err) {
+      console.error("Certificate PNG export failed:", err);
+      toast({ title: "Could not create the image", description: "Use Print / PDF and choose \"Save as PDF\" instead.", variant: "destructive" });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleBackgroundUpload = async (side: "leftBackgroundImage" | "rightBackgroundImage", file?: File) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/") || file.size > 2 * 1024 * 1024) {
+      toast({ title: "Choose an image up to 2 MB", variant: "destructive" });
+      return;
+    }
+    const dataUrl = await blobToDataUrl(file);
+    setFormData(prev => ({ ...prev, [side]: dataUrl }));
+  };
 
   const handleChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -248,6 +377,39 @@ export default function CertificateDesigner({
                     />
                   </div>
                 </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  {([["leftBackgroundImage", "Left Background"], ["rightBackgroundImage", "Right Background"]] as const).map(([side, label]) => (
+                    <div key={side} className="space-y-1">
+                      <Label>{label}</Label>
+                      <Select
+                        value={BACKGROUND_PRESETS.some(p => p.value === formData[side]) ? formData[side] : "custom"}
+                        onValueChange={(v) => v !== "custom" && handleChange(side, v)}
+                      >
+                        <SelectTrigger data-testid={`select-cert-${side === "leftBackgroundImage" ? "left" : "right"}-bg`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {BACKGROUND_PRESETS.map(p => (
+                            <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                          ))}
+                          <SelectItem value="custom" disabled>Uploaded image</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <label className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+                        <FileImage className="h-3 w-3" />
+                        Upload image
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => handleBackgroundUpload(side, e.target.files?.[0])}
+                          data-testid={`input-cert-${side === "leftBackgroundImage" ? "left" : "right"}-bg-file`}
+                        />
+                      </label>
+                    </div>
+                  ))}
+                </div>
               </CardContent>
             </Card>
 
@@ -260,6 +422,16 @@ export default function CertificateDesigner({
               >
                 <Save className="h-4 w-4 mr-2" />
                 {createCertificateMutation.isPending ? "Saving..." : "Save Certificate"}
+              </Button>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={handlePrint} data-testid="button-print-certificate">
+                <Printer className="h-4 w-4 mr-2" />
+                Print / PDF
+              </Button>
+              <Button variant="outline" className="flex-1" onClick={handleDownloadPng} disabled={isExporting} data-testid="button-download-certificate">
+                <Download className="h-4 w-4 mr-2" />
+                {isExporting ? "Preparing..." : "Download PNG"}
               </Button>
             </div>
           </div>
@@ -276,7 +448,13 @@ export default function CertificateDesigner({
                 transformOrigin: "top left",
               }}
             >
-              <div className="relative p-8" style={{ background: "linear-gradient(135deg, #f8fafc 0%, #e0f2fe 50%, #f0fdf4 100%)" }}>
+              <div className="relative p-8" style={{ background: "linear-gradient(135deg, #f8fafc 0%, #e0f2fe 50%, #f0fdf4 100%)", minHeight: "1123px", paddingLeft: formData.leftBackgroundImage !== "none" ? "88px" : undefined, paddingRight: formData.rightBackgroundImage !== "none" ? "88px" : undefined }}>
+                {formData.leftBackgroundImage !== "none" && (
+                  <div className="absolute left-0 top-0 bottom-0" style={{ width: "56px", background: backgroundCss(formData.leftBackgroundImage) }} data-testid="cert-left-bg" />
+                )}
+                {formData.rightBackgroundImage !== "none" && (
+                  <div className="absolute right-0 top-0 bottom-0" style={{ width: "56px", background: backgroundCss(formData.rightBackgroundImage) }} data-testid="cert-right-bg" />
+                )}
                 <div className="absolute inset-0 opacity-5">
                   <div 
                     className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-9xl font-bold text-cyan-900 rotate-[-30deg]"
