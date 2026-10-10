@@ -20,29 +20,43 @@ const statusColors: Record<string, string> = {
   terminated: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
 };
 
+const workflowLabels: Record<string, string> = {
+  draft: "Draft",
+  in_review: "In review",
+  pending_approval: "Pending approval",
+};
+
 function buildOrgTree(employees: Employee[]): OrgNode[] {
   const employeeIds = new Set(employees.map(e => e.id));
   const childrenMap = new Map<number | null, Employee[]>();
   
   employees.forEach(emp => {
     const parentId = emp.supervisorId;
-    const effectiveParentId = parentId && employeeIds.has(parentId) ? parentId : null;
+    const effectiveParentId = parentId && parentId !== emp.id && employeeIds.has(parentId) ? parentId : null;
     if (!childrenMap.has(effectiveParentId)) {
       childrenMap.set(effectiveParentId, []);
     }
     childrenMap.get(effectiveParentId)!.push(emp);
   });
   
+  // Each person appears once; the visited set stops reporting loops in old data from recursing forever
+  const visited = new Set<number>();
   function buildNode(employee: Employee): OrgNode {
-    const children = childrenMap.get(employee.id) || [];
+    visited.add(employee.id);
+    const children = (childrenMap.get(employee.id) || []).filter(child => !visited.has(child.id));
+    children.forEach(child => visited.add(child.id));
     return {
       employee,
       children: children.map(child => buildNode(child)),
     };
   }
   
-  const roots = childrenMap.get(null) || [];
-  return roots.map(root => buildNode(root));
+  const roots = (childrenMap.get(null) || []).map(root => buildNode(root));
+  // People in a supervisor loop have no top-level manager: show them as roots instead of dropping them
+  employees.forEach(emp => {
+    if (!visited.has(emp.id)) roots.push(buildNode(emp));
+  });
+  return roots;
 }
 
 function EmployeeCard({ employee }: { employee: Employee }) {
@@ -53,8 +67,10 @@ function EmployeeCard({ employee }: { employee: Employee }) {
     .toUpperCase()
     .slice(0, 2);
 
+  const pendingLabel = workflowLabels[employee.workflowStatus];
+
   return (
-    <Card className="w-56 hover-elevate" data-testid={`org-card-${employee.id}`}>
+    <Card className={`w-56 hover-elevate ${pendingLabel ? "border-dashed opacity-75" : ""}`} data-testid={`org-card-${employee.id}`}>
       <CardContent className="p-4 flex flex-col items-center text-center">
         <Avatar className="h-16 w-16 mb-3">
           <AvatarFallback className="bg-primary/10 text-primary text-lg font-semibold">
@@ -69,6 +85,11 @@ function EmployeeCard({ employee }: { employee: Employee }) {
         <Badge className={`mt-2 text-xs ${statusColors[employee.status] || ""}`}>
           {employee.status.replace("_", " ")}
         </Badge>
+        {pendingLabel && (
+          <Badge variant="outline" className="mt-2 text-xs border-amber-500 text-amber-700 dark:text-amber-400" data-testid={`org-workflow-${employee.id}`}>
+            {pendingLabel} – not yet approved
+          </Badge>
+        )}
       </CardContent>
     </Card>
   );
@@ -116,7 +137,9 @@ function OrgNodeComponent({ node }: { node: OrgNode }) {
 
 export default function HROrganogram() {
   const [, navigate] = useLocation();
-  const { data: employees, isLoading, isError } = useEmployees();
+  const { data: allEmployees, isLoading, isError } = useEmployees();
+  // Rejected records are not part of the organisation; drafts and records in review are shown but marked
+  const employees = useMemo(() => allEmployees?.filter(e => e.workflowStatus !== "rejected"), [allEmployees]);
 
   const orgTree = useMemo(() => {
     if (!employees) return [];

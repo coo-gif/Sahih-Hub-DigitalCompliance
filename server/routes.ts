@@ -209,6 +209,23 @@ function isHrOrManager(user: { role: string; email: string } | undefined): boole
   return isManagerUser(user) || user.email === HR_EMAIL;
 }
 
+// A supervisor must be an existing employee, not the employee itself, and must not create a reporting loop
+async function supervisorError(employeeId: number | null, supervisorId: number | null | undefined): Promise<string | null> {
+  if (supervisorId === null || supervisorId === undefined) return null;
+  if (employeeId !== null && supervisorId === employeeId) return 'An employee cannot be their own supervisor';
+  const seen = new Set<number>();
+  let currentId: number | null = supervisorId;
+  while (currentId !== null) {
+    if (employeeId !== null && currentId === employeeId) return 'This supervisor would create a reporting loop';
+    if (seen.has(currentId)) break; // existing loop above, not involving this employee
+    seen.add(currentId);
+    const current = await storage.getEmployee(currentId);
+    if (!current) return currentId === supervisorId ? 'Supervisor not found' : null;
+    currentId = current.supervisorId ?? null;
+  }
+  return null;
+}
+
 // Documents the COO stored in the Hub as public information are readable by every signed-in user
 function isPublicHubDocument(doc: { hubStatus?: string | null; classification?: string | null; lifecycleStatus?: string | null }): boolean {
   return doc.hubStatus === DocumentHubStatus.STORED && doc.classification === DocumentClassification.PUBLIC_INFORMATION && !isWithdrawnDocument(doc);
@@ -2046,6 +2063,11 @@ export async function registerRoutes(
         return res.status(400).json({ message: 'Email already exists', field: 'email' });
       }
 
+      const supervisorProblem = await supervisorError(null, input.supervisorId);
+      if (supervisorProblem) {
+        return res.status(400).json({ message: supervisorProblem, field: 'supervisorId' });
+      }
+
       // Auto-link employee with user by email
       const matchingUser = await storage.getUserByEmail(input.email);
       const linkedUserId = matchingUser ? matchingUser.id : null;
@@ -2108,6 +2130,13 @@ export async function registerRoutes(
         const existingByEmail = await storage.getEmployeeByEmail(input.email);
         if (existingByEmail) {
           return res.status(400).json({ message: 'Email already exists', field: 'email' });
+        }
+      }
+
+      if (input.supervisorId !== undefined && input.supervisorId !== existing.supervisorId) {
+        const supervisorProblem = await supervisorError(id, input.supervisorId);
+        if (supervisorProblem) {
+          return res.status(400).json({ message: supervisorProblem, field: 'supervisorId' });
         }
       }
 
@@ -2552,6 +2581,11 @@ export async function registerRoutes(
       }
 
       const currentUserId = getCurrentUserId(req);
+      // Only managers, HR or the current assignee of this stage may hand the task on
+      const currentStageAssigneeId = input.taskType === 'employee_review' ? existing.reviewerId : existing.approverId;
+      if (!isHrOrManager((req as any).user) && currentStageAssigneeId !== currentUserId) {
+        return res.status(403).json({ message: 'Only HR, managers or the current assignee can re-assign this task' });
+      }
       let updateData: { reviewerId?: number; approverId?: number } = {};
       let notificationTitle = '';
       let notificationMessage = '';
@@ -2801,7 +2835,13 @@ export async function registerRoutes(
       return res.status(403).json({ message: 'Only the assigned employee or a manager can complete this task' });
     }
 
+    if (existing.status === 'completed') {
+      return res.status(400).json({ message: 'This task is already completed' });
+    }
     const task = await storage.completeEmployeeTask(id);
+    if (!task) {
+      return res.status(400).json({ message: 'This task is already completed' });
+    }
 
     // Audit log
     await storage.createAuditLog({
@@ -6781,6 +6821,11 @@ export async function registerRoutes(
         return res.status(400).json({ message: 'Add the corrective action before sending the finding for verification', field: 'correctiveAction' });
       }
       if (status === FindingStatus.CLOSED) {
+        // Nonconformities always need a corrective action; only observations / opportunities close on a note
+        const findingType = input.findingType ?? finding.findingType;
+        if (!correctiveAction?.trim() && (findingType === FindingType.MAJOR_NC || findingType === FindingType.MINOR_NC)) {
+          return res.status(400).json({ message: `A ${findingType === FindingType.MAJOR_NC ? 'major' : 'minor'} nonconformity can only be closed after a corrective action is recorded`, field: 'correctiveAction' });
+        }
         if (!correctiveAction && !verificationNote) {
           return res.status(400).json({ message: 'Closing a finding requires a corrective action or a verification note', field: 'correctiveAction' });
         }
@@ -7178,6 +7223,11 @@ export async function registerRoutes(
       if (!employee) {
         return res.status(400).json({ message: 'Employee not found', field: 'employeeId' });
       }
+      const openAssignment = (await storage.getTrainingAssignments({ employeeId: employee.id }))
+        .find(a => a.trainingId === training.id && a.status !== TrainingAssignmentStatus.COMPLETED && a.status !== TrainingAssignmentStatus.CANCELLED);
+      if (openAssignment) {
+        return res.status(409).json({ message: `${employee.name} already has an open assignment for "${training.title}"`, field: 'trainingId' });
+      }
 
       const assignment = await storage.createTrainingAssignment({
         ...parsed.data,
@@ -7300,23 +7350,29 @@ export async function registerRoutes(
         expiryDate.setMonth(expiryDate.getMonth() + training.validityPeriod);
       }
 
-      // Certificate number: next after the highest one this year (only for a pass)
-      let certNumber: string | null = null;
-      if (passed) {
-        const prefix = `TC-${now.getFullYear()}-`;
-        const highest = Math.max(0, ...(await storage.getTrainingCompletions())
-          .map(c => c.certificateNumber?.startsWith(prefix) ? parseInt(c.certificateNumber.slice(prefix.length)) || 0 : 0));
-        certNumber = `${prefix}${String(highest + 1).padStart(5, '0')}`;
-      }
-
-      // A pass completes the assignment; a fail is recorded as an attempt and the training stays open for a retake
-      const updated = await storage.updateTrainingAssignment(id, {
+      // A pass completes the assignment; a fail is recorded as an attempt and the training stays open for a retake.
+      // The update only applies if no other request recorded an attempt meanwhile, so parallel completions create one record.
+      const updated = await storage.claimTrainingAssignmentAttempt(id, assignment.attempts ?? 0, {
         status: passed ? TrainingAssignmentStatus.COMPLETED : TrainingAssignmentStatus.IN_PROGRESS,
         completedAt: passed ? now : null,
         startedAt: assignment.startedAt ?? now,
         attempts: (assignment.attempts ?? 0) + 1,
         score,
       });
+      if (!updated) {
+        return res.status(409).json({ message: 'This training was just completed or updated by someone else. Please refresh and try again.' });
+      }
+
+      // Certificate number: never reused, even after a completion is deleted (only for a pass)
+      let certNumber: string | null = null;
+      if (passed) {
+        const year = now.getFullYear();
+        const prefix = `TC-${year}-`;
+        const highest = Math.max(0, ...(await storage.getTrainingCompletions())
+          .map(c => c.certificateNumber?.startsWith(prefix) ? parseInt(c.certificateNumber.slice(prefix.length)) || 0 : 0));
+        const next = await storage.nextSequenceValue(`TC-${year}`, highest);
+        certNumber = `${prefix}${String(next).padStart(5, '0')}`;
+      }
 
       // Create training completion record
       const completion = await storage.createTrainingCompletion({
@@ -7352,6 +7408,18 @@ export async function registerRoutes(
     try {
       const userId = getCurrentUserId(req);
       const id = parseInt(req.params.id);
+      if (!isTrainingManager(await storage.getUser(userId))) {
+        return res.status(403).json({ message: 'Only managers or HR can delete training assignments' });
+      }
+      const assignment = await storage.getTrainingAssignment(id);
+      if (!assignment) {
+        return res.status(404).json({ message: 'Training assignment not found' });
+      }
+      const completions = (await storage.getTrainingCompletions({ employeeId: assignment.employeeId }))
+        .filter(c => c.assignmentId === id);
+      if (completions.length > 0) {
+        return res.status(400).json({ message: 'This assignment has recorded completions or attempts and cannot be deleted. Cancel it instead to keep the training record.' });
+      }
       
       await storage.deleteTrainingAssignment(id);
       
