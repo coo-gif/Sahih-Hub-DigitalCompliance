@@ -230,7 +230,8 @@ export default function CrmOpportunities() {
   };
 
   const calculateTotalValue = (stage?: string) => {
-    const filtered = stage ? opportunities.filter((o) => o.stage === stage) : opportunities;
+    // Without a stage this is the pipeline total, which leaves out lost deals
+    const filtered = stage ? opportunities.filter((o) => o.stage === stage) : opportunities.filter((o) => o.stage !== "lost");
     return filtered.reduce((sum, o) => {
       const value = parseFloat(o.dealValue || "0");
       return sum + (isNaN(value) ? 0 : value);
@@ -437,7 +438,7 @@ export default function CrmOpportunities() {
             <div className="text-2xl font-bold" data-testid="text-stat-total">
               QAR {calculateTotalValue().toLocaleString()}
             </div>
-            <p className="text-xs text-muted-foreground">{opportunities.length} opportunities</p>
+            <p className="text-xs text-muted-foreground">{opportunities.filter((o) => o.stage !== "lost").length} open or won opportunities</p>
           </CardContent>
         </Card>
         <Card data-testid="card-stat-qualified">

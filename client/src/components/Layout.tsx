@@ -1,4 +1,5 @@
 import { Link, useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { useNotifications, useMarkAllNotificationsRead, useMarkNotificationRead } from "@/hooks/use-notifications";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -96,10 +97,11 @@ const navItems: NavItem[] = [
   },
   { href: "/performance-reports", label: "Performance Reports", icon: BarChart3, adminOnly: true },
   { 
-    href: "/bug-reports", 
-    label: "Bug Reports", 
+    href: "/bug-reports",
+    label: "Bug Reports",
     icon: Bug,
-    canAccess: (user) => user.email === 'coo@sahihcertify.com'
+    // Others see the link while a bug is assigned to them (see hasAssignedBugs below)
+    canAccess: (user) => user.email === 'coo@sahihcertify.com' || user.role === 'admin'
   },
   { 
     href: "/certification", 
@@ -153,6 +155,13 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
   const markRead = useMarkNotificationRead();
   const { data: emailUnreadData } = useUnreadCount();
   
+  // Bug reports this user can see; any assigned to them opens the Bug Reports page for them
+  const { data: visibleBugReports } = useQuery<{ assignedToId: number | null; status: string }[]>({
+    queryKey: ["/api/bug-reports"],
+    enabled: !!user,
+  });
+  const hasAssignedBugs = !!user && !!visibleBugReports?.some(b => b.assignedToId === user.id && b.status !== 'closed');
+
   const unreadCount = notifications?.filter(n => !n.isRead).length || 0;
   const emailUnreadCount = emailUnreadData?.count || 0;
 
@@ -183,6 +192,7 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
         {navItems
           .filter((item) => {
             if (item.adminOnly && user?.role !== 'admin') return false;
+            if (item.href === "/bug-reports" && hasAssignedBugs) return true;
             if (item.canAccess && (!user || !item.canAccess(user))) return false;
             return true;
           })
