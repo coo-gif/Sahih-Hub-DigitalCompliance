@@ -224,6 +224,7 @@ export default function CertificationProcess() {
   const [selectedApplication, setSelectedApplication] = useState<CertificationApplication | null>(null);
   const [isDesignerOpen, setIsDesignerOpen] = useState(false);
   const [designerApplication, setDesignerApplication] = useState<CertificationApplication | null>(null);
+  const [viewCertificate, setViewCertificate] = useState<Certificate | null>(null);
 
   const { data: applications = [], isLoading: loadingApps } = useQuery<CertificationApplication[]>({
     queryKey: ["/api/certification-applications"],
@@ -304,15 +305,23 @@ export default function CertificationProcess() {
   };
 
   const handleOpenDesigner = (app: CertificationApplication) => {
+    setViewCertificate(null);
     setDesignerApplication(app);
     setIsDesignerOpen(true);
   };
 
+  // Issued certificate: open it read-only for viewing, printing or downloading
+  const handleViewCertificate = (cert: Certificate) => {
+    setViewCertificate(cert);
+    setDesignerApplication(null);
+    setIsDesignerOpen(true);
+  };
+
+  // The designer stays open on the saved certificate so it can be printed straight away
   const handleCertificateCreated = () => {
     queryClient.invalidateQueries({ queryKey: ["/api/certificates"] });
     queryClient.invalidateQueries({ queryKey: ["/api/certification-applications"] });
-    setIsDesignerOpen(false);
-    setDesignerApplication(null);
+    setSelectedApplication(null);
     toast({ title: "Certificate created successfully" });
   };
 
@@ -537,7 +546,7 @@ export default function CertificationProcess() {
                       <span>Expires: {format(new Date(cert.expiryDate), "MMM d, yyyy")}</span>
                     </div>
                     <div className="flex gap-2 pt-2">
-                      <Button size="sm" variant="outline" className="flex-1" data-testid={`button-view-cert-${cert.id}`}>
+                      <Button size="sm" variant="outline" className="flex-1" onClick={() => handleViewCertificate(cert)} data-testid={`button-view-cert-${cert.id}`}>
                         <Eye className="h-4 w-4 mr-1" />
                         View
                       </Button>
@@ -669,14 +678,25 @@ export default function CertificationProcess() {
         </Dialog>
       )}
 
-      {isDesignerOpen && designerApplication && (
+      {isDesignerOpen && (designerApplication || viewCertificate) && (
         <CertificateDesigner
+          key={viewCertificate ? `cert-${viewCertificate.id}` : `app-${designerApplication!.id}`}
           isOpen={isDesignerOpen}
           onClose={() => {
             setIsDesignerOpen(false);
             setDesignerApplication(null);
+            setViewCertificate(null);
           }}
-          application={designerApplication}
+          application={designerApplication ?? {
+            id: viewCertificate!.applicationId,
+            clientName: viewCertificate!.clientName,
+            clientLocation: viewCertificate!.clientLocation || "",
+            isoStandard: viewCertificate!.isoStandard,
+            standardName: viewCertificate!.standardName,
+            sectorCode: viewCertificate!.sectorCode || undefined,
+            certificationScope: viewCertificate!.certificationScope,
+          }}
+          certificate={viewCertificate}
           onCertificateCreated={handleCertificateCreated}
         />
       )}

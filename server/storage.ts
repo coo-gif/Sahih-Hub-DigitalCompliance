@@ -177,7 +177,7 @@ export interface IStorage {
   createEmployeeTask(task: InsertEmployeeTask): Promise<EmployeeTask>;
   updateEmployeeTask(id: number, task: Partial<InsertEmployeeTask>): Promise<EmployeeTask>;
   deleteEmployeeTask(id: number): Promise<void>;
-  completeEmployeeTask(id: number): Promise<EmployeeTask>;
+  completeEmployeeTask(id: number): Promise<EmployeeTask | undefined>;
 
   // Download Requests
   getDownloadRequests(filters?: { documentId?: number; requesterId?: number; status?: string }): Promise<DownloadRequest[]>;
@@ -915,14 +915,15 @@ export class DatabaseStorage implements IStorage {
     await db.delete(employeeTasks).where(eq(employeeTasks.id, id));
   }
 
-  async completeEmployeeTask(id: number): Promise<EmployeeTask> {
+  // Returns undefined when the task was already completed (only one completion wins)
+  async completeEmployeeTask(id: number): Promise<EmployeeTask | undefined> {
     const [updated] = await db.update(employeeTasks)
       .set({ 
         status: TaskStatus.COMPLETED, 
         completedAt: new Date(),
         updatedAt: new Date() 
       })
-      .where(eq(employeeTasks.id, id))
+      .where(and(eq(employeeTasks.id, id), sql`${employeeTasks.status} IS DISTINCT FROM ${TaskStatus.COMPLETED}`))
       .returning();
     return updated;
   }
@@ -2036,14 +2037,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createCertificationApplication(data: InsertCertificationApplication): Promise<CertificationApplication> {
-    // Next number after the highest one this year (a count would repeat numbers after a delete)
-    const prefix = `APP-${new Date().getFullYear()}-`;
+    // Numbers come from a sequence, so a deleted application's number is never handed out again
+    const year = new Date().getFullYear();
+    const prefix = `APP-${year}-`;
     for (let attempt = 0; ; attempt++) {
       const [{ max }] = await db.select({
         max: sql<number>`coalesce(max(cast(substring(${certificationApplications.applicationNumber} from '[0-9]+$') as integer)), 0)`,
       }).from(certificationApplications)
         .where(sql`${certificationApplications.applicationNumber} like ${prefix + '%'}`);
-      const appNumber = `${prefix}${String(Number(max) + 1).padStart(4, '0')}`;
+      const next = await this.nextSequenceValue(`APP-${year}`, Number(max));
+      const appNumber = `${prefix}${String(next).padStart(4, '0')}`;
       try {
         const [app] = await db.insert(certificationApplications).values({
           ...data,
@@ -2317,6 +2320,20 @@ export class DatabaseStorage implements IStorage {
     const [updated] = await db.update(trainingAssignments)
       .set({ ...data, updatedAt: new Date() })
       .where(eq(trainingAssignments.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Records a completion attempt only if the assignment is still open and nobody else recorded one meanwhile;
+  // returns undefined for the losing request of two parallel completions
+  async claimTrainingAssignmentAttempt(id: number, expectedAttempts: number, data: Partial<InsertTrainingAssignment>): Promise<TrainingAssignment | undefined> {
+    const [updated] = await db.update(trainingAssignments)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(
+        eq(trainingAssignments.id, id),
+        sql`${trainingAssignments.status} NOT IN ('completed', 'cancelled')`,
+        sql`COALESCE(${trainingAssignments.attempts}, 0) = ${expectedAttempts}`,
+      ))
       .returning();
     return updated;
   }

@@ -13,6 +13,24 @@ import { Download, Save, Eye, FileImage, Printer } from "lucide-react";
 import { format, addYears, addMonths } from "date-fns";
 import sahihLogo from "@assets/sahih_logo-1.png";
 
+// A saved certificate as the API returns it (dates as ISO strings)
+interface IssuedCertificate {
+  certificateNumber: string;
+  clientName: string;
+  clientLocation?: string | null;
+  isoStandard: string;
+  standardName: string;
+  sectorCode?: string | null;
+  certificationScope: string;
+  issueDate: string | Date;
+  expiryDate: string | Date;
+  firstSurveillanceDate?: string | Date | null;
+  secondSurveillanceDate?: string | Date | null;
+  status: string;
+  leftBackgroundImage?: string | null;
+  rightBackgroundImage?: string | null;
+}
+
 const ISO_STANDARDS = [
   { value: "ISO 9001:2015", label: "ISO 9001:2015", name: "Quality Management System" },
   { value: "ISO 14001:2015", label: "ISO 14001:2015", name: "Environmental Management System" },
@@ -83,13 +101,37 @@ interface CertificateDesignerProps {
     sectorCode?: string;
     certificationScope: string;
   };
-  onCertificateCreated: () => void;
+  // An issued certificate: shown read-only, for viewing and reprinting
+  certificate?: IssuedCertificate | null;
+  onCertificateCreated: (certificate: IssuedCertificate) => void;
+}
+
+const dateInput = (value: Date | string | null | undefined) => (value ? format(new Date(value), "yyyy-MM-dd") : "");
+
+// The designer's fields for an issued certificate
+function certificateFormData(cert: IssuedCertificate) {
+  return {
+    clientName: cert.clientName,
+    clientLocation: cert.clientLocation || "",
+    isoStandard: cert.isoStandard,
+    standardName: cert.standardName,
+    sectorCode: cert.sectorCode || "",
+    certificationScope: cert.certificationScope,
+    certificateNumber: cert.certificateNumber,
+    issueDate: dateInput(cert.issueDate),
+    expiryDate: dateInput(cert.expiryDate),
+    firstSurveillanceDate: dateInput(cert.firstSurveillanceDate),
+    secondSurveillanceDate: dateInput(cert.secondSurveillanceDate),
+    leftBackgroundImage: cert.leftBackgroundImage || "none",
+    rightBackgroundImage: cert.rightBackgroundImage || "none",
+  };
 }
 
 export default function CertificateDesigner({ 
   isOpen, 
   onClose, 
   application,
+  certificate,
   onCertificateCreated 
 }: CertificateDesignerProps) {
   const { toast } = useToast();
@@ -100,7 +142,11 @@ export default function CertificateDesigner({
   const oneYearLater = addYears(today, 1);
   const twoYearsLater = addYears(today, 2);
 
-  const [formData, setFormData] = useState({
+  // Once issued (or opened from the certificate list) the certificate is read-only: view, print and download only
+  const [issuedCertificate, setIssuedCertificate] = useState<IssuedCertificate | null>(certificate ?? null);
+  const readOnly = !!issuedCertificate;
+
+  const [formData, setFormData] = useState(() => certificate ? certificateFormData(certificate) : {
     clientName: application.clientName,
     clientLocation: application.clientLocation,
     isoStandard: application.isoStandard,
@@ -126,7 +172,7 @@ export default function CertificateDesigner({
 
   const createCertificateMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("POST", "/api/certificates", {
+      const res = await apiRequest("POST", "/api/certificates", {
         applicationId: application.id,
         certificateNumber: formData.certificateNumber,
         clientName: formData.clientName,
@@ -143,9 +189,13 @@ export default function CertificateDesigner({
         rightBackgroundImage: formData.rightBackgroundImage === "none" ? null : formData.rightBackgroundImage,
         status: "active",
       });
+      return res.json() as Promise<IssuedCertificate>;
     },
-    onSuccess: () => {
-      onCertificateCreated();
+    onSuccess: (created) => {
+      // stay open on the issued certificate so it can be printed or downloaded right away
+      setIssuedCertificate(created);
+      setFormData(certificateFormData(created));
+      onCertificateCreated(created);
     },
     onError: (error: Error) => {
       const raw = error.message.replace(/^\d+: /, "");
@@ -247,11 +297,34 @@ export default function CertificateDesigner({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-[95vw] max-h-[95vh] overflow-hidden flex flex-col">
         <DialogHeader>
-          <DialogTitle>Certificate Designer</DialogTitle>
+          <DialogTitle>{readOnly ? `Certificate ${formData.certificateNumber}` : "Certificate Designer"}</DialogTitle>
         </DialogHeader>
         
         <div className="flex gap-4 flex-1 overflow-hidden">
           <div className="w-1/3 overflow-y-auto space-y-4 pr-2">
+            {readOnly ? (
+            <Card>
+              <CardContent className="p-4 space-y-3 text-sm" data-testid="cert-view-details">
+                <h3 className="font-semibold">Issued Certificate</h3>
+                {([
+                  ["Certificate No", formData.certificateNumber],
+                  ["Client", formData.clientName],
+                  ["Location", formData.clientLocation],
+                  ["Standard", `${formData.isoStandard} – ${formData.standardName}`],
+                  ["Sector Code", formData.sectorCode],
+                  ["Issue Date", formData.issueDate ? format(new Date(formData.issueDate), "dd-MM-yyyy") : ""],
+                  ["Expiry Date", formData.expiryDate ? format(new Date(formData.expiryDate), "dd-MM-yyyy") : ""],
+                  ["Status", issuedCertificate?.status],
+                ] as const).filter(([, value]) => value).map(([label, value]) => (
+                  <div key={label}>
+                    <div className="text-muted-foreground text-xs">{label}</div>
+                    <div className="font-medium break-words">{value}</div>
+                  </div>
+                ))}
+                <p className="text-xs text-muted-foreground">Issued certificates cannot be edited here. Print or download a copy below.</p>
+              </CardContent>
+            </Card>
+            ) : (
             <Card>
               <CardContent className="p-4 space-y-4">
                 <h3 className="font-semibold">Certificate Details</h3>
@@ -412,7 +485,9 @@ export default function CertificateDesigner({
                 </div>
               </CardContent>
             </Card>
+            )}
 
+            {!readOnly && (
             <div className="flex gap-2">
               <Button 
                 onClick={() => createCertificateMutation.mutate()} 
@@ -424,6 +499,7 @@ export default function CertificateDesigner({
                 {createCertificateMutation.isPending ? "Saving..." : "Save Certificate"}
               </Button>
             </div>
+            )}
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1" onClick={handlePrint} data-testid="button-print-certificate">
                 <Printer className="h-4 w-4 mr-2" />
@@ -437,7 +513,7 @@ export default function CertificateDesigner({
           </div>
 
           <div className="flex-1 overflow-auto bg-muted/30 rounded-lg p-4">
-            <div className="text-sm font-medium mb-2 text-muted-foreground">Live Preview</div>
+            <div className="text-sm font-medium mb-2 text-muted-foreground">{readOnly ? "Certificate" : "Live Preview"}</div>
             <div 
               ref={previewRef}
               className="bg-white shadow-lg mx-auto"
