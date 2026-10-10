@@ -149,6 +149,11 @@ export default function CrmLeads() {
   const isCooOrAdmin = currentUser?.email === 'coo@sahihcertify.com' || currentUser?.role === 'admin';
   const isCrmManager = isCooOrAdmin || currentUser?.role === 'quality_manager';
 
+  // Update requests addressed to the signed-in user (staff see only their assigned leads here)
+  const { data: myPendingRequests = [] } = useQuery<(LeadUpdateRequest & { leadName: string; requestedByName: string })[]>({
+    queryKey: ["/api/lead-update-requests/pending"],
+  });
+
   // Answering an update request: the person asked (or a manager) writes the update and resolves it
   const [requestReplies, setRequestReplies] = useState<Record<number, string>>({});
   const resolveUpdateRequest = useMutation({
@@ -158,6 +163,7 @@ export default function CrmLeads() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/leads", selectedLead?.id, "update-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lead-update-requests/pending"] });
       setRequestReplies((prev) => ({ ...prev, [variables.id]: "" }));
       toast({ title: "Update sent", description: "The request is resolved and the requester has been notified." });
     },
@@ -353,15 +359,17 @@ export default function CrmLeads() {
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">CRM - Leads</h1>
-          <p className="text-muted-foreground">Manage and track your sales leads</p>
+          <p className="text-muted-foreground">{isCrmManager ? "Manage and track your sales leads" : "The leads assigned to you and the updates asked of you"}</p>
         </div>
         <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-          <DialogTrigger asChild>
-            <Button data-testid="button-create-lead">
-              <Plus className="mr-2 h-4 w-4" />
-              Add New Lead
-            </Button>
-          </DialogTrigger>
+          {isCrmManager && (
+            <DialogTrigger asChild>
+              <Button data-testid="button-create-lead">
+                <Plus className="mr-2 h-4 w-4" />
+                Add New Lead
+              </Button>
+            </DialogTrigger>
+          )}
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Add New Lead</DialogTitle>
@@ -434,34 +442,10 @@ export default function CrmLeads() {
                       </FormItem>
                     )}
                   />
-                  <FormField
-                    control={form.control}
-                    name="leadStatus"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Status</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
-                            <SelectTrigger data-testid="select-lead-status">
-                              <SelectValue placeholder="Select status" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="new">New</SelectItem>
-                            <SelectItem value="contacted">Contacted</SelectItem>
-                            <SelectItem value="qualified">Qualified</SelectItem>
-                            <SelectItem value="not_interested">Not Interested</SelectItem>
-                            <SelectItem value="pending">Pending</SelectItem>
-                            <SelectItem value="proposal_submitted">Proposal Submitted</SelectItem>
-                            <SelectItem value="approved">Approved</SelectItem>
-                            <SelectItem value="lost">Lost</SelectItem>
-                            <SelectItem value="not_relevant">Not Relevant</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Status</p>
+                    <p className="text-sm text-muted-foreground pt-2">New leads start as "New"; change it later with Change Status.</p>
+                  </div>
                 </div>
                 <FormField
                   control={form.control}
@@ -585,12 +569,53 @@ export default function CrmLeads() {
         </Card>
       </div>
 
+      {myPendingRequests.length > 0 && (
+        <Card data-testid="card-my-update-requests">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Bell className="h-5 w-5 text-orange-500" />Updates Asked of You</CardTitle>
+            <CardDescription>Write the update and send it to whoever asked</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {myPendingRequests.map((request) => (
+              <div key={request.id} className="border rounded-lg p-4 space-y-2" data-testid={`my-request-${request.id}`}>
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="font-medium">{request.requestedByName}</span>
+                  <span className="text-muted-foreground">asked for an update on</span>
+                  <span className="font-medium">{request.leadName}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {request.createdAt ? format(new Date(request.createdAt), "MMM d, yyyy 'at' HH:mm") : ""}
+                  </span>
+                </div>
+                {request.message && <p className="text-sm bg-muted p-2 rounded">{request.message}</p>}
+                <div className="flex gap-2 items-start">
+                  <Textarea
+                    placeholder="Write the update..."
+                    className="min-h-[60px]"
+                    value={requestReplies[request.id] || ""}
+                    onChange={(e) => setRequestReplies((prev) => ({ ...prev, [request.id]: e.target.value }))}
+                    data-testid={`input-my-request-response-${request.id}`}
+                  />
+                  <Button
+                    size="sm"
+                    onClick={() => resolveUpdateRequest.mutate({ id: request.id, response: (requestReplies[request.id] || "").trim() })}
+                    disabled={!(requestReplies[request.id] || "").trim() || resolveUpdateRequest.isPending}
+                    data-testid={`button-my-request-resolve-${request.id}`}
+                  >
+                    Reply &amp; resolve
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
-              <CardTitle>All Leads</CardTitle>
-              <CardDescription>View and manage all your leads</CardDescription>
+              <CardTitle>{isCrmManager ? "All Leads" : "My Leads"}</CardTitle>
+              <CardDescription>{isCrmManager ? "View and manage all your leads" : "Leads assigned to you to follow up"}</CardDescription>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
               <div className="relative">
@@ -624,7 +649,7 @@ export default function CrmLeads() {
             <div className="text-center py-8 text-muted-foreground">Loading leads...</div>
           ) : filteredLeads.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              {searchQuery || statusFilter !== "all" ? "No leads match your filters" : "No leads yet. Click 'Add New Lead' to get started."}
+              {searchQuery || statusFilter !== "all" ? "No leads match your filters" : isCrmManager ? "No leads yet. Click 'Add New Lead' to get started." : "No leads are assigned to you."}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -708,6 +733,7 @@ export default function CrmLeads() {
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
+                          {isCrmManager && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -717,6 +743,7 @@ export default function CrmLeads() {
                           >
                             <History className="h-4 w-4" />
                           </Button>
+                          )}
                           {isCooOrAdmin && (
                             <Button
                               variant="ghost"
@@ -728,6 +755,8 @@ export default function CrmLeads() {
                               <Bell className="h-4 w-4" />
                             </Button>
                           )}
+                          {isCrmManager && (
+                          <>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -749,6 +778,8 @@ export default function CrmLeads() {
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
+                          </>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

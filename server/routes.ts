@@ -29,6 +29,8 @@ import {
   insertOpportunitySchema,
   OpportunityStage,
   insertHistoricalDataSchema,
+  BugReportStatus,
+  BugReportPriority,
   type Document,
 } from "@shared/schema";
 import { z } from "zod";
@@ -156,7 +158,7 @@ import {
 } from "./gmail-oauth";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { collectOpenTasks, TASK_TYPE_LABELS, type OpenTask } from "./task-sources";
-import { registerDocumentControlRoutes, presentForReader, recordApprovedVersion, setDocumentLinks } from "./document-control";
+import { registerDocumentControlRoutes, presentForReader, recordApprovedVersion, setDocumentLinks, setCurrentVersionClassification } from "./document-control";
 import { registerInternalAuditRoutes } from "./internal-audit";
 import { convertUploadedFile, isGoogleFileUrl, UnsupportedFileError } from "./document-import";
 import {
@@ -1332,6 +1334,21 @@ export async function registerRoutes(
         return res.status(403).json({ message: 'This document has been approved and is awaiting the COO\'s final approval in the Document Hub. It cannot be edited.' });
       }
 
+      // Only the people working on the document, or managers, may edit it
+      const editor = await storage.getUser(getCurrentUserId(req));
+      const editorIsManager = isManagerUser(editor);
+      const isOwner = !!editor && (existing.createdById === editor.id || existing.preparedById === editor.id);
+      if (!editor || !(editorIsManager || isOwner || existing.reviewerId === editor.id || existing.approverId === editor.id)) {
+        return res.status(403).json({ message: 'Only the people working on this document (or the COO, an admin or the QM) can edit it' });
+      }
+      // Who prepares, reviews and approves is set by the owner while drafting, or by managers
+      const changesSignatories = (input.preparedById !== undefined && input.preparedById !== existing.preparedById)
+        || (input.reviewedById !== undefined && input.reviewedById !== existing.reviewerId)
+        || (input.approvedById !== undefined && input.approvedById !== existing.approverId);
+      if (changesSignatories && !(editorIsManager || (isOwner && existing.status === DocumentStatus.DRAFT))) {
+        return res.status(403).json({ message: 'Only the document owner (while it is a draft), the COO, an admin or the QM can change who prepares, reviews or approves it' });
+      }
+
       const updateData: any = {};
       if (input.title !== undefined) updateData.title = input.title;
       if (input.description !== undefined) updateData.description = input.description;
@@ -1390,6 +1407,10 @@ export async function registerRoutes(
     const versions = await storage.getDocumentVersions(id);
     if (existing.isLocked || existing.status === DocumentStatus.APPROVED || existing.activeChangeRequestId || versions.length > 0) {
       return res.status(403).json({ message: 'Approved documents are permanent records and cannot be deleted. Raise a change request, or ask the COO to mark it Obsolete.' });
+    }
+    const deleter = await storage.getUser(getCurrentUserId(req));
+    if (!deleter || !(isManagerUser(deleter) || [existing.createdById, existing.preparedById, existing.reviewerId, existing.approverId].includes(deleter.id))) {
+      return res.status(403).json({ message: 'Only the people working on this document (or the COO, an admin or the QM) can delete it' });
     }
 
     await storage.deleteDocument(id);
@@ -2819,6 +2840,11 @@ export async function registerRoutes(
   // ============================================
   // PDF GENERATION
   // ============================================
+  // A draft or in-review document's PDF is only for its workflow members and managers (incl. the COO)
+  const draftPdfAllowed = (doc: Document, user: { id: number; role: string; email: string } | undefined) =>
+    doc.isLocked || doc.status === DocumentStatus.APPROVED || isManagerUser(user)
+    || (!!user && [doc.createdById, doc.preparedById, doc.reviewerId, doc.approverId].includes(user.id));
+
   app.post('/api/documents/:id/generate-pdf', requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     const doc = await storage.getDocument(id);
@@ -2836,6 +2862,9 @@ export async function registerRoutes(
     const download = currentUser ? await canDownloadDocument(doc, currentUser) : { allowed: false, message: 'User not found' };
     if (!download.allowed) {
       return res.status(403).json({ message: download.message });
+    }
+    if (!draftPdfAllowed(doc, currentUser)) {
+      return res.status(403).json({ message: 'Only the people working on this document (or the COO, an admin or the QM) can print it before it is approved' });
     }
 
     try {
@@ -3536,6 +3565,9 @@ export async function registerRoutes(
     if (!download.allowed) {
       return res.status(403).json({ message: download.message });
     }
+    if (!draftPdfAllowed(doc, currentUser)) {
+      return res.status(403).json({ message: 'Only the people working on this document (or the COO, an admin or the QM) can print it before it is approved' });
+    }
 
     try {
       console.log(`Lightweight PDF generation started for document ${doc.id}`);
@@ -3701,6 +3733,9 @@ export async function registerRoutes(
     const download = currentUser ? await canDownloadDocument(doc, currentUser) : { allowed: false, message: 'User not found' };
     if (!download.allowed) {
       return res.status(403).json({ message: download.message });
+    }
+    if (!draftPdfAllowed(doc, currentUser)) {
+      return res.status(403).json({ message: 'Only the people working on this document (or the COO, an admin or the QM) can print it before it is approved' });
     }
 
     res.json({ pdfUrl: doc.finalPdfUrl });
@@ -5279,6 +5314,7 @@ export async function registerRoutes(
         classification: parseResult.data.classification,
         hubStatus: DocumentHubStatus.STORED,
       });
+      await setCurrentVersionClassification(documentId, parseResult.data.classification);
 
       await storage.createAuditLog({
         userId: currentUserId,
@@ -6026,6 +6062,9 @@ export async function registerRoutes(
       if (typeof title !== 'string' || !title.trim() || typeof description !== 'string' || !description.trim()) {
         return res.status(400).json({ message: 'Title and description are required' });
       }
+      if (priority !== undefined && priority !== null && priority !== '' && !(Object.values(BugReportPriority) as string[]).includes(priority)) {
+        return res.status(400).json({ message: 'Priority must be low, medium, high or critical' });
+      }
 
       // Find COO user to auto-assign bug reports
       const allUsers = await storage.getUsers();
@@ -6074,12 +6113,23 @@ export async function registerRoutes(
       if (!existing) {
         return res.status(404).json({ message: 'Bug report not found' });
       }
-      const { assignedToId } = req.body;
+      // Only status (open / in progress), priority and assignee change here: resolving and closing have their own routes
+      const { assignedToId, status, priority } = req.body;
       if (assignedToId !== undefined && assignedToId !== null && !(await storage.getUser(Number(assignedToId)))) {
         return res.status(400).json({ message: 'Assignee not found' });
       }
+      if (status !== undefined && status !== BugReportStatus.OPEN && status !== BugReportStatus.IN_PROGRESS) {
+        return res.status(400).json({ message: 'Status can only be set to open or in progress here. Use Resolve or Close.' });
+      }
+      if (priority !== undefined && !(Object.values(BugReportPriority) as string[]).includes(priority)) {
+        return res.status(400).json({ message: 'Priority must be low, medium, high or critical' });
+      }
+      const changes: { status?: string; priority?: string; assignedToId?: number | null } = {};
+      if (status !== undefined) changes.status = status;
+      if (priority !== undefined) changes.priority = priority;
+      if (assignedToId !== undefined) changes.assignedToId = assignedToId === null ? null : Number(assignedToId);
 
-      const updated = await storage.updateBugReport(id, req.body);
+      const updated = await storage.updateBugReport(id, changes);
 
       // Tell the new assignee
       if (assignedToId && Number(assignedToId) !== existing.assignedToId && Number(assignedToId) !== user!.id) {
@@ -8339,6 +8389,15 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
   app.get('/api/documents/:documentId/revision-history', requireAuth, async (req, res) => {
     try {
       const documentId = parseInt(req.params.documentId);
+      const doc = isNaN(documentId) ? undefined : await storage.getDocument(documentId);
+      if (!doc) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+      // Same reading rule as the document itself (managers also keep the revision records)
+      const viewer = await storage.getUser(getCurrentUserId(req));
+      if (!viewer || !(isManagerUser(viewer) || await canViewDocument(doc, viewer))) {
+        return res.status(403).json({ message: 'You do not have access to this document. Request access first.' });
+      }
       const history = await storage.getRevisionHistory(documentId);
       res.json(history);
     } catch (error: any) {
@@ -8667,8 +8726,11 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
         return res.status(401).json({ message: 'Not authenticated' });
       }
 
+      // A new form always starts as a draft without a share link; it goes live through the publish route
       const validated = insertDocuGenieFormSchema.parse({
         ...req.body,
+        status: DocuGenieFormStatus.DRAFT,
+        shareToken: null,
         createdById: userId,
       });
 
@@ -8949,13 +9011,14 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
   const isCrmManager = (u: any) => !!u && (u.role === 'admin' || u.role === 'quality_manager' || u.email === 'coo@sahihcertify.com');
   const LEAD_SOURCES = Object.values(LeadSource) as string[];
 
-  // Get all leads
+  // A staff member may follow the leads assigned to them (their follow-up and update-request tasks link here)
+  const canSeeLead = (u: any, lead: { assignedToId: number | null }) => isCrmManager(u) || (!!u && lead.assignedToId === u.id);
+
+  // Get all leads (staff: only the leads assigned to them)
   app.get("/api/leads", requireAuth, async (req: Request, res: Response) => {
     try {
-      if (!isCrmManager((req as any).user)) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-      const leads = await storage.getLeads();
+      const user = (req as any).user;
+      const leads = isCrmManager(user) ? await storage.getLeads() : await storage.getLeads({ assignedToId: user.id });
       res.json(leads);
     } catch (error) {
       console.error("Error fetching leads:", error);
@@ -8966,12 +9029,16 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
   // Get single lead
   app.get("/api/leads/:id", requireAuth, async (req: Request, res: Response) => {
     try {
-      if (!isCrmManager((req as any).user)) {
-        return res.status(403).json({ message: "Access denied" });
+      const leadId = parseInt(req.params.id);
+      if (isNaN(leadId)) {
+        return res.status(400).json({ message: "Invalid lead ID" });
       }
-      const lead = await storage.getLead(parseInt(req.params.id));
+      const lead = await storage.getLead(leadId);
       if (!lead) {
         return res.status(404).json({ message: "Lead not found" });
+      }
+      if (!canSeeLead((req as any).user, lead)) {
+        return res.status(403).json({ message: "Access denied" });
       }
       res.json(lead);
     } catch (error) {
@@ -8990,13 +9057,25 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
       if (req.body.leadSource !== undefined && !LEAD_SOURCES.includes(req.body.leadSource)) {
         return res.status(400).json({ message: `Lead source must be one of: ${LEAD_SOURCES.join(', ')}`, field: 'leadSource' });
       }
+      if (req.body.assignedToId !== undefined && req.body.assignedToId !== null && (!Number.isInteger(Number(req.body.assignedToId)) || !(await storage.getUser(Number(req.body.assignedToId))))) {
+        return res.status(400).json({ message: "The assigned user was not found", field: 'assignedToId' });
+      }
+      // A new lead always starts as New; later changes go through POST /api/leads/:id/status (with history)
       const validatedData = insertLeadSchema.parse({
         ...req.body,
+        leadStatus: LeadStatus.NEW,
         createdById: user.id,
         nextFollowUpDate: req.body.nextFollowUpDate ? new Date(req.body.nextFollowUpDate) : undefined,
       });
 
       const lead = await storage.createLead(validatedData);
+      await storage.createLeadStatusHistory({
+        leadId: lead.id,
+        previousStatus: null,
+        newStatus: LeadStatus.NEW,
+        reason: 'Lead created',
+        changedById: user.id,
+      });
 
       // Log audit trail
       await storage.createAuditLog({
@@ -9032,6 +9111,9 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
       }
       if (req.body.leadSource !== undefined && !LEAD_SOURCES.includes(req.body.leadSource)) {
         return res.status(400).json({ message: `Lead source must be one of: ${LEAD_SOURCES.join(', ')}`, field: 'leadSource' });
+      }
+      if (req.body.assignedToId !== undefined && req.body.assignedToId !== null && (!Number.isInteger(Number(req.body.assignedToId)) || !(await storage.getUser(Number(req.body.assignedToId))))) {
+        return res.status(400).json({ message: "The assigned user was not found", field: 'assignedToId' });
       }
 
       // The status only changes through POST /api/leads/:id/status, which records the history;
@@ -9101,11 +9183,14 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
   app.get("/api/leads/:id/status-history", requireAuth, async (req: Request, res: Response) => {
     try {
       const user = req.user as any;
-      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+      const leadId = parseInt(req.params.id);
+      const lead = isNaN(leadId) ? undefined : await storage.getLead(leadId);
+      if (!lead) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+      if (!canSeeLead(user, lead)) {
         return res.status(403).json({ message: "Access denied" });
       }
-      
-      const leadId = parseInt(req.params.id);
       const history = await storage.getLeadStatusHistory(leadId);
       res.json(history);
     } catch (error) {
@@ -9178,13 +9263,21 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
   app.get("/api/leads/:id/update-requests", requireAuth, async (req: Request, res: Response) => {
     try {
       const user = req.user as any;
-      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+      const leadId = parseInt(req.params.id);
+      const lead = isNaN(leadId) ? undefined : await storage.getLead(leadId);
+      if (!lead) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+      const requests = await storage.getLeadUpdateRequests(leadId);
+      if (isCrmManager(user)) {
+        return res.json(requests);
+      }
+      // Staff see the requests addressed to them
+      const mine = requests.filter(r => r.requestedFromId === user.id);
+      if (!canSeeLead(user, lead) && mine.length === 0) {
         return res.status(403).json({ message: "Access denied" });
       }
-      
-      const leadId = parseInt(req.params.id);
-      const requests = await storage.getLeadUpdateRequests(leadId);
-      res.json(requests);
+      res.json(mine);
     } catch (error) {
       console.error("Error fetching lead update requests:", error);
       res.status(500).json({ message: "Error fetching update requests" });
@@ -9217,6 +9310,9 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
       
       if (!requestedFromId || !message) {
         return res.status(400).json({ message: "requestedFromId and message are required" });
+      }
+      if (!Number.isInteger(Number(requestedFromId)) || !(await storage.getUser(Number(requestedFromId)))) {
+        return res.status(400).json({ message: "The person asked for the update was not found", field: 'requestedFromId' });
       }
       
       const existingLead = await storage.getLead(leadId);
@@ -9545,6 +9641,19 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
   });
 
   // Create new opportunity
+  // Deal value (QAR) and discount (%) are stored as text but must be numbers: non-negative, discount at most 100
+  const opportunityAmountError = (body: any) => {
+    for (const [field, label, max] of [['dealValue', 'Deal value', Infinity], ['discount', 'Discount', 100]] as const) {
+      const raw = body?.[field];
+      if (raw === undefined || raw === null || raw === '') continue;
+      const value = typeof raw === 'number' ? raw : typeof raw === 'string' && /^\s*\d+(\.\d+)?\s*$/.test(raw) ? Number(raw) : NaN;
+      if (!Number.isFinite(value) || value < 0 || value > max) {
+        return { message: `${label} must be a number of 0 or more${max !== Infinity ? ` and at most ${max}` : ''}`, field };
+      }
+    }
+    return null;
+  };
+
   app.post("/api/opportunities", requireAuth, async (req: Request, res: Response) => {
     try {
       const user = req.user as any;
@@ -9557,6 +9666,10 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
       }
       if (req.body.customerId != null && !(await storage.getCustomer(Number(req.body.customerId)))) {
         return res.status(400).json({ message: "Customer not found", field: 'customerId' });
+      }
+      const amountError = opportunityAmountError(req.body);
+      if (amountError) {
+        return res.status(400).json(amountError);
       }
 
       const bodyData = {
@@ -9607,6 +9720,10 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
       }
       if (req.body.customerId != null && !(await storage.getCustomer(Number(req.body.customerId)))) {
         return res.status(400).json({ message: "Customer not found", field: 'customerId' });
+      }
+      const amountError = opportunityAmountError(req.body);
+      if (amountError) {
+        return res.status(400).json(amountError);
       }
 
       const updateData = {
@@ -9676,6 +9793,9 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
 
       const opportunityId = parseInt(req.params.id);
       const { fileUrl, fileName } = req.body;
+      if (typeof fileUrl !== 'string' || !fileUrl.trim()) {
+        return res.status(400).json({ message: "Upload the proposal file first (fileUrl is required)", field: 'fileUrl' });
+      }
       
       const existingOpportunity = await storage.getOpportunity(opportunityId);
       if (!existingOpportunity) {
@@ -9716,6 +9836,19 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
   const historicalPeriodError = (year: unknown, month: unknown) => {
     if (!Number.isInteger(year) || (year as number) < 2000 || (year as number) > 2100) return 'Year must be a whole number from 2000 to 2100';
     if (typeof month !== 'string' || !HISTORICAL_MONTHS.includes(month)) return `Month must be one of: ${HISTORICAL_MONTHS.join(', ')}`;
+    return null;
+  };
+  // Counts are whole numbers of 0 or more; revenue (e.g. "QAR 50,000") must be an amount of 0 or more
+  const historicalNumbersError = (body: any) => {
+    for (const field of ['leadsReceived', 'dealsClosed', 'trainingsDelivered', 'certificationsIssued']) {
+      const value = body?.[field];
+      if (value !== undefined && value !== null && !(Number.isInteger(value) && value >= 0)) return `${field} must be a whole number of 0 or more`;
+    }
+    const revenue = body?.revenue;
+    if (revenue !== undefined && revenue !== null && revenue !== '') {
+      const amount = typeof revenue === 'number' ? String(revenue) : typeof revenue === 'string' ? revenue.replace(/QAR|,|\s/gi, '') : '-';
+      if (!/^\d+(\.\d+)?$/.test(amount)) return 'Revenue must be an amount of 0 or more (e.g. QAR 50,000)';
+    }
     return null;
   };
 
@@ -9761,7 +9894,7 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         return res.status(403).json({ message: "Access denied" });
       }
 
-      const periodError = historicalPeriodError(req.body.year, req.body.month);
+      const periodError = historicalPeriodError(req.body.year, req.body.month) ?? historicalNumbersError(req.body);
       if (periodError) {
         return res.status(400).json({ message: periodError });
       }
@@ -9811,6 +9944,10 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
       }
 
       const { createdById: _ignoredCreator, ...changes } = req.body;
+      const numbersError = historicalNumbersError(changes);
+      if (numbersError) {
+        return res.status(400).json({ message: numbersError });
+      }
       const validatedData = insertHistoricalDataSchema.partial().parse(changes);
       const year = validatedData.year ?? existingEntry.year;
       const month = validatedData.month ?? existingEntry.month;

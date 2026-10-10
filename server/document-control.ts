@@ -35,6 +35,12 @@ export async function getCurrentVersion(documentId: number): Promise<DocumentVer
   return current;
 }
 
+// The COO reclassified the document: the current version record (master list, records, readers) follows
+export async function setCurrentVersionClassification(documentId: number, classification: string) {
+  const current = await getCurrentVersion(documentId);
+  if (current) await db.update(documentVersions).set({ classification }).where(eq(documentVersions.id, current.id));
+}
+
 // Snapshot the document as it stands now as its current approved version (if not already recorded)
 async function ensureCurrentVersionRecorded(doc: Document): Promise<DocumentVersion> {
   const existing = await getCurrentVersion(doc.id);
