@@ -200,6 +200,12 @@ const CEO_EMAIL = 'ceo@sahihcertify.com';
 const HR_EMAIL = 'hr@sahihcertify.com';
 
 // Managers: admin role, Quality Manager or the COO
+// People working on a draft (or managers) may see its generated PDF
+function isDraftWorkflowViewer(doc: { createdById: number; preparedById: number | null; reviewerId: number | null; approverId: number | null }, user: { id: number; role: string; email: string } | undefined): boolean {
+  if (!user) return false;
+  return isManagerUser(user) || [doc.createdById, doc.preparedById, doc.reviewerId, doc.approverId].includes(user.id);
+}
+
 function isManagerUser(user: { role: string; email: string } | undefined): boolean {
   if (!user) return false;
   return user.role === UserRole.ADMIN || user.role === UserRole.QUALITY_MANAGER || user.email === COO_EMAIL;
@@ -1059,9 +1065,9 @@ export async function registerRoutes(
     const approvedDownloads = new Set((await storage.getDownloadRequests({ requesterId: userId, status: DownloadRequestStatus.APPROVED })).map(r => r.documentId));
     const filteredDocs = await Promise.all(docs.map(async (rawDoc) => {
       const doc = currentUser ? await presentForReader(rawDoc, currentUser) : rawDoc;
-      // Non-locked and non-approved docs are always visible
+      // Non-locked and non-approved docs are always visible; a draft's PDF only to its workflow and managers
       if (!doc.isLocked && doc.status !== DocumentStatus.APPROVED) {
-        return { ...doc, viewerHasAccess: true };
+        return isDraftWorkflowViewer(doc, currentUser) ? { ...doc, viewerHasAccess: true } : { ...doc, finalPdfUrl: null, viewerHasAccess: true };
       }
       
       // For locked/approved docs, check if user has explicit access
@@ -1112,9 +1118,9 @@ export async function registerRoutes(
       return res.json(doc);
     }
     
-    // Non-locked and non-approved docs are fully accessible
+    // Non-locked and non-approved docs are fully accessible; a draft's PDF only to its workflow and managers
     if (!doc.isLocked && doc.status !== DocumentStatus.APPROVED) {
-      return res.json(doc);
+      return res.json(isDraftWorkflowViewer(doc, currentUser) ? doc : { ...doc, finalPdfUrl: null });
     }
     
     // For locked/approved docs, check access
