@@ -18,6 +18,7 @@ import { Plus, Trash2, FileText, Wand2, Eye, Copy, Send, Link2, ExternalLink, Sp
 import { format } from "date-fns";
 import type { DocuGenieForm, DocuGenieFormSubmission } from "@shared/schema";
 import { insertDocuGenieFormSchema } from "@shared/schema";
+import { sanitizeFormHtml } from "@/lib/sanitize-form-html";
 
 const createFormSchema = insertDocuGenieFormSchema.pick({
   title: true,
@@ -430,7 +431,7 @@ export default function DocuGenie() {
                     <div className="border rounded-lg p-4 bg-white min-h-[300px]" data-testid="form-preview">
                       {selectedForm.htmlForm ? (
                         <div 
-                          dangerouslySetInnerHTML={{ __html: selectedForm.htmlForm }} 
+                          dangerouslySetInnerHTML={{ __html: sanitizeFormHtml(selectedForm.htmlForm) }} 
                           className="prose max-w-none"
                         />
                       ) : (

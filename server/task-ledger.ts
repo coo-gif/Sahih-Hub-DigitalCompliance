@@ -355,8 +355,9 @@ export async function refreshPerformanceReports(): Promise<void> {
   for (const report of drafts) {
     const { start: s, end: e } = monthRange(report.reportMonth, report.reportYear);
     const metrics = await computeTaskMetrics(report.userId, s, e);
+    const activity = await storage.getActivitySummary(report.userId, report.reportMonth, report.reportYear);
     await db.update(monthlyPerformanceReports)
-      .set({ ...reportFieldsFromMetrics(metrics), updatedAt: new Date() })
+      .set({ ...reportFieldsFromMetrics(metrics), ...activity, updatedAt: new Date() })
       .where(eq(monthlyPerformanceReports.id, report.id));
   }
 }

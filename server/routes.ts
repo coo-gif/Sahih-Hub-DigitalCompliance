@@ -1,6 +1,6 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
-import { storage, verifyPassword } from "./storage";
+import { storage, verifyPassword, UserHasRecordsError } from "./storage";
 import { api } from "@shared/routes";
 import { 
   DocumentStatus, 
@@ -29,6 +29,8 @@ import {
   insertOpportunitySchema,
   OpportunityStage,
   insertHistoricalDataSchema,
+  BugReportStatus,
+  BugReportPriority,
   type Document,
 } from "@shared/schema";
 import { z } from "zod";
@@ -39,41 +41,95 @@ import fs from "fs";
 import { execSync } from "child_process";
 
 // Helper function to find chromium executable
+let cachedChromiumPath: string | undefined;
 function findChromiumPath(): string | undefined {
+  if (cachedChromiumPath && fs.existsSync(cachedChromiumPath)) return cachedChromiumPath;
+  const found = searchChromiumPath();
+  if (found) cachedChromiumPath = found;
+  return found;
+}
+
+function searchChromiumPath(): string | undefined {
   // Try common paths in order of preference
   const possiblePaths = [
     process.env.PUPPETEER_EXECUTABLE_PATH,
     '/nix/store/zi4f80l169xlmivz8vja8wlphq74qqk0-chromium-125.0.6422.141/bin/chromium',
   ];
-  
+
   // Check which paths exist
   for (const chromePath of possiblePaths) {
     if (chromePath && fs.existsSync(chromePath)) {
       return chromePath;
     }
   }
-  
+
   // Try to find using which command
   try {
-    const result = execSync('which chromium 2>/dev/null || which google-chrome 2>/dev/null', { encoding: 'utf-8' }).trim();
+    const result = execSync('which chromium 2>/dev/null || which chromium-browser 2>/dev/null || which google-chrome 2>/dev/null || which google-chrome-stable 2>/dev/null', { encoding: 'utf-8' }).trim();
     if (result && fs.existsSync(result)) {
       return result;
     }
   } catch (e) {
     // Ignore errors
   }
-  
+
+  // Playwright browser installs (/opt/pw-browsers/chromium-NNNN/chrome-linux/chrome)
+  try {
+    const pwRoot = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
+    if (fs.existsSync(pwRoot)) {
+      // Newest first; full Chromium before the headless shell, which is only a last resort
+      const entries = fs.readdirSync(pwRoot).filter(e => e.startsWith('chromium')).sort().reverse();
+      entries.sort((a, b) => Number(a.includes('headless')) - Number(b.includes('headless')));
+      for (const entry of entries) {
+        const candidates = [
+          path.join(pwRoot, entry, 'chrome-linux', 'chrome'),
+          path.join(pwRoot, entry, 'chrome-linux64', 'chrome'),
+          path.join(pwRoot, entry, 'chrome-linux', 'headless_shell'),
+          path.join(pwRoot, entry, 'chrome-headless-shell-linux64', 'chrome-headless-shell'),
+        ];
+        for (const candidate of candidates) {
+          if (fs.existsSync(candidate)) return candidate;
+        }
+      }
+    }
+  } catch (e) {
+    // Ignore errors
+  }
+
+  // Puppeteer's own downloaded browser
+  try {
+    const bundled = puppeteer.executablePath();
+    if (bundled && fs.existsSync(bundled)) {
+      return bundled;
+    }
+  } catch (e) {
+    // Ignore errors
+  }
+
   // Try to find in nix store
   try {
-    const result = execSync('find /nix/store -name "chromium" -type f -executable 2>/dev/null | head -1', { encoding: 'utf-8' }).trim();
-    if (result && fs.existsSync(result)) {
-      return result;
+    if (fs.existsSync('/nix/store')) {
+      const result = execSync('find /nix/store -name "chromium" -type f -executable 2>/dev/null | head -1', { encoding: 'utf-8' }).trim();
+      if (result && fs.existsSync(result)) {
+        return result;
+      }
     }
   } catch (e) {
     // Ignore errors
   }
-  
+
   return undefined;
+}
+
+// The browser every Puppeteer launch uses; fails loudly when none is installed
+function resolveChromiumPath(): string {
+  const chromiumPath = findChromiumPath();
+  if (!chromiumPath) {
+    const message = 'No Chromium/Chrome executable found for PDF generation. Set PUPPETEER_EXECUTABLE_PATH or install Chromium (e.g. "npx puppeteer browsers install chrome").';
+    console.error(`[pdf] ${message}`);
+    throw new Error(message);
+  }
+  return chromiumPath;
 }
 import { listEmails, getEmail, sendEmail as sendEmailGmail, getUnreadCount, markAsRead, getLabels } from "./gmail";
 import { isSmtpConfigured, sendEmailSmtp } from "./email-smtp";
@@ -102,12 +158,14 @@ import {
 } from "./gmail-oauth";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { collectOpenTasks, TASK_TYPE_LABELS, type OpenTask } from "./task-sources";
-import { registerDocumentControlRoutes, presentForReader, recordApprovedVersion, setDocumentLinks } from "./document-control";
+import { registerDocumentControlRoutes, presentForReader, recordApprovedVersion, setDocumentLinks, setCurrentVersionClassification } from "./document-control";
+import { registerInternalAuditRoutes } from "./internal-audit";
 import { convertUploadedFile, isGoogleFileUrl, UnsupportedFileError } from "./document-import";
 import {
   reconcileTasks, scheduleReconcile, getOpenTaskRecords, computeTaskMetrics, monthRange, refreshPerformanceReports,
   parseTargetDate, setTaskTarget, getTaskTarget, TargetDateError,
 } from "./task-ledger";
+import { CertificationApplicationStatus, AuditType, AuditStatus, FindingType, FindingStatus, TrainingType, TrainingStatus, TrainingAssignmentStatus } from "@shared/schema";
 
 async function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) {
@@ -118,16 +176,63 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
     const user = await storage.getUser(req.session.userId);
     if (user) {
+      // Deactivated accounts lose access immediately, even with a live session
+      if (!user.isActive) {
+        req.session.destroy(() => {});
+        return res.status(401).json({ message: 'Account is deactivated. Contact administrator.' });
+      }
       (req as any).user = user;
+    } else {
+      // The account was deleted: end its session
+      req.session.destroy(() => {});
+      return res.status(401).json({ message: 'Authentication required' });
     }
   } catch (error) {
     console.error('Error fetching user in requireAuth:', error);
+    return res.status(500).json({ message: 'Something went wrong. Please try again.' });
   }
   
   next();
 }
 
 const COO_EMAIL = 'coo@sahihcertify.com';
+const CEO_EMAIL = 'ceo@sahihcertify.com';
+const HR_EMAIL = 'hr@sahihcertify.com';
+
+// Managers: admin role, Quality Manager or the COO
+// People working on a draft (or managers) may see its generated PDF
+function isDraftWorkflowViewer(doc: { createdById: number; preparedById: number | null; reviewerId: number | null; approverId: number | null }, user: { id: number; role: string; email: string } | undefined): boolean {
+  if (!user) return false;
+  return isManagerUser(user) || [doc.createdById, doc.preparedById, doc.reviewerId, doc.approverId].includes(user.id);
+}
+
+function isManagerUser(user: { role: string; email: string } | undefined): boolean {
+  if (!user) return false;
+  return user.role === UserRole.ADMIN || user.role === UserRole.QUALITY_MANAGER || user.email === COO_EMAIL;
+}
+
+// Managers plus HR (employee records and employee tasks)
+function isHrOrManager(user: { role: string; email: string } | undefined): boolean {
+  if (!user) return false;
+  return isManagerUser(user) || user.email === HR_EMAIL;
+}
+
+// A supervisor must be an existing employee, not the employee itself, and must not create a reporting loop
+async function supervisorError(employeeId: number | null, supervisorId: number | null | undefined): Promise<string | null> {
+  if (supervisorId === null || supervisorId === undefined) return null;
+  if (employeeId !== null && supervisorId === employeeId) return 'An employee cannot be their own supervisor';
+  const seen = new Set<number>();
+  let currentId: number | null = supervisorId;
+  while (currentId !== null) {
+    if (employeeId !== null && currentId === employeeId) return 'This supervisor would create a reporting loop';
+    if (seen.has(currentId)) break; // existing loop above, not involving this employee
+    seen.add(currentId);
+    const current = await storage.getEmployee(currentId);
+    if (!current) return currentId === supervisorId ? 'Supervisor not found' : null;
+    currentId = current.supervisorId ?? null;
+  }
+  return null;
+}
 
 // Documents the COO stored in the Hub as public information are readable by every signed-in user
 function isPublicHubDocument(doc: { hubStatus?: string | null; classification?: string | null; lifecycleStatus?: string | null }): boolean {
@@ -195,7 +300,7 @@ async function reassignDocumentTask(doc: Document, taskType: string, newAssignee
     action: AuditAction.UPDATE,
     entityType: 'document',
     entityId: documentId,
-    oldValue: JSON.stringify({
+    previousValue: JSON.stringify({
       taskType,
       assignedTo: oldAssignee?.name || 'Unknown',
       assignedToId: oldAssigneeId,
@@ -241,6 +346,28 @@ async function reassignDocumentTask(doc: Document, taskType: string, newAssignee
   return updated;
 }
 
+// Downloading the PDF of an approved or locked document: the COO and the document's workflow members always can.
+// Everyone else needs reading access and, when the document requires it, an approved download request.
+async function canDownloadDocument(doc: Document, user: { id: number; email: string }, approvedDocIds?: Set<number>): Promise<{ allowed: boolean; message: string }> {
+  if (!doc.isLocked && doc.status !== DocumentStatus.APPROVED) return { allowed: true, message: '' };
+  if (user.email === COO_EMAIL) return { allowed: true, message: '' };
+  if (isWithdrawnDocument(doc)) return { allowed: false, message: 'This document has been withdrawn from use.' };
+  if ([doc.createdById, doc.preparedById, doc.reviewerId, doc.approverId].includes(user.id)) return { allowed: true, message: '' };
+  const canRead = isPublicHubDocument(doc) || await storage.hasDocumentAccess(doc.id, user.id);
+  const approved = approvedDocIds
+    ? approvedDocIds.has(doc.id)
+    : (await storage.getDownloadRequests({ documentId: doc.id, requesterId: user.id, status: DownloadRequestStatus.APPROVED })).length > 0;
+  if (!canRead) {
+    return { allowed: false, message: approved
+      ? 'Your download request was approved, but you do not have reading access to this document. Request access to the document first.'
+      : 'Access denied. This document is locked.' };
+  }
+  if (doc.downloadRequiresApproval !== false && !approved) {
+    return { allowed: false, message: 'Downloading this document needs an approved download request. Use "Request download" and wait for approval.' };
+  }
+  return { allowed: true, message: '' };
+}
+
 // Who assigned a task: the recorded initiator, else the one implied by the workflow
 async function taskInitiatorId(taskKey: string): Promise<number | null> {
   const target = await getTaskTarget(taskKey);
@@ -265,6 +392,10 @@ function getCurrentUserId(req: any): number {
 }
 
 const COMPANY_LOGO_BASE64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAMAAABlApw1AAAAYFBMVEUAAAD///+qqqqampra2tpDQ0Pj4+Pd3d34+PhPT0/x8fFISEi/v79YWFgQEBCWlpY2NjYjIyPp6emAgICNjY1hYWEaGhotLS2hoaEoKCh1dXW1tbXFxcVqamrLy8vS0tIYlW4WAAAI+UlEQVR4nO2ciZKzKhCFaRdEXKK4a4zv/5a30SxmMyYBJ39dvpqaGMelj8CxQRxCDAaDwWAwGAwGg8FgMBgMBsNPk+ysD+j8xYMG3aN9Ii0CfA8+IEwW43ce7pT9joB9vHRI93H8PyQgXDxi9OyIPyPgRfxPrv/vCNh/GP+vCAjLpcO5C4f7DQFhunS0J/7zQwKW689i/JoEuMM78X/oPxOtFgGkeKMIPvUfCcv1xI8K6Nr4l+uP/0fx45UTK6//ov8EyyWppwEc8fmq+D/3H83xo4IVZfCN/+iOHxW8bAdf+Y/2+F970cf5A8J2+uN/5UXL1//FzZDVi61HFUvt4Cv/kQoW+w/KFDz1oq/8Z6TeQsDTMviq/myqIHrYDr7yn4uCTWrRIy/6xn+uFGzSku+9aPn6v2y/F1jdbKHgtiV/334vaEqnFxW88M+34uf9JgKuvEiF/5wQ2xQAmXvRN/2Xv4v/4kWq/EfCN4z/VAbK/Gfz+DE6rtZ/to4f2yf7bPz2V+JHFuNfmz/8YfyLvNd+AbpNsoj1vBv/q/a0NUvjt89YduRtec9/Thz+Ouwz7/nP75XB4z7PqjLQ1KMpF/PNu/g/vP6SsNIiINgtPjG9Znn89hW6HnAs5/xz3st/NhPwImubxf/V9df5iGmdQ3wbv85nZOEKh3gv/9lYAIQvRwy+8Z8NBLz0uM/mhGwo4Nvx278XsOhFX7ffLQQsKPju/rWZgKe16Hv/0SpgdnUft2QF/qNTwNVUg+6Bm6rwH50Ckv38HPd3NDXtd0RP377srk5y25IVxs80De7W16e5zovU1R8AujxV82Mydn2euRep8p/pwJoecNxd5O7sRcr8Z0Tbc7797ZlOXqQkfzijb3xux27PNbVkhe1XMujpEiPV/ePhvfr4wdIVPyHd/dlCpf4jEa4+AeVdHcIyeGsu4ArWdrw/wlIc7APYG4M371OumnL2FZrnSmS64xdvjf+9T3N3L1CM9mfcxcqZlx+ywVSV/IETKWPQaKFnNDqRKDaIn1Sqjf8M22DSpSTR5aWbTLocFeiJv9sqfvl4/t+On5BefS3S1Q17QqtawfIbfxro1daibuv4sRujUoH1FzMMEnVJxWb+eY2qxI792SSb1FJRjbxN8ocnZN9Xo1DTMNxKim9HJPJt7f8e98FIxXq2mqO7yBf3tM3vXo+pDp+1ZbpR9ryC/IO5QexHLv+E371bCI7GNyY/IW7fsiNWB38d8R1Vvj7+wd/kPZm3CdeF/xPe+Rj/8NpShf3XUS7S7pdbs2f9kvc8JAufS6D13yY+62j6J21B5P9C+JI0eJAgiUzboy8t1Hxek9jh93z/Je2BThq4s82reepx7b0nhu53bX8FUf/ztmkwGAyG/xFReLmtdndjynGZ3kwUaLup7xh1LX4Jt3gK/JAySosxl8xmczHAu9mqqMN9l8//0WOSd1PvN5OzmGr4s2HciLZ8HAZpATuE6TQcDs7NVp0ThgegsyitIZ+evWfsbwUkebDzA8ufBNh8LIY7AWnWNmkGw2VNn0VZWe9uBAR2152l5LuGRHVozfs6hRWQXWepzsBbyCYBBZO/7wUMnDkRcfhUicrMSjG8inBxI2APHNhJgaAuCXHFMFNgQ+EBA64qD2wO4zS87CSAVExOargVYIGVQUes44SBZg9J6lGfMH5bAg1pWVeeBAQkSeMdzEbqbOAHubmq8Qt3mkd4LgGsGnLNrYABUtcbSvsoIEUBpef5hKOAltXXbSAU1UnA2EgKZl3GunajPxRc1ew5F/aB6yb5UUDiugU/JOhClTsj6WDXUyewWJ7I7/4BoojzrGG8SnJmJYl1FhDlHuTjXpUQhfwshulzPFINGf7OuKr3WpsBqOM4AksZbTTuPMeT87MBBmcOBaDAHA5i/OoxwFWOcADkvnzAvxwF1EJ0DoxbDQDeuMDHczjHZTEeT9mrxW5uj/hoIFGcycWsIvbOvma3O/6cv9ptkE0r5K+dPbVKG9Bz/OmYeZ4ft58f7bj8c/8i4Ihgl+Xab/+9LrOAIK4mEypZJzadpaKEjAPwY3MISPpvjXeNFLXd/tS/XzAY3iFOj9VXfqarBj3jRnpOmjSkeTwz+slqZQRFX5wzw+hk45y7gYD5dm5RFI/+cX0LmOj0DPb9PNe+EN31jdTSYiJweS/Ep3xa8A6BS+cCxiet4nrfJEPlGbVL1JsHGb0z/R0qbqnWlx7kqYtc3i8Tv5ICBOZz+C2KiEsZSU5lUzC2a3OZFaeyK1JWJHUxeULDHPuj4OBO41Bv6Urrb3y57EJdYulU59W4WxyMiamrbFgYxFgvCocKz5YC9lRe0iFMXCpCSndTDT4cZ46VNW4XkdazHKfAvEyUBc0x2WaiTRy81LkjvNwNqaBW2lLgtHWH/biaWiWxnNqjToJnE0JVNmoBl6H1hzwDUfkU9rgmIkyggOMykp6qUw5dhJ2YHKvToUJVrWwDpACaJQFW9gz7c3UbhDbWuAw7DV2f+EBxNS0OmKxjd612II+paHtlU+lqACZ7fFXp8UhWobKDnjCayCoUd1OWfGrQMfei+ABNLvtYsSXfaBgbMTgNCbAT1ME0uNIkOyyyWm7lM4qrsUbCIQ1xhxy3pyxXeLN2QwASDZwyKYCT9CwA5PIooKQwemoMjFLqlbL/cy0gkQLSA5MCqo5RjsFbJwGhFMCdJIRWCpAvWnBV03FkFfegCfFcznMBWPjSYuKY076pEjIKKMde2FwARio3r3HjbC5AHnEqgUkASXMBim4PXWdbjOGZ654fBYRXAqaM3uUQ1laIsYVZbpNTCXRWMhPgYYfXyeseNyr2WIVsGOxobAMwtB3UeBkmAXXee6oEyEfvXkF6AQPlUYBtYAyaT23gXAIkkvNI91g7MFu2yNgGsDeP7b6/CBhIgy2K58kB6B63aPDvvdSV2oyxuiKnEsCTMlVvZJVVksgG1SRVU8VxVcm0ICb4eV6+bIgXLU7kRykXcYsEN5O74ycuNNOqEvdKxi3wS3xeHU9HK3F7/Ps/2FEwGAwGg8FgMBgMBoPBYDAYDAbDKv4DRtuGaiLoaoAAAAAASUVORK5CYII=';
+
+// Text typed by users goes into report HTML: escape it so it can't add markup (or make the PDF browser fetch anything)
+const esc = (value: unknown) => String(value ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
 async function generateReportPdf(
   reportType: string,
@@ -305,8 +436,8 @@ async function generateReportPdf(
   const signatureHtml = (name: string | undefined, signature: string | null | undefined, signedAt: Date | null | undefined, role: string) => `
     <div class="signature-block">
       <div class="signature-role">${role}</div>
-      ${signature ? `<img src="${signature}" class="signature-img" alt="${name} signature" />` : '<div class="signature-placeholder"></div>'}
-      <div class="signature-line">${name || 'N/A'}</div>
+      ${signature?.startsWith('data:image/') ? `<img src="${esc(signature)}" class="signature-img" alt="${esc(name)} signature" />` : '<div class="signature-placeholder"></div>'}
+      <div class="signature-line">${esc(name || 'N/A')}</div>
       <div class="signature-date">${formatDate(signedAt)}</div>
     </div>
   `;
@@ -355,12 +486,12 @@ async function generateReportPdf(
           </div>
         </div>
         <div class="company-info">
-          <div class="report-number"><strong>Report No:</strong> ${metadata.reportNumber}</div>
+          <div class="report-number"><strong>Report No:</strong> ${esc(metadata.reportNumber)}</div>
           <div class="report-number"><strong>Generated:</strong> ${formatDate(metadata.generatedAt)}</div>
         </div>
       </div>
       
-      <div class="report-title">${title}</div>
+      <div class="report-title">${esc(title)}</div>
       
       ${reportType === ReportType.DOCUMENT_APPROVAL ? `
         <div class="section">
@@ -368,11 +499,11 @@ async function generateReportPdf(
           <div class="info-grid">
             <div class="info-item">
               <div class="info-label">Document Code</div>
-              <div class="info-value">${metadata.documentCode || 'N/A'}</div>
+              <div class="info-value">${esc(metadata.documentCode || 'N/A')}</div>
             </div>
             <div class="info-item">
               <div class="info-label">Document Title</div>
-              <div class="info-value">${metadata.documentTitle || 'N/A'}</div>
+              <div class="info-value">${esc(metadata.documentTitle || 'N/A')}</div>
             </div>
           </div>
         </div>
@@ -382,23 +513,23 @@ async function generateReportPdf(
           <div class="info-grid">
             <div class="info-item">
               <div class="info-label">Employee Name</div>
-              <div class="info-value">${metadata.employeeName || 'N/A'}</div>
+              <div class="info-value">${esc(metadata.employeeName || 'N/A')}</div>
             </div>
             <div class="info-item">
               <div class="info-label">Employee Number</div>
-              <div class="info-value">${metadata.employeeNumber || 'N/A'}</div>
+              <div class="info-value">${esc(metadata.employeeNumber || 'N/A')}</div>
             </div>
             <div class="info-item">
               <div class="info-label">Department</div>
-              <div class="info-value">${metadata.department || 'N/A'}</div>
+              <div class="info-value">${esc(metadata.department || 'N/A')}</div>
             </div>
             <div class="info-item">
               <div class="info-label">Job Title</div>
-              <div class="info-value">${metadata.jobTitle || 'N/A'}</div>
+              <div class="info-value">${esc(metadata.jobTitle || 'N/A')}</div>
             </div>
             <div class="info-item">
               <div class="info-label">Hire Date</div>
-              <div class="info-value">${metadata.hireDate || 'N/A'}</div>
+              <div class="info-value">${esc(metadata.hireDate || 'N/A')}</div>
             </div>
           </div>
         </div>
@@ -432,7 +563,7 @@ async function generateReportPdf(
   try {
     browser = await puppeteer.launch({ 
       headless: true,
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/nix/store/zi4f80l169xlmivz8vja8wlphq74qqk0-chromium-125.0.6422.141/bin/chromium',
+      executablePath: resolveChromiumPath(),
       args: [
         '--no-sandbox', 
         '--disable-setuid-sandbox',
@@ -446,6 +577,9 @@ async function generateReportPdf(
     });
     
     const page = await browser.newPage();
+    // Only embedded images (logo, signatures) may load: no network requests from report PDFs
+    await page.setRequestInterception(true);
+    page.on('request', (request) => (request.url().startsWith('data:') ? request.continue() : request.abort()));
     await page.setContent(htmlContent, { waitUntil: 'domcontentloaded', timeout: 15000 });
     
     const pdfBuffer = await page.pdf({
@@ -495,6 +629,7 @@ export async function registerRoutes(
 
   // Change requests, version records and the Records & Data Hive
   registerDocumentControlRoutes(app, { requireAuth, canViewDocument });
+  registerInternalAuditRoutes(app, { requireAuth });
 
   // ============================================
   // AUTHENTICATION ROUTES
@@ -559,11 +694,60 @@ export async function registerRoutes(
       req.session.destroy(() => {});
       return res.status(401).json({ message: 'User not found' });
     }
+    if (!user.isActive) {
+      req.session.destroy(() => {});
+      return res.status(401).json({ message: 'Account is deactivated. Contact administrator.' });
+    }
 
     res.json({ user });
   });
 
   // Accept user agreement (ISO 27001 compliance)
+  // Everyone changes their own password (the current one is required)
+  app.post('/api/auth/change-password', requireAuth, async (req, res) => {
+    const parsed = z.object({
+      currentPassword: z.string().min(1, 'Enter your current password'),
+      newPassword: z.string().min(8, 'The new password must have at least 8 characters').max(200),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0].message, field: parsed.error.errors[0].path.join('.') });
+    const currentUser = (req as any).user;
+    const full = await storage.getUserByEmail(currentUser.email);
+    if (!full || !(await verifyPassword(parsed.data.currentPassword, full.passwordHash))) {
+      return res.status(400).json({ message: 'Your current password is not correct', field: 'currentPassword' });
+    }
+    if (parsed.data.currentPassword === parsed.data.newPassword) {
+      return res.status(400).json({ message: 'Choose a password different from the current one', field: 'newPassword' });
+    }
+    await storage.updateUser(currentUser.id, { passwordHash: parsed.data.newPassword } as any);
+    await storage.createAuditLog({
+      userId: currentUser.id, action: AuditAction.UPDATE, entityType: 'user', entityId: currentUser.id,
+      newValue: JSON.stringify({ passwordChanged: true }),
+    });
+    res.json({ success: true });
+  });
+
+  // Admins (and the COO) set a new password for someone who has lost theirs
+  app.post('/api/users/:id/reset-password', requireAuth, async (req, res) => {
+    const currentUser = (req as any).user;
+    if (currentUser.role !== UserRole.ADMIN && currentUser.email !== COO_EMAIL) {
+      return res.status(403).json({ message: 'Only an admin can reset passwords' });
+    }
+    const id = Number(req.params.id);
+    const parsed = z.object({ newPassword: z.string().min(8, 'The new password must have at least 8 characters').max(200) }).safeParse(req.body);
+    if (!Number.isInteger(id) || !parsed.success) return res.status(400).json({ message: parsed.success ? 'Invalid user' : parsed.error.errors[0].message });
+    const target = await storage.getUser(id);
+    if (!target) return res.status(404).json({ message: 'User not found' });
+    await storage.updateUser(id, { passwordHash: parsed.data.newPassword } as any);
+    await storage.createAuditLog({
+      userId: currentUser.id, action: AuditAction.UPDATE, entityType: 'user', entityId: id,
+      newValue: JSON.stringify({ passwordReset: true }),
+    });
+    if (id !== currentUser.id) {
+      await storage.createNotification({ userId: id, title: 'Password Reset', message: `${currentUser.name} set a new password for your account. Change it after you sign in.`, urgencyLevel: UrgencyLevel.HIGH });
+    }
+    res.json({ success: true });
+  });
+
   app.post('/api/auth/accept-agreement', async (req, res) => {
     if (!req.session.userId) {
       return res.status(401).json({ message: 'Not authenticated' });
@@ -587,17 +771,21 @@ export async function registerRoutes(
   // ============================================
   // DASHBOARD ROUTES
   // ============================================
-  app.get(api.dashboard.stats.path, async (req, res) => {
+  app.get(api.dashboard.stats.path, requireAuth, async (req, res) => {
     const stats = await storage.getDashboardStats();
     res.json(stats);
   });
 
-  app.get(api.dashboard.alerts.path, async (req, res) => {
+  app.get(api.dashboard.alerts.path, requireAuth, async (req, res) => {
     const alerts = await storage.getComplianceAlerts();
     res.json(alerts);
   });
 
-  app.get(api.dashboard.recentActivity.path, async (req, res) => {
+  app.get(api.dashboard.recentActivity.path, requireAuth, async (req, res) => {
+    const currentUser = (req as any).user;
+    if (!isManagerUser(currentUser) && currentUser?.email !== CEO_EMAIL) {
+      return res.status(403).json({ message: 'Only managers can view recent activity' });
+    }
     const activity = await storage.getAuditLogs(10);
     res.json(activity);
   });
@@ -629,12 +817,18 @@ export async function registerRoutes(
     }
   });
 
-  app.get(api.users.list.path, async (req, res) => {
+  app.get(api.users.list.path, requireAuth, async (req, res) => {
+    const currentUserId = getCurrentUserId(req);
     const users = await storage.getUsers();
-    res.json(users);
+    // Signatures are only sent to their owner; others just see whether one is on file
+    res.json(users.map(u => ({
+      ...u,
+      signatureDataUrl: u.id === currentUserId ? u.signatureDataUrl : null,
+      hasSignature: !!u.signatureDataUrl,
+    })));
   });
 
-  app.get(api.users.get.path, async (req, res) => {
+  app.get(api.users.get.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid user ID' });
@@ -643,12 +837,23 @@ export async function registerRoutes(
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
-    res.json(user);
+    const currentUser = (req as any).user;
+    if (user.id !== currentUser?.id && !isManagerUser(currentUser)) {
+      return res.json({ ...user, signatureDataUrl: null, hasSignature: !!user.signatureDataUrl });
+    }
+    res.json({ ...user, hasSignature: !!user.signatureDataUrl });
   });
 
-  app.post(api.users.create.path, async (req, res) => {
+  app.post(api.users.create.path, requireAuth, async (req, res) => {
     try {
+      const currentUser = (req as any).user;
+      if (!isManagerUser(currentUser)) {
+        return res.status(403).json({ message: 'Only managers can create users' });
+      }
       const input = api.users.create.input.parse(req.body);
+      if (input.role === UserRole.ADMIN && currentUser.role !== UserRole.ADMIN && currentUser.email !== COO_EMAIL) {
+        return res.status(403).json({ message: 'Only an admin can create admin accounts' });
+      }
       
       // Check if email already exists
       const existing = await storage.getUserByEmail(input.email);
@@ -686,7 +891,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.users.update.path, async (req, res) => {
+  app.put(api.users.update.path, requireAuth, async (req, res) => {
     try {
       const input = api.users.update.input.parse(req.body);
       const id = Number(req.params.id);
@@ -694,6 +899,19 @@ export async function registerRoutes(
       const existing = await storage.getUser(id);
       if (!existing) {
         return res.status(404).json({ message: 'User not found' });
+      }
+
+      const currentUser = (req as any).user;
+      const manager = isManagerUser(currentUser);
+      const canGrantAdmin = currentUser?.role === UserRole.ADMIN || currentUser?.email === COO_EMAIL;
+      if (!manager) {
+        // Staff may only change their own name
+        const changesOtherFields = input.role !== undefined || input.isActive !== undefined || input.inductionStatus !== undefined;
+        if (id !== currentUser?.id || changesOtherFields) {
+          return res.status(403).json({ message: 'You can only update your own name' });
+        }
+      } else if (!canGrantAdmin && (input.role === UserRole.ADMIN || (existing.role === UserRole.ADMIN && id !== currentUser?.id))) {
+        return res.status(403).json({ message: 'Only an admin can grant or change admin accounts' });
       }
 
       const user = await storage.updateUser(id, input);
@@ -720,14 +938,30 @@ export async function registerRoutes(
     }
   });
 
-  app.delete(api.users.delete.path, async (req, res) => {
+  app.delete(api.users.delete.path, requireAuth, async (req, res) => {
+    const currentUser = (req as any).user;
+    if (!isManagerUser(currentUser)) {
+      return res.status(403).json({ message: 'Only managers can delete users' });
+    }
     const id = Number(req.params.id);
     const existing = await storage.getUser(id);
     if (!existing) {
       return res.status(404).json({ message: 'User not found' });
     }
+    if (existing.role === UserRole.ADMIN && currentUser.role !== UserRole.ADMIN && currentUser.email !== COO_EMAIL) {
+      return res.status(403).json({ message: 'Only an admin can delete admin accounts' });
+    }
 
-    await storage.deleteUser(id);
+    try {
+      await storage.deleteUser(id);
+    } catch (err: any) {
+      // The user is referenced by records that must be kept (23503 = foreign key violation)
+      if (err instanceof UserHasRecordsError || err?.code === '23503' || err?.cause?.code === '23503') {
+        return res.status(409).json({ message: 'This user has records in the system (documents, tasks, logs) and cannot be deleted. Deactivate the account instead.' });
+      }
+      console.error('Error deleting user:', err);
+      return res.status(500).json({ message: 'Failed to delete user' });
+    }
 
     // Audit log
     await storage.createAuditLog({
@@ -741,11 +975,15 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
-  app.put(api.users.updateSignature.path, async (req, res) => {
+  app.put(api.users.updateSignature.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
         return res.status(400).json({ message: 'Invalid user ID' });
+      }
+      const currentUser = (req as any).user;
+      if (id !== currentUser?.id && !isManagerUser(currentUser)) {
+        return res.status(403).json({ message: 'You can only update your own signature' });
       }
       
       const existing = await storage.getUser(id);
@@ -824,11 +1062,12 @@ export async function registerRoutes(
     
     // For other users, filter out locked/approved documents unless they have explicit access.
     // A document under revision is shown to readers as its approved version still in force.
+    const approvedDownloads = new Set((await storage.getDownloadRequests({ requesterId: userId, status: DownloadRequestStatus.APPROVED })).map(r => r.documentId));
     const filteredDocs = await Promise.all(docs.map(async (rawDoc) => {
       const doc = currentUser ? await presentForReader(rawDoc, currentUser) : rawDoc;
-      // Non-locked and non-approved docs are always visible
+      // Non-locked and non-approved docs are always visible; a draft's PDF only to its workflow and managers
       if (!doc.isLocked && doc.status !== DocumentStatus.APPROVED) {
-        return { ...doc, viewerHasAccess: true };
+        return isDraftWorkflowViewer(doc, currentUser) ? { ...doc, viewerHasAccess: true } : { ...doc, finalPdfUrl: null, viewerHasAccess: true };
       }
       
       // For locked/approved docs, check if user has explicit access
@@ -836,7 +1075,11 @@ export async function registerRoutes(
       
       // If user has access or is part of the workflow (creator, reviewer, approver), show full doc
       if (!isWithdrawnDocument(doc) && (hasAccess || doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId)) {
-        return { ...doc, viewerHasAccess: true };
+        // Reading is not downloading: the PDF is withheld until a download is allowed
+        const download = currentUser ? await canDownloadDocument(doc, currentUser, approvedDownloads) : { allowed: false };
+        return download.allowed
+          ? { ...doc, viewerHasAccess: true, viewerCanDownload: true, pdfAvailable: !!doc.finalPdfUrl }
+          : { ...doc, finalPdfUrl: null, sourceFileUrl: null, viewerHasAccess: true, viewerCanDownload: false, pdfAvailable: !!doc.finalPdfUrl };
       }
       
       // Otherwise, return metadata only (no content) to allow access requests
@@ -875,9 +1118,9 @@ export async function registerRoutes(
       return res.json(doc);
     }
     
-    // Non-locked and non-approved docs are fully accessible
+    // Non-locked and non-approved docs are fully accessible; a draft's PDF only to its workflow and managers
     if (!doc.isLocked && doc.status !== DocumentStatus.APPROVED) {
-      return res.json(doc);
+      return res.json(isDraftWorkflowViewer(doc, currentUser) ? doc : { ...doc, finalPdfUrl: null });
     }
     
     // For locked/approved docs, check access
@@ -885,7 +1128,11 @@ export async function registerRoutes(
     
     // If user has access or is part of the workflow
     if (!isWithdrawnDocument(doc) && (hasAccess || doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId)) {
-      return res.json(doc);
+      // Reading is not downloading: the PDF is withheld until a download is allowed
+      const download = currentUser ? await canDownloadDocument(doc, currentUser) : { allowed: false };
+      return res.json(download.allowed
+        ? { ...doc, viewerCanDownload: true, pdfAvailable: !!doc.finalPdfUrl }
+        : { ...doc, finalPdfUrl: null, sourceFileUrl: null, viewerCanDownload: false, pdfAvailable: !!doc.finalPdfUrl });
     }
     
     // Otherwise, return metadata only (no content)
@@ -1110,6 +1357,21 @@ export async function registerRoutes(
         return res.status(403).json({ message: 'This document has been approved and is awaiting the COO\'s final approval in the Document Hub. It cannot be edited.' });
       }
 
+      // Only the people working on the document, or managers, may edit it
+      const editor = await storage.getUser(getCurrentUserId(req));
+      const editorIsManager = isManagerUser(editor);
+      const isOwner = !!editor && (existing.createdById === editor.id || existing.preparedById === editor.id);
+      if (!editor || !(editorIsManager || isOwner || existing.reviewerId === editor.id || existing.approverId === editor.id)) {
+        return res.status(403).json({ message: 'Only the people working on this document (or the COO, an admin or the QM) can edit it' });
+      }
+      // Who prepares, reviews and approves is set by the owner while drafting, or by managers
+      const changesSignatories = (input.preparedById !== undefined && input.preparedById !== existing.preparedById)
+        || (input.reviewedById !== undefined && input.reviewedById !== existing.reviewerId)
+        || (input.approvedById !== undefined && input.approvedById !== existing.approverId);
+      if (changesSignatories && !(editorIsManager || (isOwner && existing.status === DocumentStatus.DRAFT))) {
+        return res.status(403).json({ message: 'Only the document owner (while it is a draft), the COO, an admin or the QM can change who prepares, reviews or approves it' });
+      }
+
       const updateData: any = {};
       if (input.title !== undefined) updateData.title = input.title;
       if (input.description !== undefined) updateData.description = input.description;
@@ -1168,6 +1430,10 @@ export async function registerRoutes(
     const versions = await storage.getDocumentVersions(id);
     if (existing.isLocked || existing.status === DocumentStatus.APPROVED || existing.activeChangeRequestId || versions.length > 0) {
       return res.status(403).json({ message: 'Approved documents are permanent records and cannot be deleted. Raise a change request, or ask the COO to mark it Obsolete.' });
+    }
+    const deleter = await storage.getUser(getCurrentUserId(req));
+    if (!deleter || !(isManagerUser(deleter) || [existing.createdById, existing.preparedById, existing.reviewerId, existing.approverId].includes(deleter.id))) {
+      return res.status(403).json({ message: 'Only the people working on this document (or the COO, an admin or the QM) can delete it' });
     }
 
     await storage.deleteDocument(id);
@@ -1524,6 +1790,9 @@ export async function registerRoutes(
         // Move to pending approval and optionally set new approver
         const updateData: any = {
           status: DocumentStatus.PENDING_APPROVAL,
+          // The reviewer's signature and its date
+          reviewedById: userId,
+          reviewedBySignedAt: new Date(),
           returnedAt: null,
           returnedById: null,
           returnNote: null,
@@ -1576,6 +1845,7 @@ export async function registerRoutes(
         const updated = await storage.updateDocument(documentId, {
           status: DocumentStatus.APPROVED,
           approvedAt: new Date(),
+          approvedById: userId,
           approvedBySignedAt: new Date(),
           hubStatus: DocumentHubStatus.PENDING_COO_APPROVAL,
           transferredToHubAt: new Date(),
@@ -1616,35 +1886,42 @@ export async function registerRoutes(
           const reportNumber = await storage.generateReportNumber(ReportType.DOCUMENT_APPROVAL);
           const reportTitle = 'Document Approval Completion Report';
           const reportContent = `
-            <p>This report confirms the successful approval of document <strong>${doc.documentCode}</strong>.</p>
-            <p><strong>Document Title:</strong> ${doc.title}</p>
-            <p><strong>Category:</strong> ${doc.category}</p>
+            <p>This report confirms the successful approval of document <strong>${esc(doc.documentCode)}</strong>.</p>
+            <p><strong>Document Title:</strong> ${esc(doc.title)}</p>
+            <p><strong>Category:</strong> ${esc(doc.category)}</p>
             <p><strong>Edition:</strong> Ed.${doc.editionNumber} Rev.${doc.revisionNumber}</p>
             <p><strong>Approval Date:</strong> ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
-            ${comments ? `<p><strong>Approval Comments:</strong> ${comments}</p>` : ''}
+            ${comments ? `<p><strong>Approval Comments:</strong> ${esc(comments)}</p>` : ''}
             <p style="margin-top: 20px;">The document has been reviewed and approved according to the Quality Management System procedures.</p>
           `;
 
-          const pdfDataUrl = await generateReportPdf(
-            ReportType.DOCUMENT_APPROVAL,
-            reportTitle,
-            reportContent,
-            {
-              documentCode: doc.documentCode,
-              documentTitle: doc.title,
-              preparedByName: preparedBy?.name,
-              preparedBySignature: preparedBy?.signatureDataUrl,
-              preparedBySignedAt: doc.preparedBySignedAt,
-              reviewerName: reviewer?.name,
-              reviewerSignature: reviewer?.signatureDataUrl,
-              reviewerSignedAt: doc.reviewedBySignedAt,
-              approverName: approver?.name,
-              approverSignature: approver?.signatureDataUrl,
-              approverSignedAt: new Date(),
-              reportNumber,
-              generatedAt: new Date(),
-            }
-          );
+          // A PDF failure must not stop the records and notifications: they are saved without the PDF
+          let pdfDataUrl: string | null = null;
+          try {
+            pdfDataUrl = await generateReportPdf(
+              ReportType.DOCUMENT_APPROVAL,
+              reportTitle,
+              reportContent,
+              {
+                documentCode: doc.documentCode,
+                documentTitle: doc.title,
+                preparedByName: preparedBy?.name,
+                preparedBySignature: preparedBy?.signatureDataUrl,
+                preparedBySignedAt: doc.preparedBySignedAt,
+                reviewerName: reviewer?.name,
+                reviewerSignature: reviewer?.signatureDataUrl,
+                reviewerSignedAt: doc.reviewedBySignedAt,
+                approverName: approver?.name,
+                approverSignature: approver?.signatureDataUrl,
+                approverSignedAt: new Date(),
+                reportNumber,
+                generatedAt: new Date(),
+              }
+            );
+          } catch (pdfErr) {
+            console.error(`[reports] Document Approval Report ${reportNumber} PDF generation failed; saving records without the PDF:`, pdfErr);
+          }
+          const pdfNote = pdfDataUrl ? '' : ' (the PDF could not be generated; contact the administrator)';
 
           // Create user records for all admin users
           for (const admin of admins) {
@@ -1674,7 +1951,7 @@ export async function registerRoutes(
             await storage.createNotification({
               userId: admin.id,
               title: 'Document Approval Report Generated',
-              message: `Document "${doc.title}" (${doc.documentCode}) has been approved. A completion report has been saved to your User Records.`,
+              message: `Document "${doc.title}" (${doc.documentCode}) has been approved. A completion report has been saved to your User Records${pdfNote}.`,
               urgencyLevel: UrgencyLevel.LOW,
               relatedDocumentId: documentId,
             });
@@ -1709,7 +1986,7 @@ export async function registerRoutes(
             await storage.createNotification({
               userId: documentCreator.id,
               title: 'Your Document Has Been Approved',
-              message: `Document "${doc.title}" (${doc.documentCode}) that you created has been approved. A completion report has been saved to your User Records.`,
+              message: `Document "${doc.title}" (${doc.documentCode}) that you created has been approved. A completion report has been saved to your User Records${pdfNote}.`,
               urgencyLevel: UrgencyLevel.LOW,
               relatedDocumentId: documentId,
             });
@@ -1735,22 +2012,26 @@ export async function registerRoutes(
   // ============================================
   // NOTIFICATION ROUTES
   // ============================================
-  app.get(api.notifications.list.path, async (req, res) => {
-    const notifications = await storage.getNotifications();
+  app.get(api.notifications.list.path, requireAuth, async (req, res) => {
+    const notifications = await storage.getNotifications(getCurrentUserId(req));
     res.json(notifications);
   });
 
-  app.put(api.notifications.markRead.path, async (req, res) => {
+  app.put(api.notifications.markRead.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     try {
-      const notification = await storage.markNotificationRead(id);
+      // Only the recipient can mark a notification read
+      const notification = await storage.markNotificationRead(id, getCurrentUserId(req));
+      if (!notification) {
+        return res.status(404).json({ message: 'Notification not found' });
+      }
       res.json(notification);
     } catch {
       return res.status(404).json({ message: 'Notification not found' });
     }
   });
 
-  app.put(api.notifications.markAllRead.path, async (req, res) => {
+  app.put(api.notifications.markAllRead.path, requireAuth, async (req, res) => {
     const count = await storage.markAllNotificationsRead(getCurrentUserId(req));
     res.json({ count });
   });
@@ -1758,7 +2039,11 @@ export async function registerRoutes(
   // ============================================
   // AUDIT LOG ROUTES
   // ============================================
-  app.get(api.auditLogs.list.path, async (req, res) => {
+  app.get(api.auditLogs.list.path, requireAuth, async (req, res) => {
+    const currentUser = (req as any).user;
+    if (!isManagerUser(currentUser) && currentUser?.email !== CEO_EMAIL) {
+      return res.status(403).json({ message: 'Only managers can view the audit log' });
+    }
     const logs = await storage.getAuditLogs(100);
     res.json(logs);
   });
@@ -1766,7 +2051,7 @@ export async function registerRoutes(
   // ============================================
   // EMPLOYEE ROUTES (HR)
   // ============================================
-  app.get(api.employees.list.path, async (req, res) => {
+  app.get(api.employees.list.path, requireAuth, async (req, res) => {
     const filters = {
       status: req.query.status as string | undefined,
       department: req.query.department as string | undefined,
@@ -1775,7 +2060,7 @@ export async function registerRoutes(
     res.json(employees);
   });
 
-  app.get(api.employees.get.path, async (req, res) => {
+  app.get(api.employees.get.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid employee ID' });
@@ -1787,8 +2072,11 @@ export async function registerRoutes(
     res.json(employee);
   });
 
-  app.post(api.employees.create.path, async (req, res) => {
+  app.post(api.employees.create.path, requireAuth, async (req, res) => {
     try {
+      if (!isHrOrManager((req as any).user)) {
+        return res.status(403).json({ message: 'Only HR, admins or the Quality Manager can create employee records' });
+      }
       const input = api.employees.create.input.parse(req.body);
       
       // Check if employee number or email already exists
@@ -1800,6 +2088,11 @@ export async function registerRoutes(
       const existingByEmail = await storage.getEmployeeByEmail(input.email);
       if (existingByEmail) {
         return res.status(400).json({ message: 'Email already exists', field: 'email' });
+      }
+
+      const supervisorProblem = await supervisorError(null, input.supervisorId);
+      if (supervisorProblem) {
+        return res.status(400).json({ message: supervisorProblem, field: 'supervisorId' });
       }
 
       // Auto-link employee with user by email
@@ -1843,8 +2136,11 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.employees.update.path, async (req, res) => {
+  app.put(api.employees.update.path, requireAuth, async (req, res) => {
     try {
+      if (!isHrOrManager((req as any).user)) {
+        return res.status(403).json({ message: 'Only HR, admins or the Quality Manager can edit employee records' });
+      }
       const input = api.employees.update.input.parse(req.body);
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -1861,6 +2157,13 @@ export async function registerRoutes(
         const existingByEmail = await storage.getEmployeeByEmail(input.email);
         if (existingByEmail) {
           return res.status(400).json({ message: 'Email already exists', field: 'email' });
+        }
+      }
+
+      if (input.supervisorId !== undefined && input.supervisorId !== existing.supervisorId) {
+        const supervisorProblem = await supervisorError(id, input.supervisorId);
+        if (supervisorProblem) {
+          return res.status(400).json({ message: supervisorProblem, field: 'supervisorId' });
         }
       }
 
@@ -1895,7 +2198,10 @@ export async function registerRoutes(
     }
   });
 
-  app.delete(api.employees.delete.path, async (req, res) => {
+  app.delete(api.employees.delete.path, requireAuth, async (req, res) => {
+    if (!isHrOrManager((req as any).user)) {
+      return res.status(403).json({ message: 'Only HR, admins or the Quality Manager can delete employee records' });
+    }
     const id = Number(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid employee ID' });
@@ -1923,7 +2229,7 @@ export async function registerRoutes(
   // ============================================
   // EMPLOYEE WORKFLOW ROUTES
   // ============================================
-  app.post(api.employees.submitForReview.path, async (req, res) => {
+  app.post(api.employees.submitForReview.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -1935,6 +2241,11 @@ export async function registerRoutes(
       const existing = await storage.getEmployee(id);
       if (!existing) {
         return res.status(404).json({ message: 'Employee not found' });
+      }
+
+      const currentUser = (req as any).user;
+      if (!isHrOrManager(currentUser) && existing.createdByUserId !== currentUser?.id) {
+        return res.status(403).json({ message: 'Only HR, admins, the Quality Manager or the record creator can submit this record for review' });
       }
 
       if (existing.workflowStatus !== 'draft' && existing.workflowStatus !== 'rejected') {
@@ -1981,7 +2292,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.employees.submitForApproval.path, async (req, res) => {
+  app.post(api.employees.submitForApproval.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -1997,6 +2308,11 @@ export async function registerRoutes(
 
       if (existing.workflowStatus !== 'in_review') {
         return res.status(400).json({ message: 'Employee can only be submitted for approval from In-Review status' });
+      }
+
+      const currentUser = (req as any).user;
+      if (existing.reviewerId !== currentUser?.id && !isManagerUser(currentUser)) {
+        return res.status(403).json({ message: 'Only the assigned reviewer can forward this record for approval' });
       }
 
       const approver = await storage.getUser(input.approverId);
@@ -2039,7 +2355,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.employees.approve.path, async (req, res) => {
+  app.post(api.employees.approve.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -2058,6 +2374,9 @@ export async function registerRoutes(
       }
 
       const currentUserId = getCurrentUserId(req);
+      if (existing.approverId !== currentUserId && !isManagerUser((req as any).user)) {
+        return res.status(403).json({ message: 'Only the assigned approver can approve this record' });
+      }
       const approvedEmployee = await storage.approveEmployee(id, currentUserId, input.notes);
 
       // Create notification for creator
@@ -2091,37 +2410,44 @@ export async function registerRoutes(
         const reportNumber = await storage.generateReportNumber(ReportType.STAFF_CONFIRMATION);
         const reportTitle = 'Staff Confirmation Report';
         const reportContent = `
-          <p>This report confirms the successful addition and approval of employee <strong>${approvedEmployee.name}</strong> to Sahih Certifications.</p>
-          <p><strong>Employee Number:</strong> ${approvedEmployee.employeeNumber}</p>
-          <p><strong>Job Title:</strong> ${approvedEmployee.jobTitle}</p>
-          <p><strong>Department:</strong> ${approvedEmployee.department}</p>
-          <p><strong>Employment Type:</strong> ${approvedEmployee.employmentType?.replace('_', ' ')}</p>
+          <p>This report confirms the successful addition and approval of employee <strong>${esc(approvedEmployee.name)}</strong> to Sahih Certifications.</p>
+          <p><strong>Employee Number:</strong> ${esc(approvedEmployee.employeeNumber)}</p>
+          <p><strong>Job Title:</strong> ${esc(approvedEmployee.jobTitle)}</p>
+          <p><strong>Department:</strong> ${esc(approvedEmployee.department)}</p>
+          <p><strong>Employment Type:</strong> ${esc(approvedEmployee.employmentType?.replace('_', ' '))}</p>
           <p><strong>Hire Date:</strong> ${approvedEmployee.hireDate ? new Date(approvedEmployee.hireDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'N/A'}</p>
           <p><strong>Approval Date:</strong> ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
-          ${input.notes ? `<p><strong>Approval Notes:</strong> ${input.notes}</p>` : ''}
+          ${input.notes ? `<p><strong>Approval Notes:</strong> ${esc(input.notes)}</p>` : ''}
           <p style="margin-top: 20px;">The employee record has been verified and approved according to HR procedures.</p>
         `;
 
-        const pdfDataUrl = await generateReportPdf(
-          ReportType.STAFF_CONFIRMATION,
-          reportTitle,
-          reportContent,
-          {
-            employeeName: approvedEmployee.name,
-            employeeNumber: approvedEmployee.employeeNumber,
-            department: approvedEmployee.department,
-            jobTitle: approvedEmployee.jobTitle,
-            hireDate: approvedEmployee.hireDate ? new Date(approvedEmployee.hireDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : undefined,
-            reviewerName: reviewer?.name,
-            reviewerSignature: reviewer?.signatureDataUrl,
-            reviewerSignedAt: existing.reviewedAt,
-            approverName: approver?.name,
-            approverSignature: approver?.signatureDataUrl,
-            approverSignedAt: new Date(),
-            reportNumber,
-            generatedAt: new Date(),
-          }
-        );
+        // A PDF failure must not stop the records and notifications: they are saved without the PDF
+        let pdfDataUrl: string | null = null;
+        try {
+          pdfDataUrl = await generateReportPdf(
+            ReportType.STAFF_CONFIRMATION,
+            reportTitle,
+            reportContent,
+            {
+              employeeName: approvedEmployee.name,
+              employeeNumber: approvedEmployee.employeeNumber,
+              department: approvedEmployee.department,
+              jobTitle: approvedEmployee.jobTitle,
+              hireDate: approvedEmployee.hireDate ? new Date(approvedEmployee.hireDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : undefined,
+              reviewerName: reviewer?.name,
+              reviewerSignature: reviewer?.signatureDataUrl,
+              reviewerSignedAt: existing.reviewedAt,
+              approverName: approver?.name,
+              approverSignature: approver?.signatureDataUrl,
+              approverSignedAt: new Date(),
+              reportNumber,
+              generatedAt: new Date(),
+            }
+          );
+        } catch (pdfErr) {
+          console.error(`[reports] Staff Confirmation Report ${reportNumber} PDF generation failed; saving records without the PDF:`, pdfErr);
+        }
+        const pdfNote = pdfDataUrl ? '' : ' (the PDF could not be generated; contact the administrator)';
 
         // Create user records for HR users
         for (const hrUser of hrUsers) {
@@ -2143,15 +2469,15 @@ export async function registerRoutes(
             metadata: JSON.stringify({ 
               employeeName: approvedEmployee.name, 
               employeeNumber: approvedEmployee.employeeNumber,
-              assignedBy: existing.createdById,
-              assignedByName: allUsers.find(u => u.id === existing.createdById)?.name || 'Unknown'
+              assignedBy: existing.createdByUserId,
+              assignedByName: allUsers.find(u => u.id === existing.createdByUserId)?.name || 'Unknown'
             }),
           });
 
           await storage.createNotification({
             userId: hrUser.id,
             title: 'Staff Confirmation Report Generated',
-            message: `Employee "${approvedEmployee.name}" (${approvedEmployee.employeeNumber}) has been confirmed. A Staff Confirmation report has been saved to your User Records.`,
+            message: `Employee "${approvedEmployee.name}" (${approvedEmployee.employeeNumber}) has been confirmed. A Staff Confirmation report has been saved to your User Records${pdfNote}.`,
             urgencyLevel: UrgencyLevel.LOW,
           });
         }
@@ -2176,15 +2502,15 @@ export async function registerRoutes(
             metadata: JSON.stringify({ 
               employeeName: approvedEmployee.name, 
               employeeNumber: approvedEmployee.employeeNumber,
-              assignedBy: existing.createdById,
-              assignedByName: allUsers.find(u => u.id === existing.createdById)?.name || 'Unknown'
+              assignedBy: existing.createdByUserId,
+              assignedByName: allUsers.find(u => u.id === existing.createdByUserId)?.name || 'Unknown'
             }),
           });
 
           await storage.createNotification({
             userId: linkedUser.id,
             title: 'Your Staff Confirmation Report',
-            message: `Your employee record has been confirmed. A Staff Confirmation report has been saved to your User Records.`,
+            message: `Your employee record has been confirmed. A Staff Confirmation report has been saved to your User Records${pdfNote}.`,
             urgencyLevel: UrgencyLevel.LOW,
           });
         }
@@ -2204,7 +2530,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.employees.reject.path, async (req, res) => {
+  app.post(api.employees.reject.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -2223,6 +2549,11 @@ export async function registerRoutes(
       }
 
       const currentUserId = getCurrentUserId(req);
+      // Reviewers reject at the review stage, approvers at the approval stage
+      const assignedId = existing.workflowStatus === 'in_review' ? existing.reviewerId : existing.approverId;
+      if (assignedId !== currentUserId && !isManagerUser((req as any).user)) {
+        return res.status(403).json({ message: existing.workflowStatus === 'in_review' ? 'Only the assigned reviewer can reject this record' : 'Only the assigned approver can reject this record' });
+      }
       const employee = await storage.rejectEmployee(id, currentUserId, input.notes);
 
       // Create notification for creator
@@ -2257,7 +2588,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.employees.reassign.path, async (req, res) => {
+  app.post(api.employees.reassign.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -2277,6 +2608,11 @@ export async function registerRoutes(
       }
 
       const currentUserId = getCurrentUserId(req);
+      // Only managers, HR or the current assignee of this stage may hand the task on
+      const currentStageAssigneeId = input.taskType === 'employee_review' ? existing.reviewerId : existing.approverId;
+      if (!isHrOrManager((req as any).user) && currentStageAssigneeId !== currentUserId) {
+        return res.status(403).json({ message: 'Only HR, managers or the current assignee can re-assign this task' });
+      }
       let updateData: { reviewerId?: number; approverId?: number } = {};
       let notificationTitle = '';
       let notificationMessage = '';
@@ -2348,7 +2684,7 @@ export async function registerRoutes(
   // ============================================
   // EMPLOYEE TASK ROUTES (HR)
   // ============================================
-  app.get(api.employeeTasks.list.path, async (req, res) => {
+  app.get(api.employeeTasks.list.path, requireAuth, async (req, res) => {
     const filters = {
       employeeId: req.query.employeeId ? Number(req.query.employeeId) : undefined,
       status: req.query.status as string | undefined,
@@ -2358,7 +2694,7 @@ export async function registerRoutes(
     res.json(tasks);
   });
 
-  app.get(api.employeeTasks.get.path, async (req, res) => {
+  app.get(api.employeeTasks.get.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid task ID' });
@@ -2370,8 +2706,11 @@ export async function registerRoutes(
     res.json(task);
   });
 
-  app.post(api.employeeTasks.create.path, async (req, res) => {
+  app.post(api.employeeTasks.create.path, requireAuth, async (req, res) => {
     try {
+      if (!isHrOrManager((req as any).user)) {
+        return res.status(403).json({ message: 'Only HR, admins or the Quality Manager can assign employee tasks' });
+      }
       const input = api.employeeTasks.create.input.parse(req.body);
       
       // Verify employee exists
@@ -2400,6 +2739,17 @@ export async function registerRoutes(
         status: 'pending',
       });
 
+      // Tell the employee (through their linked user account) about the new task
+      if (employee.userId) {
+        await storage.createNotification({
+          userId: employee.userId,
+          title: 'New Task Assigned',
+          message: `You have been assigned a new task: "${task.title}"${task.dueDate ? ` (due ${new Date(task.dueDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })})` : ''}.`,
+          urgencyLevel: task.priority === 'high' || task.priority === 'critical' ? task.priority : 'medium',
+          relatedDocumentId: task.documentId || undefined,
+        });
+      }
+
       // Audit log
       await storage.createAuditLog({
         userId: getCurrentUserId(req),
@@ -2421,8 +2771,11 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.employeeTasks.update.path, async (req, res) => {
+  app.put(api.employeeTasks.update.path, requireAuth, async (req, res) => {
     try {
+      if (!isHrOrManager((req as any).user)) {
+        return res.status(403).json({ message: 'Only HR, admins or the Quality Manager can update employee tasks' });
+      }
       const input = api.employeeTasks.update.input.parse(req.body);
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -2463,7 +2816,10 @@ export async function registerRoutes(
     }
   });
 
-  app.delete(api.employeeTasks.delete.path, async (req, res) => {
+  app.delete(api.employeeTasks.delete.path, requireAuth, async (req, res) => {
+    if (!isHrOrManager((req as any).user)) {
+      return res.status(403).json({ message: 'Only HR, admins or the Quality Manager can delete employee tasks' });
+    }
     const id = Number(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid task ID' });
@@ -2488,7 +2844,7 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
-  app.post(api.employeeTasks.complete.path, async (req, res) => {
+  app.post(api.employeeTasks.complete.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid task ID' });
@@ -2499,7 +2855,20 @@ export async function registerRoutes(
       return res.status(404).json({ message: 'Task not found' });
     }
 
+    // The employee the task belongs to (through their linked user account) or a manager completes it
+    const currentUser = (req as any).user;
+    const taskEmployee = await storage.getEmployee(existing.employeeId);
+    if (!isManagerUser(currentUser) && (!taskEmployee?.userId || taskEmployee.userId !== currentUser?.id)) {
+      return res.status(403).json({ message: 'Only the assigned employee or a manager can complete this task' });
+    }
+
+    if (existing.status === 'completed') {
+      return res.status(400).json({ message: 'This task is already completed' });
+    }
     const task = await storage.completeEmployeeTask(id);
+    if (!task) {
+      return res.status(400).json({ message: 'This task is already completed' });
+    }
 
     // Audit log
     await storage.createAuditLog({
@@ -2517,6 +2886,11 @@ export async function registerRoutes(
   // ============================================
   // PDF GENERATION
   // ============================================
+  // A draft or in-review document's PDF is only for its workflow members and managers (incl. the COO)
+  const draftPdfAllowed = (doc: Document, user: { id: number; role: string; email: string } | undefined) =>
+    doc.isLocked || doc.status === DocumentStatus.APPROVED || isManagerUser(user)
+    || (!!user && [doc.createdById, doc.preparedById, doc.reviewerId, doc.approverId].includes(user.id));
+
   app.post('/api/documents/:id/generate-pdf', requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     const doc = await storage.getDocument(id);
@@ -2530,13 +2904,13 @@ export async function registerRoutes(
     const currentUser = await storage.getUser(userId);
     const COO_EMAIL = 'coo@sahihcertify.com';
     
-    if ((doc.isLocked || doc.status === DocumentStatus.APPROVED) && currentUser?.email !== COO_EMAIL) {
-      const hasAccess = isPublicHubDocument(doc) || await storage.hasDocumentAccess(doc.id, userId);
-      const isWorkflowMember = doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId;
-      
-      if (isWithdrawnDocument(doc) || (!hasAccess && !isWorkflowMember)) {
-        return res.status(403).json({ message: 'Access denied. This document is locked.' });
-      }
+    // Generating hands back the PDF, so it follows the download rule (reading access alone is not enough)
+    const download = currentUser ? await canDownloadDocument(doc, currentUser) : { allowed: false, message: 'User not found' };
+    if (!download.allowed) {
+      return res.status(403).json({ message: download.message });
+    }
+    if (!draftPdfAllowed(doc, currentUser)) {
+      return res.status(403).json({ message: 'Only the people working on this document (or the COO, an admin or the QM) can print it before it is approved' });
     }
 
     try {
@@ -3133,8 +3507,8 @@ export async function registerRoutes(
       `;
 
       console.log('Finding Chromium executable...');
-      const chromiumPath = findChromiumPath();
-      console.log(`Chromium path: ${chromiumPath || 'Not found, using bundled'}`);
+      const chromiumPath = resolveChromiumPath();
+      console.log(`Chromium path: ${chromiumPath}`);
       
       console.log('Launching Puppeteer browser...');
       const launchOptions: any = { 
@@ -3151,9 +3525,7 @@ export async function registerRoutes(
         timeout: 60000
       };
       
-      if (chromiumPath) {
-        launchOptions.executablePath = chromiumPath;
-      }
+      launchOptions.executablePath = chromiumPath;
       
       const browser = await puppeteer.launch(launchOptions);
       console.log('Puppeteer browser launched successfully');
@@ -3234,13 +3606,13 @@ export async function registerRoutes(
     const currentUser = await storage.getUser(userId);
     const COO_EMAIL = 'coo@sahihcertify.com';
     
-    if ((doc.isLocked || doc.status === DocumentStatus.APPROVED) && currentUser?.email !== COO_EMAIL) {
-      const hasAccess = isPublicHubDocument(doc) || await storage.hasDocumentAccess(doc.id, userId);
-      const isWorkflowMember = doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId;
-      
-      if (isWithdrawnDocument(doc) || (!hasAccess && !isWorkflowMember)) {
-        return res.status(403).json({ message: 'Access denied. This document is locked.' });
-      }
+    // Generating hands back the PDF, so it follows the download rule (reading access alone is not enough)
+    const download = currentUser ? await canDownloadDocument(doc, currentUser) : { allowed: false, message: 'User not found' };
+    if (!download.allowed) {
+      return res.status(403).json({ message: download.message });
+    }
+    if (!draftPdfAllowed(doc, currentUser)) {
+      return res.status(403).json({ message: 'Only the people working on this document (or the COO, an admin or the QM) can print it before it is approved' });
     }
 
     try {
@@ -3387,28 +3759,29 @@ export async function registerRoutes(
 
   app.get('/api/documents/:id/pdf', requireAuth, async (req, res) => {
     const id = Number(req.params.id);
-    const doc = await storage.getDocument(id);
+    const rawDoc = await storage.getDocument(id);
     
-    if (!doc) {
+    if (!rawDoc) {
       return res.status(404).json({ message: 'Document not found' });
-    }
-    
-    if (!doc.finalPdfUrl) {
-      return res.status(404).json({ message: 'PDF not generated yet' });
     }
 
     // Access control for locked/approved documents
     const userId = getCurrentUserId(req);
     const currentUser = await storage.getUser(userId);
-    const COO_EMAIL = 'coo@sahihcertify.com';
+    // While under revision, readers get the approved version still in force
+    const doc = currentUser ? await presentForReader(rawDoc, currentUser) : rawDoc;
     
-    if ((doc.isLocked || doc.status === DocumentStatus.APPROVED) && currentUser?.email !== COO_EMAIL) {
-      const hasAccess = isPublicHubDocument(doc) || await storage.hasDocumentAccess(doc.id, userId);
-      const isWorkflowMember = doc.createdById === userId || doc.reviewerId === userId || doc.approverId === userId;
-      
-      if (isWithdrawnDocument(doc) || (!hasAccess && !isWorkflowMember)) {
-        return res.status(403).json({ message: 'Access denied. This document is locked.' });
-      }
+    if (!doc.finalPdfUrl) {
+      return res.status(404).json({ message: 'PDF not generated yet' });
+    }
+    
+    // Reading access alone is not enough: downloads of controlled documents need approval
+    const download = currentUser ? await canDownloadDocument(doc, currentUser) : { allowed: false, message: 'User not found' };
+    if (!download.allowed) {
+      return res.status(403).json({ message: download.message });
+    }
+    if (!draftPdfAllowed(doc, currentUser)) {
+      return res.status(403).json({ message: 'Only the people working on this document (or the COO, an admin or the QM) can print it before it is approved' });
     }
 
     res.json({ pdfUrl: doc.finalPdfUrl });
@@ -3424,7 +3797,7 @@ export async function registerRoutes(
     }
 
     let requests;
-    if (user.role === UserRole.ADMIN || user.role === UserRole.QUALITY_MANAGER) {
+    if (user.role === UserRole.ADMIN || user.role === UserRole.QUALITY_MANAGER || user.email === COO_EMAIL) {
       requests = await storage.getDownloadRequests();
     } else {
       requests = await storage.getDownloadRequests({ requesterId: user.id });
@@ -3444,6 +3817,21 @@ export async function registerRoutes(
       const doc = await storage.getDocument(documentId);
       if (!doc) {
         return res.status(404).json({ message: 'Document not found' });
+      }
+
+      const requester = await storage.getUser(getCurrentUserId(req));
+      if (!requester) {
+        return res.status(401).json({ message: 'User not found' });
+      }
+      if (!(await canViewDocument(doc, requester))) {
+        return res.status(403).json({ message: 'You need reading access to this document before you can request a download. Request access first.' });
+      }
+      if ((await canDownloadDocument(doc, requester)).allowed) {
+        return res.status(400).json({ message: 'You can already download this document' });
+      }
+      const pending = await storage.getDownloadRequests({ documentId: doc.id, requesterId: requester.id, status: DownloadRequestStatus.PENDING });
+      if (pending.length > 0) {
+        return res.status(409).json({ message: 'You already have a pending download request for this document' });
       }
 
       const request = await storage.createDownloadRequest({
@@ -3485,13 +3873,16 @@ export async function registerRoutes(
     const id = Number(req.params.id);
     const user = await storage.getUser(getCurrentUserId(req));
     
-    if (!user || (user.role !== UserRole.ADMIN && user.role !== UserRole.QUALITY_MANAGER)) {
+    if (!user || (user.role !== UserRole.ADMIN && user.role !== UserRole.QUALITY_MANAGER && user.email !== COO_EMAIL)) {
       return res.status(403).json({ message: 'Only Admin or Quality Manager can approve download requests' });
     }
 
     const request = await storage.getDownloadRequest(id);
     if (!request) {
       return res.status(404).json({ message: 'Download request not found' });
+    }
+    if (request.status !== DownloadRequestStatus.PENDING) {
+      return res.status(400).json({ message: `This download request has already been ${request.status}` });
     }
 
     const updated = await storage.updateDownloadRequest(id, {
@@ -3509,11 +3900,16 @@ export async function registerRoutes(
       newValue: JSON.stringify({ status: DownloadRequestStatus.APPROVED }),
     });
 
+    // An approved download still needs reading access: tell the requester if that is missing
+    const requestedDoc = await storage.getDocument(request.documentId);
+    const requester = await storage.getUser(request.requesterId);
+    const canRead = !!requestedDoc && !!requester && await canViewDocument(requestedDoc, requester);
     await storage.createNotification({
       userId: request.requesterId,
       title: 'Download Request Approved',
-      message: `Your request to download document has been approved.`,
+      message: `Your request to download ${requestedDoc ? `"${requestedDoc.title}" (${requestedDoc.documentCode})` : 'the document'} has been approved.${canRead ? '' : ' You still need reading access to the document: request access before downloading.'}`,
       urgencyLevel: UrgencyLevel.LOW,
+      relatedDocumentId: request.documentId,
     });
 
     res.json(updated);
@@ -3524,13 +3920,16 @@ export async function registerRoutes(
     const { reason } = req.body;
     const user = await storage.getUser(getCurrentUserId(req));
     
-    if (!user || (user.role !== UserRole.ADMIN && user.role !== UserRole.QUALITY_MANAGER)) {
+    if (!user || (user.role !== UserRole.ADMIN && user.role !== UserRole.QUALITY_MANAGER && user.email !== COO_EMAIL)) {
       return res.status(403).json({ message: 'Only Admin or Quality Manager can reject download requests' });
     }
 
     const request = await storage.getDownloadRequest(id);
     if (!request) {
       return res.status(404).json({ message: 'Download request not found' });
+    }
+    if (request.status !== DownloadRequestStatus.PENDING) {
+      return res.status(400).json({ message: `This download request has already been ${request.status}` });
     }
 
     const updated = await storage.updateDownloadRequest(id, {
@@ -3944,10 +4343,17 @@ export async function registerRoutes(
       if (!taskType || !newAssigneeId) {
         return res.status(400).json({ message: 'Task type and new assignee are required' });
       }
+      if (!['prepare', 'revise', 'review', 'approve'].includes(taskType)) {
+        return res.status(400).json({ message: 'Task type must be prepare, revise, review or approve' });
+      }
       
       const doc = await storage.getDocument(documentId);
       if (!doc) {
         return res.status(404).json({ message: 'Document not found' });
+      }
+      // Approved and locked documents have no open workflow step; changes go through a change request
+      if (doc.isLocked || doc.status === DocumentStatus.APPROVED) {
+        return res.status(400).json({ message: 'This document is approved or locked, so its workflow steps cannot be reassigned. Raise a change request instead.' });
       }
       
       const currentUser = await storage.getUser(userId);
@@ -3961,7 +4367,7 @@ export async function registerRoutes(
       const isAssigned = 
         (taskType === 'review' && doc.reviewerId === userId) ||
         (taskType === 'approve' && doc.approverId === userId) ||
-        (taskType === 'prepare' && doc.preparedById === userId);
+        ((taskType === 'prepare' || taskType === 'revise') && doc.preparedById === userId);
       
       const hasPermission = isAssigned ||
         currentUser?.role === 'admin' ||
@@ -4954,6 +5360,7 @@ export async function registerRoutes(
         classification: parseResult.data.classification,
         hubStatus: DocumentHubStatus.STORED,
       });
+      await setCurrentVersionClassification(documentId, parseResult.data.classification);
 
       await storage.createAuditLog({
         userId: currentUserId,
@@ -5039,6 +5446,13 @@ export async function registerRoutes(
   app.get('/api/user-records', requireAuth, async (req, res) => {
     try {
       const userId = getCurrentUserId(req);
+      const currentUser = (req as any).user;
+      // Admins and the COO see every record; everyone else sees their own
+      if (currentUser?.role === UserRole.ADMIN || currentUser?.email === COO_EMAIL) {
+        const [records, allUsers] = await Promise.all([storage.getAllUserRecords(), storage.getUsers()]);
+        const names = new Map(allUsers.map(u => [u.id, u.name]));
+        return res.json(records.map(r => ({ ...r, userName: names.get(r.userId) || 'Unknown' })));
+      }
       const records = await storage.getUserRecords(userId);
       res.json(records);
     } catch (err) {
@@ -5238,7 +5652,11 @@ export async function registerRoutes(
   app.post('/api/buddy/dialogues/:id/acknowledge', requireAuth, async (req: Request, res: Response) => {
     try {
       const dialogueId = parseInt(req.params.id);
-      const dialogue = await storage.acknowledgeBuddyDialogue(dialogueId);
+      // Users can only acknowledge their own dialogues
+      const dialogue = isNaN(dialogueId) ? undefined : await storage.acknowledgeBuddyDialogue(dialogueId, getCurrentUserId(req));
+      if (!dialogue) {
+        return res.status(404).json({ message: 'Dialogue not found' });
+      }
       res.json(dialogue);
     } catch (err) {
       console.error('Error acknowledging dialogue:', err);
@@ -5407,6 +5825,14 @@ export async function registerRoutes(
       }
 
       const id = Number(req.params.id);
+      const existing = await storage.getMonthlyPerformanceReport(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Report not found' });
+      }
+      // Draft reports are submitted; a rejected report can be resubmitted after correction
+      if (existing.status !== 'draft' && existing.status !== 'rejected') {
+        return res.status(400).json({ message: `Only draft reports can be submitted (this report is ${existing.status})` });
+      }
       const report = await storage.submitReportForReview(id);
       
       // Notify COO
@@ -5441,7 +5867,15 @@ export async function registerRoutes(
 
       const id = Number(req.params.id);
       const { comments } = req.body;
-      
+
+      const existing = await storage.getMonthlyPerformanceReport(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Report not found' });
+      }
+      if (existing.status !== 'in_review') {
+        return res.status(400).json({ message: `Only reports in review can be reviewed (this report is ${existing.status})` });
+      }
+
       const report = await storage.reviewReport(id, currentUserId, comments);
       
       // Notify CEO
@@ -5476,33 +5910,62 @@ export async function registerRoutes(
 
       const id = Number(req.params.id);
       const { comments } = req.body;
-      
-      const report = await storage.approveReport(id, currentUserId, comments);
-      
-      // Create user record for the approved report
-      const user = await storage.getUser(report.userId);
-      if (user) {
-        await storage.createUserRecord({
-          userId: report.userId,
-          recordType: 'monthly_performance',
-          recordTitle: `Monthly Performance Report - ${report.reportMonth}/${report.reportYear}`,
-          documentId: null,
-          employeeId: null,
-          recordData: JSON.stringify({
-            totalActiveHours: report.totalActiveHours,
-            totalOnlineHours: report.totalOnlineHours,
-            totalDaysActive: report.totalDaysActive,
-            documentsCreated: report.documentsCreated,
-            documentsReviewed: report.documentsReviewed,
-            documentsApproved: report.documentsApproved,
-            tasksCompleted: report.tasksCompleted,
-            tasksOverdue: report.tasksOverdue,
-            tasksPending: report.tasksPending,
-            reviewedBy: report.reviewerId,
-            approvedBy: report.approverId,
-          }),
-        });
 
+      const existing = await storage.getMonthlyPerformanceReport(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Report not found' });
+      }
+      if (existing.status !== 'pending_approval') {
+        return res.status(400).json({ message: `Only reports pending approval can be approved (this report is ${existing.status})` });
+      }
+
+      // Approves the report and saves it to the user's records in one transaction
+      const report = await storage.approveReport(id, currentUserId, comments);
+      if (!report) {
+        return res.status(400).json({ message: 'Report is no longer pending approval' });
+      }
+
+      const user = await storage.getUser(report.userId);
+      // The approved report as a PDF in the person's records (a PDF failure leaves the record without one)
+      try {
+        const period = `${report.reportYear}-${String(report.reportMonth).padStart(2, '0')}`;
+        const reviewer = report.reviewerId ? await storage.getUser(report.reviewerId) : undefined;
+        const approver = await storage.getUser(currentUserId);
+        const row = (label: string, value: unknown) => `<tr><td style="padding:4px 8px;border-bottom:1px solid #e2e8f0">${esc(label)}</td><td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-weight:600">${esc(value ?? '-')}</td></tr>`;
+        const content = `
+          <p>Monthly performance for <strong>${esc(user?.name ?? 'Unknown')}</strong>, ${esc(period)}.</p>
+          <table style="width:100%;border-collapse:collapse;margin-top:10px;font-size:11pt">
+            ${row('Tasks assigned', report.tasksAssigned)}
+            ${row('Tasks completed', report.tasksCompleted)}
+            ${row('Completed on time', report.tasksCompletedOnTime)}
+            ${row('Completed late', report.tasksCompletedLate)}
+            ${row('Overdue', report.tasksOverdue)}
+            ${row('On-time rate', `${report.onTimeRate ?? 0}%`)}
+            ${row('Completion rate', `${report.completionRate ?? 0}%`)}
+            ${row('Efficiency', `${report.efficiencyPercent ?? 0}%`)}
+            ${row('Performance score', report.performanceScore)}
+            ${row('Active hours', report.totalActiveHours)}
+            ${row('Days active', report.totalDaysActive)}
+            ${row('Documents created / reviewed / approved', `${report.documentsCreated ?? 0} / ${report.documentsReviewed ?? 0} / ${report.documentsApproved ?? 0}`)}
+          </table>
+          ${report.reviewComments ? `<p style="margin-top:12px"><strong>COO review:</strong> ${esc(report.reviewComments)}</p>` : ''}
+          ${report.approvalComments ? `<p><strong>CEO approval:</strong> ${esc(report.approvalComments)}</p>` : ''}
+        `;
+        // HR details from the person's employee record (linked by user or by email)
+        const employee = (await storage.getEmployees()).find(e => e.userId === report.userId || (!!user?.email && e.email?.toLowerCase() === user.email.toLowerCase()));
+        const pdf = await generateReportPdf('monthly_performance', `Monthly Performance Report – ${period}`, content, {
+          employeeName: user?.name, employeeNumber: employee?.employeeNumber, department: employee?.department,
+          jobTitle: employee?.jobTitle ?? user?.designation ?? undefined,
+          hireDate: employee?.hireDate ? new Date(employee.hireDate).toLocaleDateString('en-GB') : undefined,
+          reviewerName: reviewer?.name, reviewerSignature: reviewer?.signatureDataUrl, reviewerSignedAt: report.reviewedAt,
+          approverName: approver?.name, approverSignature: approver?.signatureDataUrl, approverSignedAt: report.approvedAt,
+          reportNumber: `MPR-${period}-${report.id}`, generatedAt: new Date(),
+        });
+        await storage.setUserRecordPdf(`MPR-${period}-${report.id}`, pdf);
+      } catch (pdfError) {
+        console.error('Monthly performance report PDF could not be generated:', pdfError);
+      }
+      if (user) {
         // Notify the user
         await storage.createNotification({
           userId: report.userId,
@@ -5536,7 +5999,15 @@ export async function registerRoutes(
       if (!comments) {
         return res.status(400).json({ message: 'Rejection comments are required' });
       }
-      
+
+      const existing = await storage.getMonthlyPerformanceReport(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Report not found' });
+      }
+      if (existing.status !== 'in_review' && existing.status !== 'pending_approval') {
+        return res.status(400).json({ message: `Only reports in review or pending approval can be rejected (this report is ${existing.status})` });
+      }
+
       const report = await storage.rejectReport(id, comments);
 
       res.json(report);
@@ -5599,8 +6070,8 @@ export async function registerRoutes(
         const reports = await storage.getBugReports(status ? { status } : undefined);
         res.json(reports);
       } else {
-        // Regular users only see their own reports
-        const reports = await storage.getBugReports({ reportedById: userId, ...(status ? { status } : {}) });
+        // Regular users see the reports they filed and the ones assigned to them
+        const reports = await storage.getBugReports({ involvingUserId: userId, ...(status ? { status } : {}) });
         res.json(reports);
       }
     } catch (err) {
@@ -5612,10 +6083,18 @@ export async function registerRoutes(
   // Get single bug report
   app.get('/api/bug-reports/:id', requireAuth, async (req: Request, res: Response) => {
     try {
-      const id = parseInt(req.params.id);
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id)) {
+        return res.status(400).json({ message: 'Invalid bug report ID' });
+      }
       const report = await storage.getBugReport(id);
       if (!report) {
         return res.status(404).json({ message: 'Bug report not found' });
+      }
+      // Only the reporter, the assignee, admins and the COO can open a bug report
+      const user = await storage.getUser(getCurrentUserId(req));
+      if (!user || (user.email !== COO_EMAIL && user.role !== 'admin' && report.reportedById !== user.id && report.assignedToId !== user.id)) {
+        return res.status(403).json({ message: 'You do not have access to this bug report' });
       }
       res.json(report);
     } catch (err) {
@@ -5629,7 +6108,13 @@ export async function registerRoutes(
     try {
       const userId = getCurrentUserId(req);
       const { title, description, screenshotUrl, priority } = req.body;
-      
+      if (typeof title !== 'string' || !title.trim() || typeof description !== 'string' || !description.trim()) {
+        return res.status(400).json({ message: 'Title and description are required' });
+      }
+      if (priority !== undefined && priority !== null && priority !== '' && !(Object.values(BugReportPriority) as string[]).includes(priority)) {
+        return res.status(400).json({ message: 'Priority must be low, medium, high or critical' });
+      }
+
       // Find COO user to auto-assign bug reports
       const allUsers = await storage.getUsers();
       const coo = allUsers.find(u => u.email === 'coo@sahihcertify.com');
@@ -5673,7 +6158,38 @@ export async function registerRoutes(
         return res.status(403).json({ message: 'Only COO or Admin can update bug reports' });
       }
 
-      const updated = await storage.updateBugReport(id, req.body);
+      const existing = await storage.getBugReport(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Bug report not found' });
+      }
+      // Only status (open / in progress), priority and assignee change here: resolving and closing have their own routes
+      const { assignedToId, status, priority } = req.body;
+      if (assignedToId !== undefined && assignedToId !== null && !(await storage.getUser(Number(assignedToId)))) {
+        return res.status(400).json({ message: 'Assignee not found' });
+      }
+      if (status !== undefined && status !== BugReportStatus.OPEN && status !== BugReportStatus.IN_PROGRESS) {
+        return res.status(400).json({ message: 'Status can only be set to open or in progress here. Use Resolve or Close.' });
+      }
+      if (priority !== undefined && !(Object.values(BugReportPriority) as string[]).includes(priority)) {
+        return res.status(400).json({ message: 'Priority must be low, medium, high or critical' });
+      }
+      const changes: { status?: string; priority?: string; assignedToId?: number | null } = {};
+      if (status !== undefined) changes.status = status;
+      if (priority !== undefined) changes.priority = priority;
+      if (assignedToId !== undefined) changes.assignedToId = assignedToId === null ? null : Number(assignedToId);
+
+      const updated = await storage.updateBugReport(id, changes);
+
+      // Tell the new assignee
+      if (assignedToId && Number(assignedToId) !== existing.assignedToId && Number(assignedToId) !== user!.id) {
+        await storage.createNotification({
+          userId: Number(assignedToId),
+          title: 'Bug Report Assigned to You',
+          message: `${user!.name} assigned you bug report ${existing.ticketNumber} - ${existing.title}. Open Bug Reports to work on it.`,
+          urgencyLevel: existing.priority === 'critical' ? 'critical' : existing.priority === 'high' ? 'high' : 'medium',
+          isRead: false,
+        });
+      }
       res.json(updated);
     } catch (err) {
       console.error('Error updating bug report:', err);
@@ -5681,15 +6197,22 @@ export async function registerRoutes(
     }
   });
 
-  // Resolve bug report (COO or Admin)
+  // Resolve bug report (the assignee, COO or Admin)
   app.post('/api/bug-reports/:id/resolve', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
       const user = await storage.getUser(userId);
       const id = parseInt(req.params.id);
       
-      if (user?.email !== 'coo@sahihcertify.com' && user?.role !== 'admin') {
-        return res.status(403).json({ message: 'Only COO or Admin can resolve bug reports' });
+      const report = await storage.getBugReport(id);
+      if (!report) {
+        return res.status(404).json({ message: 'Bug report not found' });
+      }
+      if (user?.email !== 'coo@sahihcertify.com' && user?.role !== 'admin' && report.assignedToId !== userId) {
+        return res.status(403).json({ message: 'Only the assignee, the COO or an Admin can resolve bug reports' });
+      }
+      if (report.status === 'resolved' || report.status === 'closed') {
+        return res.status(400).json({ message: `This bug report is already ${report.status}` });
       }
 
       const { resolutionNotes, resolutionEvidenceUrl } = req.body;
@@ -5716,8 +6239,11 @@ export async function registerRoutes(
       if (!report) {
         return res.status(404).json({ message: 'Bug report not found' });
       }
+      if (report.status !== 'resolved') {
+        return res.status(400).json({ message: 'Only a resolved bug report can be closed. Resolve it first.' });
+      }
 
-      const updated = await storage.closeBugReport(id);
+      let updated = await storage.closeBugReport(id);
       
       // Send congratulation notification to the reporter
       const reporter = await storage.getUser(report.reportedById);
@@ -5740,7 +6266,7 @@ export async function registerRoutes(
       }
       
       // Mark as notified
-      await storage.markBugReportNotified(id);
+      updated = await storage.markBugReportNotified(id);
 
       res.json(updated);
     } catch (err) {
@@ -5784,19 +6310,109 @@ export async function registerRoutes(
   // CERTIFICATION PROCESS MANAGEMENT ROUTES
   // ============================================
 
+  // ---- Input helpers shared by the certification and training routes ----
+  // Dates arrive as ISO strings or "yyyy-mm-dd" from date inputs; "" means the date was cleared
+  const ctToDate = (v: unknown) => (v === '' ? null : typeof v === 'string' || typeof v === 'number' ? new Date(v) : v);
+  const ctDate = z.preprocess(ctToDate, z.date({ invalid_type_error: 'Invalid date' }).nullable().optional());
+  const ctRequiredDate = (label: string) =>
+    z.preprocess(ctToDate, z.date({ required_error: `${label} is required`, invalid_type_error: `${label} must be a valid date` }));
+  const ctNumber = (v: unknown) => (v === '' || v === null ? null : typeof v === 'string' ? Number(v) : v);
+  const ctId = z.preprocess(ctNumber, z.number({ invalid_type_error: 'Invalid id' }).int().positive().nullable().optional());
+  const ctRequiredId = (label: string) =>
+    z.preprocess(ctNumber, z.number({ required_error: `${label} is required`, invalid_type_error: `${label} is required` }).int().positive());
+  const ctInt = (label: string, max?: number) => z.preprocess(ctNumber, (max === undefined
+    ? z.number({ invalid_type_error: `${label} must be a number` }).int().min(0, `${label} cannot be negative`)
+    : z.number({ invalid_type_error: `${label} must be a number` }).int().min(0, `${label} cannot be negative`).max(max, `${label} cannot be more than ${max}`)
+  ).nullable().optional());
+  const ctText = z.string().trim().nullable().optional();
+  const ctRequiredText = (label: string) => z.string({ required_error: `${label} is required` }).trim().min(1, `${label} is required`);
+  const ctEnum = (label: string, values: string[]) =>
+    z.enum(values as [string, ...string[]], { errorMap: () => ({ message: `Invalid ${label}. Allowed: ${values.join(', ')}` }) });
+  const ctBadRequest = (res: Response, err: z.ZodError) => {
+    const issue = err.errors[0];
+    const field = issue.path.join('.');
+    // Our own messages name the field; zod's generic ones ("Required", "Invalid date"...) get the field name in front
+    const generic = /^(Required|Expected|Invalid date|Invalid id|String must|Number must)/.test(issue.message);
+    const message = field && generic ? `${field}: ${issue.message}` : issue.message;
+    return res.status(400).json({ message, field });
+  };
+
+  // Managers: admin, quality manager or the COO
+  const isCertManager = (user?: { role: string; email: string } | null) =>
+    !!user && (user.role === UserRole.ADMIN || user.role === UserRole.QUALITY_MANAGER || user.email === COO_EMAIL);
+  // Roles that work on certification (the application list is open to these)
+  const CERT_ROLES: string[] = [UserRole.AUDITOR, UserRole.ADMIN, UserRole.QUALITY_MANAGER];
+  const isAssignedToApplication = (user: { id: number }, app: { assignedAuditorId: number | null; leadAuditorId: number | null }) =>
+    user.id === app.assignedAuditorId || user.id === app.leadAuditorId;
+  // Audit team: the lead auditor plus the comma-separated team member ids
+  const certAuditTeam = (audit: { leadAuditorId: number | null; auditTeamIds: string | null }) =>
+    [audit.leadAuditorId, ...(audit.auditTeamIds || '').split(',').map(s => parseInt(s.trim()))]
+      .filter((id): id is number => !!id && !isNaN(id));
+  const canViewCertification = (user: { id: number; role: string; email: string }, app?: { assignedAuditorId: number | null; leadAuditorId: number | null } | null, audit?: { leadAuditorId: number | null; auditTeamIds: string | null } | null) =>
+    isCertManager(user) || CERT_ROLES.includes(user.role) || (!!app && isAssignedToApplication(user, app)) || (!!audit && certAuditTeam(audit).includes(user.id));
+  const canWorkOnAudit = (user: { id: number; role: string; email: string }, audit: { leadAuditorId: number | null; auditTeamIds: string | null }, app?: { assignedAuditorId: number | null; leadAuditorId: number | null } | null) =>
+    isCertManager(user) || certAuditTeam(audit).includes(user.id) || (!!app && isAssignedToApplication(user, app));
+  // Auditors, lead auditors and audit team members must be users who can do certification work
+  const checkCertAuditor = async (id: number | null | undefined, label: string): Promise<string | null> => {
+    if (!id) return null;
+    const auditor = await storage.getUser(id);
+    return auditor && CERT_ROLES.includes(auditor.role) ? null : `${label} must be a user with the auditor, quality manager or admin role`;
+  };
+
+  // Application status order (ISO 17021 client cycle); rejected / suspended / withdrawn can end any open application
+  const APPLICATION_FLOW: string[] = [
+    CertificationApplicationStatus.SUBMITTED, CertificationApplicationStatus.UNDER_REVIEW, CertificationApplicationStatus.AUDIT_SCHEDULED,
+    CertificationApplicationStatus.STAGE1_COMPLETE, CertificationApplicationStatus.STAGE2_SCHEDULED, CertificationApplicationStatus.STAGE2_COMPLETE,
+    CertificationApplicationStatus.PENDING_DECISION, CertificationApplicationStatus.APPROVED, CertificationApplicationStatus.CERTIFICATE_ISSUED,
+  ];
+  const APPLICATION_EXITS: string[] = [CertificationApplicationStatus.REJECTED, CertificationApplicationStatus.SUSPENDED, CertificationApplicationStatus.WITHDRAWN];
+  // The certification decision is not made by the auditors (ISO 17021 9.5): only managers approve, reject or suspend
+  const MANAGER_DECISIONS: string[] = [CertificationApplicationStatus.APPROVED, CertificationApplicationStatus.REJECTED, CertificationApplicationStatus.SUSPENDED];
+  const applicationStatusError = (from: string, to: string): string | null => {
+    if (from === to) return null;
+    if (to === CertificationApplicationStatus.CERTIFICATE_ISSUED) return 'The status becomes "certificate_issued" when the certificate is issued';
+    const fromIdx = APPLICATION_FLOW.indexOf(from);
+    if (fromIdx === -1) return `The application is ${from} and its status can no longer change`;
+    if (APPLICATION_EXITS.includes(to)) {
+      if (from === CertificationApplicationStatus.CERTIFICATE_ISSUED && to === CertificationApplicationStatus.REJECTED) return 'A certified application cannot be rejected; suspend or withdraw it instead';
+      return null;
+    }
+    const next = APPLICATION_FLOW[fromIdx + 1];
+    if (to !== next) return next ? `Status can only move forward one step: from "${from}" the next status is "${next}"` : `The application is ${from}`;
+    return null;
+  };
+
+  const certApplicationCreateSchema = z.object({
+    clientName: ctRequiredText('Client name'),
+    clientLocation: ctRequiredText('Location'),
+    clientContactName: ctText,
+    clientContactEmail: ctText,
+    clientContactPhone: ctText,
+    isoStandard: ctRequiredText('ISO standard'),
+    standardName: ctRequiredText('Standard name'),
+    sectorCode: ctText,
+    certificationScope: ctRequiredText('Certification scope'),
+  });
+  const certApplicationUpdateSchema = certApplicationCreateSchema.partial().extend({
+    status: ctEnum('status', Object.values(CertificationApplicationStatus)).optional(),
+    assignedAuditorId: ctId,
+    leadAuditorId: ctId,
+    reviewNotes: ctText,
+  });
+
   // Get all certification applications
   app.get('/api/certification-applications', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
       const user = await storage.getUser(userId);
-      
+
       if (!user || (user.role !== UserRole.AUDITOR && user.role !== UserRole.ADMIN && user.role !== UserRole.QUALITY_MANAGER)) {
         return res.status(403).json({ message: 'Only auditors, admin, or quality managers can access certification applications' });
       }
 
       const status = req.query.status as string | undefined;
       const assignedAuditorId = req.query.assignedAuditorId ? parseInt(req.query.assignedAuditorId as string) : undefined;
-      
+
       const applications = await storage.getCertificationApplications({ status, assignedAuditorId });
       res.json(applications);
     } catch (err) {
@@ -5808,13 +6424,18 @@ export async function registerRoutes(
   // Get single certification application
   app.get('/api/certification-applications/:id', requireAuth, async (req: Request, res: Response) => {
     try {
+      const user = await storage.getUser(getCurrentUserId(req));
       const id = parseInt(req.params.id);
       const application = await storage.getCertificationApplication(id);
-      
+
       if (!application) {
         return res.status(404).json({ message: 'Application not found' });
       }
-      
+      // Same people as the list (auditors, admin, QM) plus whoever is assigned to it
+      if (!user || !canViewCertification(user, application)) {
+        return res.status(403).json({ message: 'Only managers, auditors or the assigned auditors can view this application' });
+      }
+
       res.json(application);
     } catch (err) {
       console.error('Error fetching certification application:', err);
@@ -5827,13 +6448,19 @@ export async function registerRoutes(
     try {
       const userId = getCurrentUserId(req);
       const user = await storage.getUser(userId);
-      
+
       if (!user || (user.role !== UserRole.AUDITOR && user.role !== UserRole.ADMIN && user.role !== UserRole.QUALITY_MANAGER)) {
         return res.status(403).json({ message: 'Only auditors, admin, or quality managers can create certification applications' });
       }
 
-      const application = await storage.createCertificationApplication(req.body);
-      
+      const parsed = certApplicationCreateSchema.safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+
+      const application = await storage.createCertificationApplication({
+        ...parsed.data,
+        status: CertificationApplicationStatus.SUBMITTED,
+      });
+
       await storage.createAuditLog({
         action: AuditAction.CREATE,
         entityType: 'certification_application',
@@ -5841,7 +6468,7 @@ export async function registerRoutes(
         userId,
         newValue: JSON.stringify({ applicationNumber: application.applicationNumber, clientName: application.clientName }),
       });
-      
+
       res.status(201).json(application);
     } catch (err) {
       console.error('Error creating certification application:', err);
@@ -5849,22 +6476,62 @@ export async function registerRoutes(
     }
   });
 
-  // Update certification application
+  // Update certification application (review, auditor assignment, status)
   app.put('/api/certification-applications/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
       const id = parseInt(req.params.id);
-      
-      const updated = await storage.updateCertificationApplication(id, req.body);
-      
+      const application = await storage.getCertificationApplication(id);
+      if (!application) {
+        return res.status(404).json({ message: 'Application not found' });
+      }
+      if (!user || !(isCertManager(user) || isAssignedToApplication(user, application))) {
+        return res.status(403).json({ message: 'Only managers or the assigned auditor / lead auditor can update this application' });
+      }
+
+      const parsed = certApplicationUpdateSchema.safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+      const input = parsed.data;
+      const updates: Parameters<typeof storage.updateCertificationApplication>[1] = { ...input };
+
+      for (const [field, label] of [['assignedAuditorId', 'Auditor'], ['leadAuditorId', 'Lead auditor']] as const) {
+        if (input[field] === undefined || input[field] === application[field]) continue;
+        if (!isCertManager(user)) {
+          return res.status(403).json({ message: 'Only managers can assign the auditor and lead auditor' });
+        }
+        const error = await checkCertAuditor(input[field], label);
+        if (error) return res.status(400).json({ message: error, field });
+      }
+
+      if (input.status !== undefined && input.status !== application.status) {
+        const error = applicationStatusError(application.status, input.status);
+        if (error) return res.status(400).json({ message: error, field: 'status' });
+        if (MANAGER_DECISIONS.includes(input.status) && !isCertManager(user)) {
+          return res.status(403).json({ message: 'Only managers can approve, reject or suspend an application' });
+        }
+        const assignedAuditorId = input.assignedAuditorId !== undefined ? input.assignedAuditorId : application.assignedAuditorId;
+        const leadAuditorId = input.leadAuditorId !== undefined ? input.leadAuditorId : application.leadAuditorId;
+        if (input.status === CertificationApplicationStatus.AUDIT_SCHEDULED && !assignedAuditorId && !leadAuditorId) {
+          return res.status(400).json({ message: 'Assign an auditor or lead auditor before scheduling the audit', field: 'status' });
+        }
+        if (input.status === CertificationApplicationStatus.UNDER_REVIEW) {
+          updates.reviewedAt = new Date();
+          updates.reviewedById = userId;
+        }
+      }
+
+      const updated = await storage.updateCertificationApplication(id, updates);
+
       await storage.createAuditLog({
         action: AuditAction.UPDATE,
         entityType: 'certification_application',
         entityId: id,
         userId,
-        newValue: JSON.stringify(req.body),
+        previousValue: JSON.stringify({ status: application.status, assignedAuditorId: application.assignedAuditorId, leadAuditorId: application.leadAuditorId }),
+        newValue: JSON.stringify(input),
       });
-      
+
       res.json(updated);
     } catch (err) {
       console.error('Error updating certification application:', err);
@@ -5878,20 +6545,20 @@ export async function registerRoutes(
       const userId = getCurrentUserId(req);
       const user = await storage.getUser(userId);
       const id = parseInt(req.params.id);
-      
+
       if (!user || user.role !== UserRole.ADMIN) {
         return res.status(403).json({ message: 'Only admin can delete certification applications' });
       }
 
       await storage.deleteCertificationApplication(id);
-      
+
       await storage.createAuditLog({
         action: AuditAction.DELETE,
         entityType: 'certification_application',
         entityId: id,
         userId,
       });
-      
+
       res.json({ success: true });
     } catch (err) {
       console.error('Error deleting certification application:', err);
@@ -5899,11 +6566,48 @@ export async function registerRoutes(
     }
   });
 
+  const auditTeamIdsField = z.preprocess(
+    (v) => (Array.isArray(v) ? v.join(',') : v === '' ? null : v),
+    z.string().regex(/^\s*\d+(\s*,\s*\d+)*\s*$/, 'Audit team must be a list of user ids').nullable().optional(),
+  );
+  const certAuditCreateSchema = z.object({
+    applicationId: ctRequiredId('Application'),
+    auditType: ctEnum('audit type', Object.values(AuditType)),
+    scheduledDate: ctDate,
+    leadAuditorId: ctId,
+    auditTeamIds: auditTeamIdsField,
+    auditPlanUrl: ctText,
+    notes: ctText,
+  });
+  const certAuditUpdateSchema = z.object({
+    auditType: ctEnum('audit type', Object.values(AuditType)).optional(),
+    scheduledDate: ctDate,
+    completedDate: ctDate,
+    status: ctEnum('audit status', Object.values(AuditStatus)).optional(),
+    leadAuditorId: ctId,
+    auditTeamIds: auditTeamIdsField,
+    auditPlanUrl: ctText,
+    auditReportUrl: ctText,
+    recommendation: ctText,
+    notes: ctText,
+  });
+  const LOCKED_AUDIT_STATUSES: string[] = [AuditStatus.COMPLETED, AuditStatus.CANCELLED];
+
   // Get audits for an application
   app.get('/api/certification-audits', requireAuth, async (req: Request, res: Response) => {
     try {
+      const user = await storage.getUser(getCurrentUserId(req));
       const applicationId = req.query.applicationId ? parseInt(req.query.applicationId as string) : undefined;
-      const audits = await storage.getCertificationAudits(applicationId);
+      const application = applicationId ? await storage.getCertificationApplication(applicationId) : undefined;
+      if (applicationId && !application) {
+        return res.status(404).json({ message: 'Application not found' });
+      }
+      if (!user) return res.status(401).json({ message: 'Authentication required' });
+      let audits = await storage.getCertificationAudits(applicationId);
+      // Others only see the audits they lead or are on the team of
+      if (!canViewCertification(user, application)) {
+        audits = audits.filter(a => certAuditTeam(a).includes(user.id));
+      }
       res.json(audits);
     } catch (err) {
       console.error('Error fetching certification audits:', err);
@@ -5914,13 +6618,18 @@ export async function registerRoutes(
   // Get single audit
   app.get('/api/certification-audits/:id', requireAuth, async (req: Request, res: Response) => {
     try {
+      const user = await storage.getUser(getCurrentUserId(req));
       const id = parseInt(req.params.id);
       const audit = await storage.getCertificationAudit(id);
-      
+
       if (!audit) {
         return res.status(404).json({ message: 'Audit not found' });
       }
-      
+      const application = await storage.getCertificationApplication(audit.applicationId);
+      if (!user || !canViewCertification(user, application, audit)) {
+        return res.status(403).json({ message: 'You do not have access to this audit' });
+      }
+
       res.json(audit);
     } catch (err) {
       console.error('Error fetching certification audit:', err);
@@ -5932,16 +6641,39 @@ export async function registerRoutes(
   app.post('/api/certification-audits', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
-      const audit = await storage.createCertificationAudit(req.body);
-      
+      const user = await storage.getUser(userId);
+      const parsed = certAuditCreateSchema.safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+      const input = parsed.data;
+
+      const application = await storage.getCertificationApplication(input.applicationId);
+      if (!application) {
+        return res.status(404).json({ message: 'Application not found' });
+      }
+      if (!user || !(isCertManager(user) || isAssignedToApplication(user, application))) {
+        return res.status(403).json({ message: 'Only managers or the assigned auditor / lead auditor can plan audits for this application' });
+      }
+      if (!APPLICATION_FLOW.includes(application.status)) {
+        return res.status(400).json({ message: `Audits cannot be planned for a ${application.status} application` });
+      }
+      const leadAuditorId = input.leadAuditorId !== undefined ? input.leadAuditorId : (application.leadAuditorId ?? application.assignedAuditorId);
+      const leadError = await checkCertAuditor(leadAuditorId, 'Lead auditor');
+      if (leadError) return res.status(400).json({ message: leadError, field: 'leadAuditorId' });
+
+      const audit = await storage.createCertificationAudit({
+        ...input,
+        leadAuditorId,
+        status: AuditStatus.PLANNED,
+      });
+
       await storage.createAuditLog({
         action: AuditAction.CREATE,
         entityType: 'certification_audit',
         entityId: audit.id,
         userId,
-        newValue: JSON.stringify({ auditType: audit.auditType, applicationId: audit.applicationId }),
+        newValue: JSON.stringify({ auditType: audit.auditType, applicationId: audit.applicationId, scheduledDate: audit.scheduledDate, leadAuditorId }),
       });
-      
+
       res.status(201).json(audit);
     } catch (err) {
       console.error('Error creating certification audit:', err);
@@ -5949,22 +6681,65 @@ export async function registerRoutes(
     }
   });
 
-  // Update audit
+  // Update audit (schedule, status, recommendation, completion)
   app.put('/api/certification-audits/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
       const id = parseInt(req.params.id);
-      
-      const updated = await storage.updateCertificationAudit(id, req.body);
-      
+      const audit = await storage.getCertificationAudit(id);
+      if (!audit) {
+        return res.status(404).json({ message: 'Audit not found' });
+      }
+      const application = await storage.getCertificationApplication(audit.applicationId);
+      if (!user || !canWorkOnAudit(user, audit, application)) {
+        return res.status(403).json({ message: 'Only managers or the audit\'s lead auditor / assigned auditors can update this audit' });
+      }
+      if (LOCKED_AUDIT_STATUSES.includes(audit.status)) {
+        return res.status(400).json({ message: `This audit is ${audit.status} and can no longer be changed` });
+      }
+
+      const parsed = certAuditUpdateSchema.safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+      const input = parsed.data;
+      const updates: Parameters<typeof storage.updateCertificationAudit>[1] = { ...input };
+
+      if ((input.leadAuditorId !== undefined && input.leadAuditorId !== audit.leadAuditorId) ||
+          (input.auditTeamIds !== undefined && input.auditTeamIds !== audit.auditTeamIds)) {
+        if (!isCertManager(user)) {
+          return res.status(403).json({ message: 'Only managers can change the lead auditor or the audit team' });
+        }
+        const leadError = await checkCertAuditor(input.leadAuditorId, 'Lead auditor');
+        if (leadError) return res.status(400).json({ message: leadError, field: 'leadAuditorId' });
+      }
+
+      if (input.status === AuditStatus.COMPLETED) {
+        const openMajor = (await storage.getAuditFindings(id))
+          .filter(f => f.findingType === FindingType.MAJOR_NC && f.status !== FindingStatus.CLOSED);
+        if (openMajor.length > 0) {
+          return res.status(400).json({
+            message: `The audit cannot be completed while ${openMajor.length} major nonconformit${openMajor.length === 1 ? 'y is' : 'ies are'} open (${openMajor.map(f => f.findingNumber).join(', ')})`,
+            field: 'status',
+          });
+        }
+        const recommendation = input.recommendation !== undefined ? input.recommendation : audit.recommendation;
+        if (!recommendation) {
+          return res.status(400).json({ message: 'Record the audit recommendation before completing the audit', field: 'recommendation' });
+        }
+        if (!input.completedDate) updates.completedDate = new Date();
+      }
+
+      const updated = await storage.updateCertificationAudit(id, updates);
+
       await storage.createAuditLog({
         action: AuditAction.UPDATE,
         entityType: 'certification_audit',
         entityId: id,
         userId,
-        newValue: JSON.stringify(req.body),
+        previousValue: JSON.stringify({ status: audit.status }),
+        newValue: JSON.stringify(input),
       });
-      
+
       res.json(updated);
     } catch (err) {
       console.error('Error updating certification audit:', err);
@@ -5972,10 +6747,44 @@ export async function registerRoutes(
     }
   });
 
+  const certFindingCreateSchema = z.object({
+    auditId: ctRequiredId('Audit'),
+    findingNumber: ctText,
+    findingType: ctEnum('finding type', Object.values(FindingType)),
+    clauseReference: ctText,
+    description: ctRequiredText('Description'),
+    objectiveEvidence: ctText,
+    correctiveAction: ctText,
+    targetClosureDate: ctDate,
+  });
+  const certFindingUpdateSchema = z.object({
+    findingType: ctEnum('finding type', Object.values(FindingType)).optional(),
+    clauseReference: ctText,
+    description: ctRequiredText('Description').optional(),
+    objectiveEvidence: ctText,
+    correctiveAction: ctText,
+    targetClosureDate: ctDate,
+    status: ctEnum('finding status', Object.values(FindingStatus)).optional(),
+    // Closing a finding without a corrective action (e.g. an observation) needs a note from the verifier
+    verificationNote: ctText,
+  });
+
   // Get findings for an audit
   app.get('/api/audit-findings', requireAuth, async (req: Request, res: Response) => {
     try {
+      const user = await storage.getUser(getCurrentUserId(req));
       const auditId = req.query.auditId ? parseInt(req.query.auditId as string) : undefined;
+      if (!user) return res.status(401).json({ message: 'Authentication required' });
+      if (auditId) {
+        const audit = await storage.getCertificationAudit(auditId);
+        if (!audit) return res.status(404).json({ message: 'Audit not found' });
+        const application = await storage.getCertificationApplication(audit.applicationId);
+        if (!canViewCertification(user, application, audit)) {
+          return res.status(403).json({ message: 'You do not have access to this audit' });
+        }
+      } else if (!canViewCertification(user)) {
+        return res.status(403).json({ message: 'Only managers and auditors can list audit findings' });
+      }
       const findings = await storage.getAuditFindings(auditId);
       res.json(findings);
     } catch (err) {
@@ -5988,16 +6797,45 @@ export async function registerRoutes(
   app.post('/api/audit-findings', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
-      const finding = await storage.createAuditFinding(req.body);
-      
+      const user = await storage.getUser(userId);
+      const parsed = certFindingCreateSchema.safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+      const input = parsed.data;
+
+      const audit = await storage.getCertificationAudit(input.auditId);
+      if (!audit) {
+        return res.status(404).json({ message: 'Audit not found' });
+      }
+      const application = await storage.getCertificationApplication(audit.applicationId);
+      if (!user || !canWorkOnAudit(user, audit, application)) {
+        return res.status(403).json({ message: 'Only managers or the audit\'s lead auditor / assigned auditors can record findings' });
+      }
+      if (LOCKED_AUDIT_STATUSES.includes(audit.status)) {
+        return res.status(400).json({ message: `Findings cannot be added to a ${audit.status} audit` });
+      }
+
+      // Number findings per audit after the highest existing one
+      let findingNumber = input.findingNumber || '';
+      if (!findingNumber) {
+        const existing = await storage.getAuditFindings(audit.id);
+        const highest = Math.max(0, ...existing.map(f => parseInt(f.findingNumber.match(/(\d+)$/)?.[1] || '0')));
+        findingNumber = `F-${audit.id}-${String(highest + 1).padStart(2, '0')}`;
+      }
+
+      const finding = await storage.createAuditFinding({
+        ...input,
+        findingNumber,
+        status: input.correctiveAction ? FindingStatus.PENDING_VERIFICATION : FindingStatus.OPEN,
+      });
+
       await storage.createAuditLog({
         action: AuditAction.CREATE,
         entityType: 'audit_finding',
         entityId: finding.id,
         userId,
-        newValue: JSON.stringify({ findingType: finding.findingType, auditId: finding.auditId }),
+        newValue: JSON.stringify({ findingNumber: finding.findingNumber, findingType: finding.findingType, auditId: finding.auditId }),
       });
-      
+
       res.status(201).json(finding);
     } catch (err) {
       console.error('Error creating audit finding:', err);
@@ -6005,22 +6843,65 @@ export async function registerRoutes(
     }
   });
 
-  // Update finding
+  // Update finding (corrective action, verification and closure)
   app.put('/api/audit-findings/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
       const id = parseInt(req.params.id);
-      
-      const updated = await storage.updateAuditFinding(id, req.body);
-      
+      const finding = await storage.getAuditFinding(id);
+      if (!finding) {
+        return res.status(404).json({ message: 'Finding not found' });
+      }
+      const audit = await storage.getCertificationAudit(finding.auditId);
+      const application = audit ? await storage.getCertificationApplication(audit.applicationId) : undefined;
+      if (!user || !audit || !canWorkOnAudit(user, audit, application)) {
+        return res.status(403).json({ message: 'Only managers or the audit\'s lead auditor / assigned auditors can update findings' });
+      }
+      if (finding.status === FindingStatus.CLOSED) {
+        return res.status(400).json({ message: 'This finding is closed and can no longer be changed' });
+      }
+
+      const parsed = certFindingUpdateSchema.safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+      const { verificationNote, ...input } = parsed.data;
+      const updates: Parameters<typeof storage.updateAuditFinding>[1] = { ...input };
+      const correctiveAction = input.correctiveAction !== undefined ? input.correctiveAction : finding.correctiveAction;
+
+      let status = input.status ?? finding.status;
+      // A corrective action on an open finding sends it for verification
+      if (input.status === undefined && finding.status === FindingStatus.OPEN && input.correctiveAction) {
+        status = FindingStatus.PENDING_VERIFICATION;
+      }
+      if (status === FindingStatus.PENDING_VERIFICATION && !correctiveAction) {
+        return res.status(400).json({ message: 'Add the corrective action before sending the finding for verification', field: 'correctiveAction' });
+      }
+      if (status === FindingStatus.CLOSED) {
+        // Nonconformities always need a corrective action; only observations / opportunities close on a note
+        const findingType = input.findingType ?? finding.findingType;
+        if (!correctiveAction?.trim() && (findingType === FindingType.MAJOR_NC || findingType === FindingType.MINOR_NC)) {
+          return res.status(400).json({ message: `A ${findingType === FindingType.MAJOR_NC ? 'major' : 'minor'} nonconformity can only be closed after a corrective action is recorded`, field: 'correctiveAction' });
+        }
+        if (!correctiveAction && !verificationNote) {
+          return res.status(400).json({ message: 'Closing a finding requires a corrective action or a verification note', field: 'correctiveAction' });
+        }
+        if (!correctiveAction) updates.correctiveAction = `Verification note: ${verificationNote}`;
+        updates.verifiedAt = new Date();
+        updates.verifiedById = userId;
+      }
+      updates.status = status;
+
+      const updated = await storage.updateAuditFinding(id, updates);
+
       await storage.createAuditLog({
         action: AuditAction.UPDATE,
         entityType: 'audit_finding',
         entityId: id,
         userId,
-        newValue: JSON.stringify(req.body),
+        previousValue: JSON.stringify({ status: finding.status }),
+        newValue: JSON.stringify({ ...input, status, ...(verificationNote ? { verificationNote } : {}) }),
       });
-      
+
       res.json(updated);
     } catch (err) {
       console.error('Error updating audit finding:', err);
@@ -6028,12 +6909,33 @@ export async function registerRoutes(
     }
   });
 
+  const certificateSchema = z.object({
+    applicationId: ctRequiredId('Application'),
+    certificateNumber: ctRequiredText('Certificate number'),
+    clientName: ctRequiredText('Client name'),
+    clientLocation: ctText,
+    isoStandard: ctRequiredText('ISO standard'),
+    standardName: ctRequiredText('Standard name'),
+    sectorCode: ctText,
+    certificationScope: ctRequiredText('Certification scope'),
+    issueDate: ctRequiredDate('Issue date'),
+    expiryDate: ctRequiredDate('Expiry date'),
+    firstSurveillanceDate: ctDate,
+    secondSurveillanceDate: ctDate,
+    status: ctEnum('certificate status', ['active', 'suspended', 'withdrawn', 'expired']).optional(),
+    certificateImageUrl: ctText,
+    certificatePdfUrl: ctText,
+    leftBackgroundImage: ctText,
+    rightBackgroundImage: ctText,
+  });
+  const isUniqueViolation = (err: unknown) => (err as { code?: string })?.code === '23505';
+
   // Get certificates
   app.get('/api/certificates', requireAuth, async (req: Request, res: Response) => {
     try {
       const applicationId = req.query.applicationId ? parseInt(req.query.applicationId as string) : undefined;
       const status = req.query.status as string | undefined;
-      
+
       const certs = await storage.getCertificates({ applicationId, status });
       res.json(certs);
     } catch (err) {
@@ -6047,11 +6949,11 @@ export async function registerRoutes(
     try {
       const id = parseInt(req.params.id);
       const cert = await storage.getCertificate(id);
-      
+
       if (!cert) {
         return res.status(404).json({ message: 'Certificate not found' });
       }
-      
+
       res.json(cert);
     } catch (err) {
       console.error('Error fetching certificate:', err);
@@ -6064,31 +6966,64 @@ export async function registerRoutes(
     try {
       const userId = getCurrentUserId(req);
       const user = await storage.getUser(userId);
-      
-      if (!user || (user.role !== UserRole.AUDITOR && user.role !== UserRole.ADMIN && user.role !== UserRole.QUALITY_MANAGER)) {
-        return res.status(403).json({ message: 'Only auditors, admin, or quality managers can issue certificates' });
+
+      if (!isCertManager(user)) {
+        return res.status(403).json({ message: 'Only managers (admin, quality manager or COO) can issue certificates' });
       }
 
-      const cert = await storage.createCertificate({
-        ...req.body,
-        issuedById: userId,
-      });
-      
-      // Update application status
-      if (req.body.applicationId) {
-        await storage.updateCertificationApplication(req.body.applicationId, {
-          status: 'certificate_issued',
-        });
+      const parsed = certificateSchema.safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+      const input = parsed.data;
+      if (input.expiryDate <= input.issueDate) {
+        return res.status(400).json({ message: 'Expiry date must be after the issue date', field: 'expiryDate' });
       }
-      
+
+      const application = await storage.getCertificationApplication(input.applicationId);
+      if (!application) {
+        return res.status(404).json({ message: 'Application not found' });
+      }
+      if (application.status !== CertificationApplicationStatus.APPROVED) {
+        return res.status(400).json({ message: `A certificate can only be issued for an approved application (this one is ${application.status.replace(/_/g, ' ')})` });
+      }
+      if (await storage.getCertificateByNumber(input.certificateNumber)) {
+        return res.status(409).json({ message: `Certificate number ${input.certificateNumber} is already in use`, field: 'certificateNumber' });
+      }
+
+      let cert;
+      try {
+        cert = await storage.createCertificate({
+          ...input,
+          status: input.status ?? 'active',
+          issuedById: userId,
+        });
+      } catch (err) {
+        if (isUniqueViolation(err)) {
+          return res.status(409).json({ message: `Certificate number ${input.certificateNumber} is already in use`, field: 'certificateNumber' });
+        }
+        throw err;
+      }
+
+      // Update application status
+      await storage.updateCertificationApplication(application.id, {
+        status: CertificationApplicationStatus.CERTIFICATE_ISSUED,
+      });
+
       await storage.createAuditLog({
         action: AuditAction.CREATE,
         entityType: 'certificate',
         entityId: cert.id,
         userId,
-        newValue: JSON.stringify({ certificateNumber: cert.certificateNumber, clientName: cert.clientName }),
+        newValue: JSON.stringify({ certificateNumber: cert.certificateNumber, clientName: cert.clientName, applicationId: application.id }),
       });
-      
+      await storage.createAuditLog({
+        action: AuditAction.UPDATE,
+        entityType: 'certification_application',
+        entityId: application.id,
+        userId,
+        previousValue: JSON.stringify({ status: application.status }),
+        newValue: JSON.stringify({ status: CertificationApplicationStatus.CERTIFICATE_ISSUED, certificateNumber: cert.certificateNumber }),
+      });
+
       res.status(201).json(cert);
     } catch (err) {
       console.error('Error creating certificate:', err);
@@ -6100,18 +7035,37 @@ export async function registerRoutes(
   app.put('/api/certificates/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
       const id = parseInt(req.params.id);
-      
-      const updated = await storage.updateCertificate(id, req.body);
-      
+      if (!isCertManager(user)) {
+        return res.status(403).json({ message: 'Only managers (admin, quality manager or COO) can change certificates' });
+      }
+      const existing = await storage.getCertificate(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Certificate not found' });
+      }
+
+      const parsed = certificateSchema.omit({ applicationId: true }).partial().safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+
+      let updated;
+      try {
+        updated = await storage.updateCertificate(id, parsed.data);
+      } catch (err) {
+        if (isUniqueViolation(err)) {
+          return res.status(409).json({ message: `Certificate number ${parsed.data.certificateNumber} is already in use`, field: 'certificateNumber' });
+        }
+        throw err;
+      }
+
       await storage.createAuditLog({
         action: AuditAction.UPDATE,
         entityType: 'certificate',
         entityId: id,
         userId,
-        newValue: JSON.stringify(req.body),
+        newValue: JSON.stringify(parsed.data),
       });
-      
+
       res.json(updated);
     } catch (err) {
       console.error('Error updating certificate:', err);
@@ -6122,7 +7076,44 @@ export async function registerRoutes(
   // ===========================================
   // TRAININGS AND ASSESSMENTS
   // ===========================================
-  
+
+  // Managers and HR create trainings, assign them and complete / certify them
+  const isTrainingManager = (user?: { role: string; email: string } | null) =>
+    isCertManager(user) || user?.email === 'hr@sahihcertify.com';
+  const trainingSchema = z.object({
+    title: ctRequiredText('Title'),
+    description: ctText,
+    type: ctEnum('training type', [...Object.values(TrainingType), 'induction']).optional(),
+    category: ctText,
+    duration: ctInt('Duration'),
+    passingScore: ctInt('Passing score', 100),
+    content: ctText,
+    documentId: ctId,
+    status: ctEnum('training status', Object.values(TrainingStatus)).optional(),
+    validityPeriod: ctInt('Validity period'),
+  });
+  const trainingAssignmentCreateSchema = z.object({
+    trainingId: ctRequiredId('Training'),
+    employeeId: ctRequiredId('Employee'),
+    dueDate: ctDate,
+    notes: ctText,
+  });
+  const trainingAssignmentUpdateSchema = z.object({
+    // completion goes through /complete so that the result and certificate are recorded
+    status: ctEnum('assignment status', Object.values(TrainingAssignmentStatus).filter(s => s !== TrainingAssignmentStatus.COMPLETED)).optional(),
+    dueDate: ctDate,
+    startedAt: ctDate,
+    notes: ctText,
+  });
+  const trainingCompleteSchema = z.object({
+    score: ctInt('Score', 100),
+    passed: z.boolean().optional(),
+    remarks: ctText,
+  });
+  // The login of an employee: linked by userId, or else the user with the same email
+  const employeeLoginId = async (employee: { userId: number | null; email: string }) =>
+    employee.userId ?? (await storage.getUserByEmail(employee.email))?.id ?? null;
+
   // Get all trainings
   app.get('/api/trainings', requireAuth, async (req: Request, res: Response) => {
     try {
@@ -6153,11 +7144,16 @@ export async function registerRoutes(
   app.post('/api/trainings', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
+      if (!isTrainingManager(await storage.getUser(userId))) {
+        return res.status(403).json({ message: 'Only managers or HR can create trainings' });
+      }
+      const parsed = trainingSchema.safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
       const training = await storage.createTraining({
-        ...req.body,
+        ...parsed.data,
         createdById: userId,
       });
-      
+
       await storage.createAuditLog({
         action: AuditAction.CREATE,
         entityType: 'training',
@@ -6165,7 +7161,7 @@ export async function registerRoutes(
         userId,
         newValue: JSON.stringify({ title: training.title, type: training.type }),
       });
-      
+
       res.status(201).json(training);
     } catch (err) {
       console.error('Error creating training:', err);
@@ -6178,17 +7174,25 @@ export async function registerRoutes(
     try {
       const userId = getCurrentUserId(req);
       const id = parseInt(req.params.id);
-      
-      const updated = await storage.updateTraining(id, req.body);
-      
+      if (!isTrainingManager(await storage.getUser(userId))) {
+        return res.status(403).json({ message: 'Only managers or HR can change trainings' });
+      }
+      if (!(await storage.getTraining(id))) {
+        return res.status(404).json({ message: 'Training not found' });
+      }
+      const parsed = trainingSchema.partial().safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+
+      const updated = await storage.updateTraining(id, parsed.data);
+
       await storage.createAuditLog({
         action: AuditAction.UPDATE,
         entityType: 'training',
         entityId: id,
         userId,
-        newValue: JSON.stringify(req.body),
+        newValue: JSON.stringify(parsed.data),
       });
-      
+
       res.json(updated);
     } catch (err) {
       console.error('Error updating training:', err);
@@ -6201,16 +7205,22 @@ export async function registerRoutes(
     try {
       const userId = getCurrentUserId(req);
       const id = parseInt(req.params.id);
-      
+      if (!isTrainingManager(await storage.getUser(userId))) {
+        return res.status(403).json({ message: 'Only managers or HR can delete trainings' });
+      }
+      if ((await storage.getTrainingAssignments({ trainingId: id })).length > 0) {
+        return res.status(400).json({ message: 'This training has assignments and cannot be deleted; set it to inactive or archived instead' });
+      }
+
       await storage.deleteTraining(id);
-      
+
       await storage.createAuditLog({
         action: AuditAction.DELETE,
         entityType: 'training',
         entityId: id,
         userId,
       });
-      
+
       res.status(204).send();
     } catch (err) {
       console.error('Error deleting training:', err);
@@ -6221,14 +7231,14 @@ export async function registerRoutes(
   // ===========================================
   // TRAINING ASSIGNMENTS
   // ===========================================
-  
+
   // Get all training assignments
   app.get('/api/training-assignments', requireAuth, async (req: Request, res: Response) => {
     try {
       const filters: { employeeId?: number; trainingId?: number } = {};
       if (req.query.employeeId) filters.employeeId = parseInt(req.query.employeeId as string);
       if (req.query.trainingId) filters.trainingId = parseInt(req.query.trainingId as string);
-      
+
       const result = await storage.getTrainingAssignments(filters);
       res.json(result);
     } catch (err) {
@@ -6256,35 +7266,50 @@ export async function registerRoutes(
   app.post('/api/training-assignments', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
+      if (!isTrainingManager(await storage.getUser(userId))) {
+        return res.status(403).json({ message: 'Only managers or HR can assign trainings' });
+      }
+      const parsed = trainingAssignmentCreateSchema.safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+      const training = await storage.getTraining(parsed.data.trainingId);
+      if (!training) {
+        return res.status(400).json({ message: 'Training not found', field: 'trainingId' });
+      }
+      const employee = await storage.getEmployee(parsed.data.employeeId);
+      if (!employee) {
+        return res.status(400).json({ message: 'Employee not found', field: 'employeeId' });
+      }
+      const openAssignment = (await storage.getTrainingAssignments({ employeeId: employee.id }))
+        .find(a => a.trainingId === training.id && a.status !== TrainingAssignmentStatus.COMPLETED && a.status !== TrainingAssignmentStatus.CANCELLED);
+      if (openAssignment) {
+        return res.status(409).json({ message: `${employee.name} already has an open assignment for "${training.title}"`, field: 'trainingId' });
+      }
+
       const assignment = await storage.createTrainingAssignment({
-        ...req.body,
+        ...parsed.data,
+        status: TrainingAssignmentStatus.ASSIGNED,
         assignedById: userId,
       });
-      
+
       await storage.createAuditLog({
         action: AuditAction.ASSIGN_TASK,
         entityType: 'training_assignment',
         entityId: assignment.id,
         userId,
-        newValue: JSON.stringify({ trainingId: assignment.trainingId, employeeId: assignment.employeeId }),
+        newValue: JSON.stringify({ trainingId: assignment.trainingId, employeeId: assignment.employeeId, dueDate: assignment.dueDate }),
       });
-      
-      // Create notification for the employee
-      const employee = await storage.getEmployee(assignment.employeeId);
-      if (employee) {
-        const training = await storage.getTraining(assignment.trainingId);
-        // Find user by employee email to send notification
-        const employeeUser = await storage.getUserByEmail(employee.email);
-        if (employeeUser) {
-          await storage.createNotification({
-            userId: employeeUser.id,
-            title: 'New Training Assigned',
-            message: `You have been assigned to complete: ${training?.title || 'Training'}`,
-            urgency: UrgencyLevel.MEDIUM,
-          });
-        }
+
+      // Notify the employee's login (linked user, or the user with the same email)
+      const employeeUserId = await employeeLoginId(employee);
+      if (employeeUserId) {
+        await storage.createNotification({
+          userId: employeeUserId,
+          title: 'New Training Assigned',
+          message: `You have been assigned to complete: ${training.title}${assignment.dueDate ? ` (due ${assignment.dueDate.toLocaleDateString('en-GB')})` : ''}`,
+          urgencyLevel: UrgencyLevel.MEDIUM,
+        });
       }
-      
+
       res.status(201).json(assignment);
     } catch (err) {
       console.error('Error creating training assignment:', err);
@@ -6292,22 +7317,49 @@ export async function registerRoutes(
     }
   });
 
-  // Update training assignment
+  // Update training assignment (managers/HR; the employee can start their own training)
   app.put('/api/training-assignments/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = getCurrentUserId(req);
+      const user = await storage.getUser(userId);
       const id = parseInt(req.params.id);
-      
-      const updated = await storage.updateTrainingAssignment(id, req.body);
-      
+      const assignment = await storage.getTrainingAssignment(id);
+      if (!assignment) {
+        return res.status(404).json({ message: 'Training assignment not found' });
+      }
+      const parsed = trainingAssignmentUpdateSchema.safeParse(req.body);
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+      const input = parsed.data;
+
+      if (!isTrainingManager(user)) {
+        const employee = await storage.getEmployee(assignment.employeeId);
+        const isAssignee = !!employee && (await employeeLoginId(employee)) === userId;
+        const onlyStarts = input.status === TrainingAssignmentStatus.IN_PROGRESS &&
+          Object.keys(input).every(k => k === 'status' || k === 'notes');
+        if (!isAssignee || !onlyStarts) {
+          return res.status(403).json({ message: 'Only managers or HR can change this assignment; the assigned employee can only start it' });
+        }
+      }
+      if (assignment.status === TrainingAssignmentStatus.COMPLETED) {
+        return res.status(400).json({ message: 'This training is already completed' });
+      }
+
+      const updates: Parameters<typeof storage.updateTrainingAssignment>[1] = { ...input };
+      if (input.status === TrainingAssignmentStatus.IN_PROGRESS && !assignment.startedAt && !input.startedAt) {
+        updates.startedAt = new Date();
+      }
+
+      const updated = await storage.updateTrainingAssignment(id, updates);
+
       await storage.createAuditLog({
         action: AuditAction.UPDATE,
         entityType: 'training_assignment',
         entityId: id,
         userId,
-        newValue: JSON.stringify(req.body),
+        previousValue: JSON.stringify({ status: assignment.status }),
+        newValue: JSON.stringify(input),
       });
-      
+
       res.json(updated);
     } catch (err) {
       console.error('Error updating training assignment:', err);
@@ -6320,47 +7372,78 @@ export async function registerRoutes(
     try {
       const userId = getCurrentUserId(req);
       const id = parseInt(req.params.id);
-      const { score, passed, remarks } = req.body;
-      
+      if (!isTrainingManager(await storage.getUser(userId))) {
+        return res.status(403).json({ message: 'Only managers or HR can complete trainings and issue certificates' });
+      }
+      const parsed = trainingCompleteSchema.safeParse(req.body ?? {});
+      if (!parsed.success) return ctBadRequest(res, parsed.error);
+      const { remarks } = parsed.data;
+      const score = parsed.data.score ?? null;
+
       const assignment = await storage.getTrainingAssignment(id);
       if (!assignment) {
         return res.status(404).json({ message: 'Training assignment not found' });
       }
-      
-      // Update assignment status
-      const updated = await storage.updateTrainingAssignment(id, {
-        status: 'completed',
-        completedAt: new Date(),
-        score,
-      });
-      
-      // Get training for validity period
+      if (assignment.status === TrainingAssignmentStatus.COMPLETED) {
+        return res.status(400).json({ message: 'This training is already completed' });
+      }
+      if (assignment.status === TrainingAssignmentStatus.CANCELLED) {
+        return res.status(400).json({ message: 'This assignment was cancelled' });
+      }
+
+      // Get training for passing score and validity period
       const training = await storage.getTraining(assignment.trainingId);
-      
+      // With a score and a passing score, the score decides; otherwise the result given
+      const passed = score !== null && training?.passingScore != null
+        ? score >= training.passingScore
+        : parsed.data.passed !== false;
+      const now = new Date();
+
       // Calculate expiry date if training has validity period
       let expiryDate: Date | undefined;
-      if (training?.validityPeriod) {
-        expiryDate = new Date();
+      if (passed && training?.validityPeriod) {
+        expiryDate = new Date(now);
         expiryDate.setMonth(expiryDate.getMonth() + training.validityPeriod);
       }
-      
-      // Generate certificate number
-      const certNumber = `TC-${new Date().getFullYear()}-${String(id).padStart(5, '0')}`;
-      
+
+      // A pass completes the assignment; a fail is recorded as an attempt and the training stays open for a retake.
+      // The update only applies if no other request recorded an attempt meanwhile, so parallel completions create one record.
+      const updated = await storage.claimTrainingAssignmentAttempt(id, assignment.attempts ?? 0, {
+        status: passed ? TrainingAssignmentStatus.COMPLETED : TrainingAssignmentStatus.IN_PROGRESS,
+        completedAt: passed ? now : null,
+        startedAt: assignment.startedAt ?? now,
+        attempts: (assignment.attempts ?? 0) + 1,
+        score,
+      });
+      if (!updated) {
+        return res.status(409).json({ message: 'This training was just completed or updated by someone else. Please refresh and try again.' });
+      }
+
+      // Certificate number: never reused, even after a completion is deleted (only for a pass)
+      let certNumber: string | null = null;
+      if (passed) {
+        const year = now.getFullYear();
+        const prefix = `TC-${year}-`;
+        const highest = Math.max(0, ...(await storage.getTrainingCompletions())
+          .map(c => c.certificateNumber?.startsWith(prefix) ? parseInt(c.certificateNumber.slice(prefix.length)) || 0 : 0));
+        const next = await storage.nextSequenceValue(`TC-${year}`, highest);
+        certNumber = `${prefix}${String(next).padStart(5, '0')}`;
+      }
+
       // Create training completion record
       const completion = await storage.createTrainingCompletion({
         assignmentId: id,
         trainingId: assignment.trainingId,
         employeeId: assignment.employeeId,
-        completionDate: new Date(),
+        completionDate: now,
         score,
-        passed: passed !== false,
+        passed,
         certificateNumber: certNumber,
         expiryDate,
         issuedById: userId,
         remarks,
       });
-      
+
       await storage.createAuditLog({
         action: AuditAction.COMPLETE_TASK,
         entityType: 'training_assignment',
@@ -6368,7 +7451,7 @@ export async function registerRoutes(
         userId,
         newValue: JSON.stringify({ score, passed, certificateNumber: certNumber }),
       });
-      
+
       res.json({ assignment: updated, completion });
     } catch (err) {
       console.error('Error completing training assignment:', err);
@@ -6381,6 +7464,18 @@ export async function registerRoutes(
     try {
       const userId = getCurrentUserId(req);
       const id = parseInt(req.params.id);
+      if (!isTrainingManager(await storage.getUser(userId))) {
+        return res.status(403).json({ message: 'Only managers or HR can delete training assignments' });
+      }
+      const assignment = await storage.getTrainingAssignment(id);
+      if (!assignment) {
+        return res.status(404).json({ message: 'Training assignment not found' });
+      }
+      const completions = (await storage.getTrainingCompletions({ employeeId: assignment.employeeId }))
+        .filter(c => c.assignmentId === id);
+      if (completions.length > 0) {
+        return res.status(400).json({ message: 'This assignment has recorded completions or attempts and cannot be deleted. Cancel it instead to keep the training record.' });
+      }
       
       await storage.deleteTrainingAssignment(id);
       
@@ -7077,7 +8172,16 @@ Limit to the top 10 most important suggestions.`
         return res.status(400).json({ message: 'Prompt is required' });
       }
       
-      const openai = new OpenAI();
+      // Same OpenAI client set-up as the other AI features; without a key, say so instead of failing
+      const aiApiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+      if (!aiApiKey) {
+        return res.status(503).json({ message: 'AI not configured: no OpenAI API key is set on the server' });
+      }
+      const OpenAI = (await import('openai')).default;
+      const openai = new OpenAI({
+        apiKey: aiApiKey,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
       
       let systemPrompt = '';
       if (action === 'compose') {
@@ -7362,6 +8466,15 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
   app.get('/api/documents/:documentId/revision-history', requireAuth, async (req, res) => {
     try {
       const documentId = parseInt(req.params.documentId);
+      const doc = isNaN(documentId) ? undefined : await storage.getDocument(documentId);
+      if (!doc) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+      // Same reading rule as the document itself (managers also keep the revision records)
+      const viewer = await storage.getUser(getCurrentUserId(req));
+      if (!viewer || !(isManagerUser(viewer) || await canViewDocument(doc, viewer))) {
+        return res.status(403).json({ message: 'You do not have access to this document. Request access first.' });
+      }
       const history = await storage.getRevisionHistory(documentId);
       res.json(history);
     } catch (error: any) {
@@ -7370,11 +8483,25 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
     }
   });
 
+  // Amendment entries: the document's workflow members or a manager may add and edit them;
+  // only a manager or the document's approver may approve or reject them
+  const isRevisionManager = (u: { role: string; email: string }) =>
+    u.email === COO_EMAIL || u.role === UserRole.ADMIN || u.role === UserRole.QUALITY_MANAGER;
+  const isRevisionMember = (doc: Document, u: { id: number; role: string; email: string }) =>
+    isRevisionManager(u) || [doc.createdById, doc.preparedById, doc.reviewerId, doc.approverId].includes(u.id);
+
   app.post('/api/documents/:documentId/revision-history', requireAuth, async (req, res) => {
     try {
       const lockedDoc = await storage.getDocument(Number(req.params.documentId));
-      if (lockedDoc?.isLocked) {
+      if (!lockedDoc) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+      if (lockedDoc.isLocked) {
         return res.status(403).json({ message: 'This document is approved and locked. Raise a change request instead.' });
+      }
+      const revisionUser = (req as any).user;
+      if (!revisionUser || !isRevisionMember(lockedDoc, revisionUser)) {
+        return res.status(403).json({ message: "Only this document's preparer, reviewer, approver, creator or a manager can add amendment entries" });
       }
       const documentId = parseInt(req.params.documentId);
       const { description, reason, preparedById, reviewedById, approvedById, amendmentDate } = req.body;
@@ -7413,11 +8540,26 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
     try {
       const entryForLock = await storage.getRevisionHistoryById(Number(req.params.id));
       const lockedDoc = entryForLock ? await storage.getDocument(entryForLock.documentId) : undefined;
-      if (lockedDoc?.isLocked) {
+      if (!entryForLock || !lockedDoc) {
+        return res.status(404).json({ message: 'Revision history entry not found' });
+      }
+      if (lockedDoc.isLocked) {
         return res.status(403).json({ message: 'This document is approved and locked. Raise a change request instead.' });
       }
       const id = parseInt(req.params.id);
       const { description, reason, preparedById, reviewedById, approvedById, amendmentDate, status } = req.body;
+      const revisionUser = (req as any).user;
+      if (!revisionUser || !isRevisionMember(lockedDoc, revisionUser)) {
+        return res.status(403).json({ message: "Only this document's preparer, reviewer, approver, creator or a manager can change amendment entries" });
+      }
+      if (status !== undefined && status !== entryForLock.status) {
+        if (!['pending', 'approved', 'rejected'].includes(status)) {
+          return res.status(400).json({ message: 'Status must be pending, approved or rejected' });
+        }
+        if (!isRevisionManager(revisionUser) && lockedDoc.approverId !== revisionUser.id) {
+          return res.status(403).json({ message: "Only a manager or this document's approver can approve or reject amendment entries" });
+        }
+      }
       
       const updates: any = {};
       if (description !== undefined) updates.description = description;
@@ -7476,6 +8618,9 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
       if (lockedDoc?.isLocked) {
         return res.status(403).json({ message: 'This document is approved and locked. Raise a change request instead.' });
       }
+      if (lockedDoc && !isRevisionMember(lockedDoc, (req as any).user)) {
+        return res.status(403).json({ message: "Only this document's preparer, reviewer, approver, creator or a manager can delete amendment entries" });
+      }
       const id = parseInt(req.params.id);
       await storage.deleteRevisionHistory(id);
       res.json({ success: true });
@@ -7520,7 +8665,17 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
     try {
       const id = parseInt(req.params.id);
       const { content } = req.body;
-      const post = await storage.updateWallPost(id, { content });
+      const existing = isNaN(id) ? undefined : await storage.getWallPost(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Post not found' });
+      }
+      if (existing.authorId !== (req as any).user?.id && !isManagerUser((req as any).user)) {
+        return res.status(403).json({ message: 'Only the author or a manager can edit this post' });
+      }
+      if (typeof content !== 'string' || !content.trim()) {
+        return res.status(400).json({ message: 'Content is required' });
+      }
+      const post = await storage.updateWallPost(id, { content: content.trim() });
       res.json(post);
     } catch (error: any) {
       console.error('Error updating wall post:', error);
@@ -7531,6 +8686,13 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
   app.delete('/api/wall-posts/:id', requireAuth, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      const existing = isNaN(id) ? undefined : await storage.getWallPost(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Post not found' });
+      }
+      if (existing.authorId !== (req as any).user?.id && !isManagerUser((req as any).user)) {
+        return res.status(403).json({ message: 'Only the author or a manager can delete this post' });
+      }
       await storage.deleteWallPost(id);
       res.json({ success: true });
     } catch (error: any) {
@@ -7543,7 +8705,14 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
     try {
       const id = parseInt(req.params.id);
       const { isPinned } = req.body;
-      const post = await storage.pinWallPost(id, isPinned);
+      if (!isManagerUser((req as any).user)) {
+        return res.status(403).json({ message: 'Only managers can pin or unpin posts' });
+      }
+      const existing = isNaN(id) ? undefined : await storage.getWallPost(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Post not found' });
+      }
+      const post = await storage.pinWallPost(id, !!isPinned);
       res.json(post);
     } catch (error: any) {
       console.error('Error pinning wall post:', error);
@@ -7555,15 +8724,24 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
   // DOCUGENIE FORMS API
   // ============================================
 
-  // Get all DocuGenie forms (for authenticated users)
+  // Forms are private: the creator and managers manage them; the assignee can view (and fill) them
+  const isDocuGenieManager = (u: { role: string; email: string }) =>
+    u.email === COO_EMAIL || u.role === UserRole.ADMIN || u.role === UserRole.QUALITY_MANAGER;
+  const canViewDocuGenieForm = (form: { createdById: number; assignedToId: number | null }, u: { id: number; role: string; email: string }) =>
+    isDocuGenieManager(u) || form.createdById === u.id || form.assignedToId === u.id;
+  const canManageDocuGenieForm = (form: { createdById: number }, u: { id: number; role: string; email: string }) =>
+    isDocuGenieManager(u) || form.createdById === u.id;
+
+  // Get the DocuGenie forms this user may see
   app.get("/api/docugenie/forms", requireAuth, async (req: Request, res: Response) => {
     try {
+      const user = (req as any).user;
       const filters: { status?: string; createdById?: number } = {};
       if (req.query.status) filters.status = req.query.status as string;
       if (req.query.createdById) filters.createdById = parseInt(req.query.createdById as string);
-      
+
       const forms = await storage.getDocuGenieForms(filters);
-      res.json(forms);
+      res.json(forms.filter(f => user && canViewDocuGenieForm(f, user)));
     } catch (error) {
       console.error('Error getting DocuGenie forms:', error);
       res.status(500).json({ message: 'Error retrieving forms' });
@@ -7577,6 +8755,10 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
       const form = await storage.getDocuGenieForm(id);
       if (!form) {
         return res.status(404).json({ message: 'Form not found' });
+      }
+      const user = (req as any).user;
+      if (!user || !canViewDocuGenieForm(form, user)) {
+        return res.status(403).json({ message: 'You do not have access to this form' });
       }
       res.json(form);
     } catch (error) {
@@ -7598,7 +8780,15 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
       if (form.expiresAt && new Date(form.expiresAt) < new Date()) {
         return res.status(410).json({ message: 'This form link has expired' });
       }
-      res.json(form);
+      // Only what the public form page needs
+      res.json({
+        title: form.title,
+        description: form.description,
+        htmlForm: form.htmlForm,
+        formFields: form.formFields,
+        status: form.status,
+        expiresAt: form.expiresAt,
+      });
     } catch (error) {
       console.error('Error getting shared form:', error);
       res.status(500).json({ message: 'Error retrieving form' });
@@ -7613,8 +8803,11 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
         return res.status(401).json({ message: 'Not authenticated' });
       }
 
+      // A new form always starts as a draft without a share link; it goes live through the publish route
       const validated = insertDocuGenieFormSchema.parse({
         ...req.body,
+        status: DocuGenieFormStatus.DRAFT,
+        shareToken: null,
         createdById: userId,
       });
 
@@ -7625,7 +8818,7 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
         entityType: 'docugenie_form',
         entityId: form.id,
         userId,
-        details: `Created DocuGenie form: ${form.title}`,
+        newValue: `Created DocuGenie form: ${form.title}`,
       });
 
       res.status(201).json(form);
@@ -7648,15 +8841,30 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
       if (!existingForm) {
         return res.status(404).json({ message: 'Form not found' });
       }
+      const user = (req as any).user;
+      if (!user || !canManageDocuGenieForm(existingForm, user)) {
+        return res.status(403).json({ message: 'Only the form owner or a manager can edit this form' });
+      }
 
-      const updated = await storage.updateDocuGenieForm(id, req.body);
+      // Only content fields can be edited; the owner (createdById), id and share token cannot
+      const editable = ['title', 'description', 'originalContent', 'htmlForm', 'formFields', 'status', 'assignedToId', 'relatedDocumentId', 'expiresAt'] as const;
+      const changes: Record<string, unknown> = {};
+      for (const key of editable) {
+        if (req.body[key] !== undefined) changes[key] = req.body[key];
+      }
+      if (changes.status !== undefined && !(Object.values(DocuGenieFormStatus) as string[]).includes(changes.status as string)) {
+        return res.status(400).json({ message: 'Invalid form status' });
+      }
+      if (changes.expiresAt) changes.expiresAt = new Date(changes.expiresAt as string);
+
+      const updated = await storage.updateDocuGenieForm(id, changes);
       
       await storage.createAuditLog({
         action: AuditAction.UPDATE,
         entityType: 'docugenie_form',
         entityId: id,
         userId,
-        details: `Updated DocuGenie form: ${updated.title}`,
+        newValue: `Updated DocuGenie form: ${updated.title}`,
       });
 
       res.json(updated);
@@ -7676,6 +8884,10 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
       if (!form) {
         return res.status(404).json({ message: 'Form not found' });
       }
+      const user = (req as any).user;
+      if (!user || !canManageDocuGenieForm(form, user)) {
+        return res.status(403).json({ message: 'Only the form owner or a manager can publish this form' });
+      }
 
       // Generate a unique share token
       const crypto = await import('crypto');
@@ -7692,7 +8904,7 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
         entityType: 'docugenie_form',
         entityId: id,
         userId,
-        details: `Published DocuGenie form: ${form.title}`,
+        newValue: `Published DocuGenie form: ${form.title}`,
       });
 
       res.json(updated);
@@ -7712,6 +8924,10 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
       if (!form) {
         return res.status(404).json({ message: 'Form not found' });
       }
+      const user = (req as any).user;
+      if (!user || !canManageDocuGenieForm(form, user)) {
+        return res.status(403).json({ message: 'Only the form owner or a manager can delete this form' });
+      }
 
       await storage.deleteDocuGenieForm(id);
       
@@ -7720,7 +8936,7 @@ Keep the summary brief but comprehensive. Use bullet points where appropriate.`;
         entityType: 'docugenie_form',
         entityId: id,
         userId,
-        details: `Deleted DocuGenie form: ${form.title}`,
+        newValue: `Deleted DocuGenie form: ${form.title}`,
       });
 
       res.json({ success: true });
@@ -7801,6 +9017,14 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
   app.get("/api/docugenie/forms/:id/submissions", requireAuth, async (req: Request, res: Response) => {
     try {
       const formId = parseInt(req.params.id);
+      const form = await storage.getDocuGenieForm(formId);
+      if (!form) {
+        return res.status(404).json({ message: 'Form not found' });
+      }
+      const user = (req as any).user;
+      if (!user || !canViewDocuGenieForm(form, user)) {
+        return res.status(403).json({ message: 'You do not have access to this form' });
+      }
       const submissions = await storage.getDocuGenieFormSubmissions(formId);
       res.json(submissions);
     } catch (error) {
@@ -7824,7 +9048,13 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
       }
 
       const { formData, submitterName, submitterEmail } = req.body;
-      
+      const hasData = typeof formData === 'string'
+        ? formData.trim().length > 0
+        : !!formData && typeof formData === 'object' && Object.keys(formData).length > 0;
+      if (!hasData) {
+        return res.status(400).json({ message: 'Form data is required' });
+      }
+            
       const submission = await storage.createDocuGenieFormSubmission({
         formId: form.id,
         formData: typeof formData === 'string' ? formData : JSON.stringify(formData),
@@ -7839,8 +9069,7 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
           userId: form.createdById,
           title: 'New Form Submission',
           message: `Someone submitted the form: ${form.title}`,
-          type: 'document_update',
-          urgency: UrgencyLevel.NORMAL,
+          urgencyLevel: UrgencyLevel.MEDIUM,
         });
       }
 
@@ -7855,10 +9084,18 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
   // CRM - LEADS ROUTES
   // ============================================
 
-  // Get all leads
+  // CRM is for admins, the Quality Manager and the COO (same check as the lead status route)
+  const isCrmManager = (u: any) => !!u && (u.role === 'admin' || u.role === 'quality_manager' || u.email === 'coo@sahihcertify.com');
+  const LEAD_SOURCES = Object.values(LeadSource) as string[];
+
+  // A staff member may follow the leads assigned to them (their follow-up and update-request tasks link here)
+  const canSeeLead = (u: any, lead: { assignedToId: number | null }) => isCrmManager(u) || (!!u && lead.assignedToId === u.id);
+
+  // Get all leads (staff: only the leads assigned to them)
   app.get("/api/leads", requireAuth, async (req: Request, res: Response) => {
     try {
-      const leads = await storage.getLeads();
+      const user = (req as any).user;
+      const leads = isCrmManager(user) ? await storage.getLeads() : await storage.getLeads({ assignedToId: user.id });
       res.json(leads);
     } catch (error) {
       console.error("Error fetching leads:", error);
@@ -7869,9 +9106,16 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
   // Get single lead
   app.get("/api/leads/:id", requireAuth, async (req: Request, res: Response) => {
     try {
-      const lead = await storage.getLead(parseInt(req.params.id));
+      const leadId = parseInt(req.params.id);
+      if (isNaN(leadId)) {
+        return res.status(400).json({ message: "Invalid lead ID" });
+      }
+      const lead = await storage.getLead(leadId);
       if (!lead) {
         return res.status(404).json({ message: "Lead not found" });
+      }
+      if (!canSeeLead((req as any).user, lead)) {
+        return res.status(403).json({ message: "Access denied" });
       }
       res.json(lead);
     } catch (error) {
@@ -7884,13 +9128,31 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
   app.post("/api/leads", requireAuth, async (req: Request, res: Response) => {
     try {
       const user = req.user as any;
+      if (!isCrmManager((req as any).user)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      if (req.body.leadSource !== undefined && !LEAD_SOURCES.includes(req.body.leadSource)) {
+        return res.status(400).json({ message: `Lead source must be one of: ${LEAD_SOURCES.join(', ')}`, field: 'leadSource' });
+      }
+      if (req.body.assignedToId !== undefined && req.body.assignedToId !== null && (!Number.isInteger(Number(req.body.assignedToId)) || !(await storage.getUser(Number(req.body.assignedToId))))) {
+        return res.status(400).json({ message: "The assigned user was not found", field: 'assignedToId' });
+      }
+      // A new lead always starts as New; later changes go through POST /api/leads/:id/status (with history)
       const validatedData = insertLeadSchema.parse({
         ...req.body,
+        leadStatus: LeadStatus.NEW,
         createdById: user.id,
         nextFollowUpDate: req.body.nextFollowUpDate ? new Date(req.body.nextFollowUpDate) : undefined,
       });
 
       const lead = await storage.createLead(validatedData);
+      await storage.createLeadStatusHistory({
+        leadId: lead.id,
+        previousStatus: null,
+        newStatus: LeadStatus.NEW,
+        reason: 'Lead created',
+        changedById: user.id,
+      });
 
       // Log audit trail
       await storage.createAuditLog({
@@ -7915,15 +9177,27 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
   app.put("/api/leads/:id", requireAuth, async (req: Request, res: Response) => {
     try {
       const user = req.user as any;
+      if (!isCrmManager((req as any).user)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
       const leadId = parseInt(req.params.id);
-      
+
       const existingLead = await storage.getLead(leadId);
       if (!existingLead) {
         return res.status(404).json({ message: "Lead not found" });
       }
+      if (req.body.leadSource !== undefined && !LEAD_SOURCES.includes(req.body.leadSource)) {
+        return res.status(400).json({ message: `Lead source must be one of: ${LEAD_SOURCES.join(', ')}`, field: 'leadSource' });
+      }
+      if (req.body.assignedToId !== undefined && req.body.assignedToId !== null && (!Number.isInteger(Number(req.body.assignedToId)) || !(await storage.getUser(Number(req.body.assignedToId))))) {
+        return res.status(400).json({ message: "The assigned user was not found", field: 'assignedToId' });
+      }
 
+      // The status only changes through POST /api/leads/:id/status, which records the history;
+      // the record's identity and creator are fixed
+      const { leadStatus: _ignoredStatus, status: _ignoredLegacyStatus, id: _ignoredId, createdById: _ignoredCreator, createdAt: _ignoredCreatedAt, ...editable } = req.body;
       const updateData = {
-        ...req.body,
+        ...editable,
         nextFollowUpDate: req.body.nextFollowUpDate ? new Date(req.body.nextFollowUpDate) : undefined,
         updatedAt: new Date(),
       };
@@ -7950,6 +9224,9 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
   app.delete("/api/leads/:id", requireAuth, async (req: Request, res: Response) => {
     try {
       const user = req.user as any;
+      if (!isCrmManager((req as any).user)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
       const leadId = parseInt(req.params.id);
       
       const existingLead = await storage.getLead(leadId);
@@ -7983,11 +9260,14 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
   app.get("/api/leads/:id/status-history", requireAuth, async (req: Request, res: Response) => {
     try {
       const user = req.user as any;
-      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+      const leadId = parseInt(req.params.id);
+      const lead = isNaN(leadId) ? undefined : await storage.getLead(leadId);
+      if (!lead) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+      if (!canSeeLead(user, lead)) {
         return res.status(403).json({ message: "Access denied" });
       }
-      
-      const leadId = parseInt(req.params.id);
       const history = await storage.getLeadStatusHistory(leadId);
       res.json(history);
     } catch (error) {
@@ -8060,13 +9340,21 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
   app.get("/api/leads/:id/update-requests", requireAuth, async (req: Request, res: Response) => {
     try {
       const user = req.user as any;
-      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
+      const leadId = parseInt(req.params.id);
+      const lead = isNaN(leadId) ? undefined : await storage.getLead(leadId);
+      if (!lead) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+      const requests = await storage.getLeadUpdateRequests(leadId);
+      if (isCrmManager(user)) {
+        return res.json(requests);
+      }
+      // Staff see the requests addressed to them
+      const mine = requests.filter(r => r.requestedFromId === user.id);
+      if (!canSeeLead(user, lead) && mine.length === 0) {
         return res.status(403).json({ message: "Access denied" });
       }
-      
-      const leadId = parseInt(req.params.id);
-      const requests = await storage.getLeadUpdateRequests(leadId);
-      res.json(requests);
+      res.json(mine);
     } catch (error) {
       console.error("Error fetching lead update requests:", error);
       res.status(500).json({ message: "Error fetching update requests" });
@@ -8100,6 +9388,9 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
       if (!requestedFromId || !message) {
         return res.status(400).json({ message: "requestedFromId and message are required" });
       }
+      if (!Number.isInteger(Number(requestedFromId)) || !(await storage.getUser(Number(requestedFromId)))) {
+        return res.status(400).json({ message: "The person asked for the update was not found", field: 'requestedFromId' });
+      }
       
       const existingLead = await storage.getLead(leadId);
       if (!existingLead) {
@@ -8118,7 +9409,7 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         userId: requestedFromId,
         title: 'Lead Update Requested',
         message: `Update requested on lead: ${existingLead.leadName}. Message: ${message}`,
-        type: 'warning',
+        urgencyLevel: UrgencyLevel.MEDIUM,
       });
       
       // Log audit trail
@@ -8142,10 +9433,37 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
     try {
       const user = req.user as any;
       const requestId = parseInt(req.params.id);
-      
-      const resolved = await storage.resolveLeadUpdateRequest(requestId);
+
+      const existingRequest = await storage.getLeadUpdateRequest(requestId);
+      if (!existingRequest) {
+        return res.status(404).json({ message: "Update request not found" });
+      }
+      // Only the person asked for the update, or a CRM manager, can answer it
+      if (existingRequest.requestedFromId !== user.id && !isCrmManager(user)) {
+        return res.status(403).json({ message: "Only the person asked for this update or a manager can resolve it" });
+      }
+      if (existingRequest.isResolved) {
+        return res.status(400).json({ message: "This update request is already resolved" });
+      }
+      const response = typeof req.body.response === 'string' ? req.body.response.trim() : '';
+      if (!response) {
+        return res.status(400).json({ message: "Write the update (response) before resolving the request" });
+      }
+
+      const resolved = await storage.resolveLeadUpdateRequest(requestId, response);
       if (!resolved) {
         return res.status(404).json({ message: "Update request not found" });
+      }
+
+      // Tell whoever asked for the update
+      const lead = await storage.getLead(existingRequest.leadId);
+      if (existingRequest.requestedById !== user.id) {
+        await storage.createNotification({
+          userId: existingRequest.requestedById,
+          title: 'Lead Update Received',
+          message: `${user.name} replied to your update request on lead: ${lead?.leadName || 'Unknown lead'}. Update: ${response}`,
+          urgencyLevel: UrgencyLevel.MEDIUM,
+        });
       }
       
       // Log audit trail
@@ -8154,7 +9472,7 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         action: AuditAction.UPDATE,
         entityType: 'lead_update_request',
         entityId: requestId,
-        newValue: `Resolved lead update request`,
+        newValue: `Resolved lead update request: ${response}`,
       });
       
       res.json(resolved);
@@ -8167,6 +9485,10 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
   // ============================================
   // CRM - CUSTOMERS ROUTES
   // ============================================
+
+  // One dated, signed entry in a customer's communication log
+  const communicationEntry = (u: { name: string }, text: string) =>
+    `[${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC] ${u.name}: ${text}`;
 
   // Get all customers
   app.get("/api/customers", requireAuth, async (req: Request, res: Response) => {
@@ -8210,8 +9532,10 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         return res.status(403).json({ message: "Access denied" });
       }
 
+      const firstEntry = typeof req.body.communicationHistory === 'string' ? req.body.communicationHistory.trim() : '';
       const validatedData = insertCustomerSchema.parse({
         ...req.body,
+        communicationHistory: firstEntry ? communicationEntry(user, firstEntry) : null,
         createdById: user.id,
       });
 
@@ -8251,8 +9575,14 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         return res.status(404).json({ message: "Customer not found" });
       }
 
+      // Communication history is never overwritten: a new dated entry is appended
+      const { communicationHistory: _ignoredHistory, newCommunicationEntry, id: _ignoredId, createdById: _ignoredCreator, createdAt: _ignoredCreatedAt, ...editable } = req.body;
+      const entryText = typeof newCommunicationEntry === 'string' ? newCommunicationEntry.trim() : '';
       const updateData = {
-        ...req.body,
+        ...editable,
+        ...(entryText ? {
+          communicationHistory: [existingCustomer.communicationHistory, communicationEntry(user, entryText)].filter(Boolean).join('\n\n'),
+        } : {}),
         updatedAt: new Date(),
       };
 
@@ -8349,6 +9679,8 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
   // CRM - OPPORTUNITIES ROUTES
   // ============================================
 
+  const OPPORTUNITY_STAGES = Object.values(OpportunityStage) as string[];
+
   // Get all opportunities
   app.get("/api/opportunities", requireAuth, async (req: Request, res: Response) => {
     try {
@@ -8371,6 +9703,9 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
       if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
         return res.status(403).json({ message: "Access denied" });
       }
+      if (!/^\d+$/.test(req.params.id)) {
+        return res.status(400).json({ message: "Invalid opportunity ID" });
+      }
       const opportunity = await storage.getOpportunity(parseInt(req.params.id));
       if (!opportunity) {
         return res.status(404).json({ message: "Opportunity not found" });
@@ -8383,11 +9718,35 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
   });
 
   // Create new opportunity
+  // Deal value (QAR) and discount (%) are stored as text but must be numbers: non-negative, discount at most 100
+  const opportunityAmountError = (body: any) => {
+    for (const [field, label, max] of [['dealValue', 'Deal value', Infinity], ['discount', 'Discount', 100]] as const) {
+      const raw = body?.[field];
+      if (raw === undefined || raw === null || raw === '') continue;
+      const value = typeof raw === 'number' ? raw : typeof raw === 'string' && /^\s*\d+(\.\d+)?\s*$/.test(raw) ? Number(raw) : NaN;
+      if (!Number.isFinite(value) || value < 0 || value > max) {
+        return { message: `${label} must be a number of 0 or more${max !== Infinity ? ` and at most ${max}` : ''}`, field };
+      }
+    }
+    return null;
+  };
+
   app.post("/api/opportunities", requireAuth, async (req: Request, res: Response) => {
     try {
       const user = req.user as any;
       if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
         return res.status(403).json({ message: "Access denied" });
+      }
+
+      if (req.body.stage !== undefined && !OPPORTUNITY_STAGES.includes(req.body.stage)) {
+        return res.status(400).json({ message: `Stage must be one of: ${OPPORTUNITY_STAGES.join(', ')}`, field: 'stage' });
+      }
+      if (req.body.customerId != null && !(await storage.getCustomer(Number(req.body.customerId)))) {
+        return res.status(400).json({ message: "Customer not found", field: 'customerId' });
+      }
+      const amountError = opportunityAmountError(req.body);
+      if (amountError) {
+        return res.status(400).json(amountError);
       }
 
       const bodyData = {
@@ -8432,6 +9791,16 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
       const existingOpportunity = await storage.getOpportunity(opportunityId);
       if (!existingOpportunity) {
         return res.status(404).json({ message: "Opportunity not found" });
+      }
+      if (req.body.stage !== undefined && !OPPORTUNITY_STAGES.includes(req.body.stage)) {
+        return res.status(400).json({ message: `Stage must be one of: ${OPPORTUNITY_STAGES.join(', ')}`, field: 'stage' });
+      }
+      if (req.body.customerId != null && !(await storage.getCustomer(Number(req.body.customerId)))) {
+        return res.status(400).json({ message: "Customer not found", field: 'customerId' });
+      }
+      const amountError = opportunityAmountError(req.body);
+      if (amountError) {
+        return res.status(400).json(amountError);
       }
 
       const updateData = {
@@ -8501,15 +9870,21 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
 
       const opportunityId = parseInt(req.params.id);
       const { fileUrl, fileName } = req.body;
+      if (typeof fileUrl !== 'string' || !fileUrl.trim()) {
+        return res.status(400).json({ message: "Upload the proposal file first (fileUrl is required)", field: 'fileUrl' });
+      }
       
       const existingOpportunity = await storage.getOpportunity(opportunityId);
       if (!existingOpportunity) {
         return res.status(404).json({ message: "Opportunity not found" });
       }
 
+      // Sending a proposal moves an opportunity that was only qualified to "proposal sent"
+      const stageBeforeProposal = !existingOpportunity.stage || existingOpportunity.stage === OpportunityStage.QUALIFIED;
       const updatedOpportunity = await storage.updateOpportunity(opportunityId, {
         proposalFileUrl: fileUrl,
         proposalFileName: fileName,
+        ...(stageBeforeProposal ? { stage: OpportunityStage.PROPOSAL_SENT } : {}),
         updatedAt: new Date(),
       });
 
@@ -8532,6 +9907,27 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
   // ============================================
   // HISTORICAL PERFORMANCE DATA ROUTES
   // ============================================
+
+  // Months as the Historical Data page names them
+  const HISTORICAL_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const historicalPeriodError = (year: unknown, month: unknown) => {
+    if (!Number.isInteger(year) || (year as number) < 2000 || (year as number) > 2100) return 'Year must be a whole number from 2000 to 2100';
+    if (typeof month !== 'string' || !HISTORICAL_MONTHS.includes(month)) return `Month must be one of: ${HISTORICAL_MONTHS.join(', ')}`;
+    return null;
+  };
+  // Counts are whole numbers of 0 or more; revenue (e.g. "QAR 50,000") must be an amount of 0 or more
+  const historicalNumbersError = (body: any) => {
+    for (const field of ['leadsReceived', 'dealsClosed', 'trainingsDelivered', 'certificationsIssued']) {
+      const value = body?.[field];
+      if (value !== undefined && value !== null && !(Number.isInteger(value) && value >= 0)) return `${field} must be a whole number of 0 or more`;
+    }
+    const revenue = body?.revenue;
+    if (revenue !== undefined && revenue !== null && revenue !== '') {
+      const amount = typeof revenue === 'number' ? String(revenue) : typeof revenue === 'string' ? revenue.replace(/QAR|,|\s/gi, '') : '-';
+      if (!/^\d+(\.\d+)?$/.test(amount)) return 'Revenue must be an amount of 0 or more (e.g. QAR 50,000)';
+    }
+    return null;
+  };
 
   // Get all historical data
   app.get("/api/historical-data", requireAuth, async (req: Request, res: Response) => {
@@ -8575,10 +9971,18 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         return res.status(403).json({ message: "Access denied" });
       }
 
+      const periodError = historicalPeriodError(req.body.year, req.body.month) ?? historicalNumbersError(req.body);
+      if (periodError) {
+        return res.status(400).json({ message: periodError });
+      }
       const validatedData = insertHistoricalDataSchema.parse({
         ...req.body,
         createdById: user.id,
       });
+      const duplicate = (await storage.getHistoricalData({ year: validatedData.year })).find(d => d.month === validatedData.month);
+      if (duplicate) {
+        return res.status(409).json({ message: `There is already an entry for ${validatedData.month} ${validatedData.year}. Edit that entry instead.` });
+      }
 
       const data = await storage.createHistoricalData(validatedData);
 
@@ -8594,6 +9998,9 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
       res.status(201).json(data);
     } catch (error) {
       console.error("Error creating historical data:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: error.errors[0].message, field: error.errors[0].path[0] });
+      }
       res.status(500).json({ message: "Error creating historical data" });
     }
   });
@@ -8613,7 +10020,24 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
         return res.status(404).json({ message: "Historical data entry not found" });
       }
 
-      const validatedData = insertHistoricalDataSchema.partial().parse(req.body);
+      const { createdById: _ignoredCreator, ...changes } = req.body;
+      const numbersError = historicalNumbersError(changes);
+      if (numbersError) {
+        return res.status(400).json({ message: numbersError });
+      }
+      const validatedData = insertHistoricalDataSchema.partial().parse(changes);
+      const year = validatedData.year ?? existingEntry.year;
+      const month = validatedData.month ?? existingEntry.month;
+      if (validatedData.year !== undefined || validatedData.month !== undefined) {
+        const periodError = historicalPeriodError(year, month);
+        if (periodError) {
+          return res.status(400).json({ message: periodError });
+        }
+        const duplicate = (await storage.getHistoricalData({ year })).find(d => d.month === month && d.id !== entryId);
+        if (duplicate) {
+          return res.status(409).json({ message: `There is already an entry for ${month} ${year}.` });
+        }
+      }
       const updatedEntry = await storage.updateHistoricalData(entryId, validatedData);
 
       // Log audit trail
@@ -8628,6 +10052,9 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
       res.json(updatedEntry);
     } catch (error) {
       console.error("Error updating historical data:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: error.errors[0].message, field: error.errors[0].path[0] });
+      }
       res.status(500).json({ message: "Error updating historical data" });
     }
   });

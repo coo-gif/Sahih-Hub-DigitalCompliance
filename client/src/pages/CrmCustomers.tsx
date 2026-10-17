@@ -164,7 +164,7 @@ export default function CrmCustomers() {
       address: customer.address || "",
       industry: customer.industry || "",
       accountOwnerId: customer.accountOwnerId,
-      communicationHistory: customer.communicationHistory || "",
+      communicationHistory: "",
     });
     setIsEditDialogOpen(true);
   };
@@ -175,7 +175,9 @@ export default function CrmCustomers() {
 
   const onEditSubmit = (data: CreateCustomerData) => {
     if (selectedCustomer) {
-      updateCustomer.mutate({ id: selectedCustomer.id, ...data });
+      // The text typed here is added to the log as a new dated entry
+      const { communicationHistory, ...rest } = data;
+      updateCustomer.mutate({ id: selectedCustomer.id, ...rest, newCommunicationEntry: communicationHistory || "" } as any);
     }
   };
 
@@ -689,12 +691,17 @@ export default function CrmCustomers() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Communication History</FormLabel>
+                    {selectedCustomer?.communicationHistory && (
+                      <div className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md border bg-muted p-2 text-sm" data-testid="text-communication-log">
+                        {selectedCustomer.communicationHistory}
+                      </div>
+                    )}
                     <FormControl>
-                      <Textarea 
-                        placeholder="Log communication history..." 
-                        className="min-h-[100px]" 
-                        {...field} 
-                        data-testid="input-edit-communication-history" 
+                      <Textarea
+                        placeholder="Add a new communication entry (saved with today's date and your name)..."
+                        className="min-h-[100px]"
+                        {...field}
+                        data-testid="input-edit-communication-history"
                       />
                     </FormControl>
                     <FormMessage />

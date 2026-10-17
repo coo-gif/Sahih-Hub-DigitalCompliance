@@ -69,8 +69,9 @@ export default function BugReports() {
 
   const { data: currentUser } = useAuth();
 
+  // Status filtering happens on this page (a status in the query key would call /api/bug-reports/<status>)
   const { data: bugReports = [], isLoading } = useQuery<BugReport[]>({
-    queryKey: ["/api/bug-reports", statusFilter !== 'all' ? statusFilter : undefined],
+    queryKey: ["/api/bug-reports"],
   });
 
   const { data: allUsers = [] } = useQuery<User[]>({
@@ -80,6 +81,9 @@ export default function BugReports() {
   const isCOO = currentUser?.email === 'coo@sahihcertify.com';
   const isAdmin = currentUser?.role === 'admin';
   const canManage = isCOO || isAdmin;
+  // Someone who was assigned a bug can open this page to work on it and resolve it
+  const isAssignee = (report: BugReport | null) => !!report && !!currentUser && report.assignedToId === currentUser.id;
+  const hasAssignedBugs = bugReports.some(r => isAssignee(r));
 
   const resolveMutation = useMutation({
     mutationFn: async ({ id, resolutionNotes, resolutionEvidenceUrl }: { id: number; resolutionNotes: string; resolutionEvidenceUrl?: string | null }) => {
@@ -108,6 +112,20 @@ export default function BugReports() {
         description: "The reporter has been notified and congratulated for their contribution." 
       });
       setShowDetailDialog(false);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const assignMutation = useMutation({
+    mutationFn: async ({ id, assignedToId }: { id: number; assignedToId: number }) => {
+      return (await apiRequest("PATCH", `/api/bug-reports/${id}`, { assignedToId })).json();
+    },
+    onSuccess: (updated: BugReport) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bug-reports"] });
+      setSelectedReport(updated);
+      toast({ title: "Bug Assigned", description: "The assignee has been notified." });
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -178,7 +196,7 @@ export default function BugReports() {
   const resolvedCount = bugReports.filter(r => r.status === 'resolved').length;
   const closedCount = bugReports.filter(r => r.status === 'closed').length;
 
-  if (!canManage) {
+  if (!canManage && !hasAssignedBugs) {
     return (
       <div className="container mx-auto p-6">
         <Card>
@@ -186,8 +204,9 @@ export default function BugReports() {
             <AlertCircle className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
             <h2 className="text-xl font-semibold mb-2">Access Restricted</h2>
             <p className="text-muted-foreground">
-              This page is only accessible to Admin users and the COO. 
-              Use the Hub-eebi chat to submit and view your own bug reports.
+              {isLoading
+                ? "Loading..."
+                : "This page is only accessible to Admin users, the COO and people with bugs assigned to them. Use the Hub-eebi chat to submit and view your own bug reports."}
             </p>
           </CardContent>
         </Card>
@@ -367,6 +386,30 @@ export default function BugReports() {
               </div>
 
               <div>
+                <Label className="text-muted-foreground text-xs">Assigned to</Label>
+                {canManage && selectedReport && selectedReport.status !== 'closed' ? (
+                  <Select
+                    value={selectedReport.assignedToId ? String(selectedReport.assignedToId) : undefined}
+                    onValueChange={(value) => assignMutation.mutate({ id: selectedReport.id, assignedToId: Number(value) })}
+                    disabled={assignMutation.isPending}
+                  >
+                    <SelectTrigger className="mt-1" data-testid="select-bug-assignee">
+                      <SelectValue placeholder="Choose who fixes it" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {allUsers.map(u => (
+                        <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <p className="text-sm" data-testid="text-bug-assignee">
+                    {selectedReport?.assignedToId ? getReporterName(selectedReport.assignedToId) : 'Unassigned'}
+                  </p>
+                )}
+              </div>
+
+              <div>
                 <Label className="text-muted-foreground text-xs">Description</Label>
                 <p className="text-sm whitespace-pre-wrap">{selectedReport?.description}</p>
               </div>
@@ -415,11 +458,11 @@ export default function BugReports() {
                 </div>
               )}
 
-              {canManage && selectedReport?.status !== 'closed' && (
+              {(canManage || isAssignee(selectedReport)) && selectedReport?.status !== 'closed' && (
                 <div className="space-y-3 pt-4 border-t">
                   <Label>Update Status / Resolution</Label>
                   
-                  {selectedReport?.status === 'open' && (
+                  {selectedReport?.status === 'open' && canManage && (
                     <Button
                       variant="outline"
                       className="w-full"

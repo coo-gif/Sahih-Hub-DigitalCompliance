@@ -29,6 +29,11 @@ const pool = new Pool({
 
 const PgStore = pgSession(session);
 
+if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET) {
+  console.error("[startup] SESSION_SECRET must be set in production. Refusing to start.");
+  process.exit(1);
+}
+
 // Trust proxy for production (behind reverse proxy)
 if (process.env.NODE_ENV === "production") {
   app.set("trust proxy", 1);
@@ -101,17 +106,37 @@ app.use((req, res, next) => {
   next();
 });
 
+// Express 4 does not catch errors from async route handlers, so one failing query (e.g. /api/documents/null/links)
+// crashed the whole server. Send every handler's rejected promise to the error handler instead.
+for (const method of ["get", "post", "put", "patch", "delete"] as const) {
+  const register = (app as any)[method].bind(app);
+  (app as any)[method] = (path: unknown, ...handlers: unknown[]) => {
+    if (handlers.length === 0) return register(path); // app.get("setting")
+    return register(path, ...handlers.map((handler) =>
+      typeof handler === "function" && handler.length < 4
+        ? (req: Request, res: Response, next: NextFunction) => {
+            try {
+              const result = handler(req, res, next);
+              if (result && typeof result.catch === "function") result.catch(next);
+            } catch (err) {
+              next(err);
+            }
+          }
+        : handler));
+  };
+}
+
 (async () => {
   await initializeDefaultUsers();
   await registerRoutes(httpServer, app);
   startTaskTracking();
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-
-    res.status(status).json({ message });
-    throw err;
+    console.error(`Error handling ${req.method} ${req.path}:`, err);
+    if (res.headersSent) return;
+    // Internal errors (e.g. database messages) are logged, not sent to the browser
+    res.status(status).json({ message: status >= 500 ? "Something went wrong. Please try again." : err.message || "Request failed" });
   });
 
   // importantly only setup vite in development and after

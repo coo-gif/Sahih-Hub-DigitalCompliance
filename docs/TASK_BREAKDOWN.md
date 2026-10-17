@@ -1,464 +1,340 @@
-# Sahih Hub – Digital Compliance: Task Breakdown
+# Sahih Hub – Digital Compliance: Features, Workflows and Verified Status
 
 What the system is: a web-based Quality Management System (QMS) for Sahih Certifications, an ISO 17021 certification body.
-It is one Express + PostgreSQL (Drizzle) backend (`server/routes.ts`, `server/storage.ts`) and a React/Vite frontend (`client/src/pages/*`).
-The table definitions are in `shared/schema.ts`.
+One Express + PostgreSQL (Drizzle) backend (`server/`) and a React frontend (`client/src/pages/*`). Tables: `shared/schema.ts`.
 
-This document splits the code into **Modules (Tasks) → Sub-tasks → Steps**. Every sub-task is the smallest unit that still makes a **complete operational cycle**, meaning it starts with a trigger and ends with stored data plus visible output. Each one is written as `Step 1 ---> Step 2 ---> …`.
+Structure: **Task (module) → Sub-task (one complete workflow) → Steps** (`Step 1 → Step 2 → …`).
 
-Roles used throughout: `admin`, `quality_manager` (QM), `department_head`, `staff`, `auditor`. Some powers are tied to fixed email addresses instead of roles: **COO** = `coo@sahihcertify.com`, **CEO** = `ceo@sahihcertify.com`, **HR** = `hr@sahihcertify.com`.
+Roles: `admin`, `quality_manager` (QM), `department_head`, `staff`, `auditor`. Some powers are tied to fixed emails: **COO** `coo@sahihcertify.com`, **CEO** `ceo@sahihcertify.com`, **HR** `hr@sahihcertify.com`.
 
----
+## How this was verified (9 Oct 2026)
 
-## TASK 0 – Platform Foundation (runs before everything else)
+Every workflow below was **run end to end** against a local copy of the app (code on GitHub `main` + branch `ccr-0eb60590-1vvosy`), not just read. Status marks:
 
-### 0.1 Server boot
-Step 1: `npm run dev` starts `server/index.ts` --->
-Step 2: The Postgres session store is set up (`user_sessions` table, 24 h cookie) --->
-Step 3: `initializeDefaultUsers()` creates or re-sets the HR, COO and CEO admin accounts --->
-Step 4: `registerRoutes()` mounts the object-storage upload routes and every `/api/*` route --->
-Step 5: Vite (dev) or static files (prod) are served on port 5000.
+| Mark | Meaning |
+|---|---|
+| ✅ | Ran it; works as described |
+| ⚠️ | Works, but with a gap noted underneath |
+| ❌ | Broken: the workflow cannot be completed |
+| 🔒 | Security problem: someone can see or change what they shouldn't |
+| ⏸ | Not testable here (needs Replit file storage, an OpenAI key, Google keys, or Replit's browser path); code was read instead |
 
-### 0.2 Database schema
-Step 1: Tables are defined in `shared/schema.ts` --->
-Step 2: `npm run db:push` (drizzle-kit) creates them in Postgres --->
-Step 3: Zod insert schemas, built with drizzle-zod, check API input.
-
-### 0.3 File upload (shared service)
-Step 1: The client asks for a signed URL with `POST /api/uploads/request-url` --->
-Step 2: The browser uploads straight to Replit Object Storage (Uppy / `use-upload.ts`) --->
-Step 3: The stored file is served through `GET /objects/:path`.
+Not covered (not on GitHub, so not checked): `server/google-ai.ts` and `components/form-builder/` (exist only on Replit), and the internal audit module (not pushed yet).
 
 ---
 
-## TASK 1 – Identity & Access
+## TASK 0 – Platform foundation
 
-### 1.1 Login
-Step 1: App opens → `GET /api/auth/me` returns 401 --->
-Step 2: The Login page is shown --->
-Step 3: The user enters email and password → `POST /api/auth/login` --->
-Step 4: Server checks the password with bcrypt and confirms `isActive` --->
-Step 5: `session.userId` is set, and `lastLogin` and activity are updated --->
-Step 6: The client calls `/me` again → the Layout and Dashboard load.
+### 0.1 Server boot ✅
+Step 1: `npm run dev` starts `server/index.ts` → Step 2: sessions stored in Postgres (24 h cookie) → Step 3: HR, COO and CEO accounts created → Step 4: all routes mounted → Step 5: app served.
+- 🔒 Step 3 **resets the HR, COO and CEO passwords to fixed values on every restart** (`init-users.ts`). The session secret has a fixed fallback.
+- ✅ Fixed today: an error inside any request used to crash the whole server; errors are now logged and the server keeps running.
 
-### 1.2 First-login user agreement (ISO 27001)
-Step 1: `agreementAcceptedAt` is empty → `UserAgreementModal` blocks the app --->
-Step 2: The user reads and accepts the terms, confidentiality and security policy --->
-Step 3: `POST /api/auth/accept-agreement` --->
-Step 4: The timestamp is saved and an audit-log entry is written --->
-Step 5: The modal closes and the app can be used.
+### 0.2 Database schema ✅
+Step 1: tables in `shared/schema.ts` → Step 2: `npm run db:push` creates them → Step 3: input is validated (bad email or role → clear error).
 
-### 1.3 Activity / online-hours tracking
-Step 1: Login → `POST /api/activity/start-session` --->
-Step 2: The client sends `session-heartbeat` / `heartbeat` on a timer --->
-Step 3: Logout or tab close → `end-session` --->
-Step 4: `user_activity_logs` adds up the active minutes, which feed Task 7.3 (monthly report).
-
-### 1.4 Logout
-Step 1: The user clicks Logout → `POST /api/auth/logout` --->
-Step 2: The session is destroyed and the cookie cleared --->
-Step 3: The React Query cache is cleared → the Login page shows.
-
-### 1.5 User management (Users page)
-Step 1: Admin opens `/users` → `GET /api/users` --->
-Step 2: Creates a user with name, email, password, role and designation → `POST /api/users` (password is hashed) --->
-Step 3: Audit log is written --->
-Step 4: Edits role, deactivates or deletes the user (`PUT` / `DELETE /api/users/:id`) --->
-Step 5: The user uploads a signature → `PUT /api/users/:id/signature`. This signature is later stamped on every PDF report.
+### 0.3 File upload (shared) ⏸
+Step 1: ask for an upload URL (`/api/uploads/request-url`) → Step 2: browser uploads to Replit storage → Step 3: file opened through `/objects/...`.
+- ✅ Requires login. ⏸ Storage itself only exists on Replit.
+- ⚠️ Any logged-in user can open any stored file if they know its address.
 
 ---
 
-## TASK 2 – Document Control (core QMS cycle)
+## TASK 1 – Identity & access
 
-Document lifecycle: **Draft → In Review → Pending Approval → Approved (locked) → Document Hub**. Version is shown as `Ed.X Rev.Y`.
+### 1.1 Login ✅
+Step 1: app asks who is logged in → Step 2: Login page → Step 3: email + password → Step 4: password checked, account must be active → Step 5: session created, last login saved → Step 6: Dashboard loads.
+- Wrong password and deactivated accounts are refused.
+- ⚠️ Deactivating a user does not end a session they already have open.
 
-### 2.1 Add a document: three ways
-`/documents/new` → choose **Link a Google file**, **Upload a Word file** or **Type or paste**. All three take Doc Ref No., Document Name, Document Type and the Associated Procedures (2.1b).
+### 1.2 First-login user agreement ✅
+Step 1: new user is blocked by the agreement → Step 2: reads and accepts → Step 3: acceptance saved with time → Step 4: audit entry → Step 5: app opens.
 
-**A. Link a Google file (Docs, Sheets, Slides, any Drive file)**: the document stays in Google
-Step 1: Paste the Google link (must start with https://docs.google.com/ or https://drive.google.com/). **Open** checks it in a new tab --->
-Step 2: Enter the audit register details: Edition, Revision, Issue date, Prepared by, Reviewed by (optional), Approved by --->
-Step 3: **Register & send to COO** → `POST /api/documents/register-link`. The document is created as approved and goes straight to the COO's final approval in the Document Hub (a Final Approval task for the COO) --->
-Step 4: The COO approves and classifies it in the Hub (2.8a). It is stored as Current with the entered edition, revision and issue date, and appears in the Document Master List with a link to the Google file --->
-Step 5: Opening the document in Sahih Hub shows **Open in Google**. People without access to the document do not get the link.
+### 1.3 Online-hours tracking ❌
+Step 1: login starts a session → Step 2: heartbeats add active minutes → Step 3: logout ends it → Step 4: minutes feed the monthly report.
+- The server side works, but **the app never calls steps 1–3**, so online hours are always 0.
 
-**B. Upload a Word file**: the file opens in the in-app editor
-Step 1: **Choose file** (.docx, .txt or .html, up to 7 MB) → `POST /api/documents/convert-upload` turns it into editor content (bold, italic, underline, alignment, lists, tables and links kept; headings become bold text). Old .doc files must be saved as .docx first --->
-Step 2: The content appears in the editor and the file name fills Document Name if empty --->
-Step 3: Continue as C from step 2.
+### 1.4 Logout ✅
+Step 1: Logout → Step 2: session destroyed → Step 3: Login page.
 
-**C. Type or paste**
-Step 1: Enter Doc Ref No. (e.g. SOP-001), Document Name and Document Type (policy/manual/sop/format/JD/training assessment) --->
-Step 2: Write or paste the content in the Tiptap editor (tables, images, links) --->
-Step 3: Choose the preparer and preparation due date, assigned staff or departments, and the next review date --->
-Step 4: `POST /api/documents` → status `draft` (the code must be unique); `sourceType` is `manual` or `upload` --->
-Step 5: Workflow log, audit log and live performance stat (`document_created`) are written. The document then goes through preparation, review, approval and the COO (2.3 onwards).
-
-**Issue date**: for a linked Google file it is the date entered; for documents approved in Sahih Hub it is the date of the COO's final approval, and it moves to the new date each time a new version is approved.
-
-### 2.1b Associated procedures (links that follow changes)
-Step 1: When creating a document (or later, from the **Associated Procedures** card on the document page) the user picks the procedures it refers to. Each link remembers the version it was made against (`document_links.linkedVersion`, e.g. Ed.1 Rev.0) --->
-Step 2: The card shows each linked procedure with its current version and status, plus the documents that refer to this one ("Referenced by") --->
-Step 3: Links can be changed (`PUT /api/documents/:id/links`) by the people working on an unlocked document, or by the COO, an admin or the QM at any time --->
-Step 4: When a linked procedure gets a new approved version (change request → revision → COO approval), every document that links to it is flagged `needsReview` with a note (e.g. "SOP-100 changed from Ed.1 Rev.0 to Ed.1 Rev.1 (CR-2026-001)") --->
-Step 5: The owner of each flagged document is notified and gets a **Linked Procedure Changed** task (2 days) in My Tasks --->
-Step 6: The owner opens the document and either confirms it still fits (**Still valid, mark reviewed** → `POST /api/document-links/:id/reviewed`, the link moves to the new version and the task closes) or, for an approved document, raises a change request (2.8b) to update it.
-
-### 2.2 Edit a draft
-Step 1: `/documents/:id/edit` loads the document --->
-Step 2: Edit content, or use Find & Replace, or **AI Rewrite** (`/api/ai/rewrite`) / **AI Review** (`/api/ai/review-document`) --->
-Step 3: `PUT /api/documents/:id`. This is refused if `isLocked` --->
-Step 4: Audit log records the previous and new values.
-
-### 2.3 Preparer confirmation (Prepared-by signature)
-Step 1: The assigned preparer opens the draft --->
-Step 2: Clicks Confirm Preparation → `POST /api/documents/:id/confirm-preparation` --->
-Step 3: `preparerConfirmedAt` / `preparedBySignedAt` are stamped → audit log.
-
-### 2.4 Submit for review
-Step 1: The author picks a reviewer (and optionally an approver) on the Documents page --->
-Step 2: `POST /api/documents/:id/submit-review` (allowed only from `draft`) --->
-Step 3: Status becomes `in_review` --->
-Step 4: The reviewer gets a notification → audit log.
-
-### 2.5 Review
-Step 1: The reviewer sees a "review" task on Dashboard / My Tasks. These tasks are built on the fly by `GET /api/my-tasks` from document fields --->
-Step 2: Opens the document and optionally adds feedback (Task 2.6) --->
-Step 3: Completes the review, optionally choosing a new approver → `POST /api/my-tasks/:docId/complete {taskType:"review"}` --->
-Step 4: Status becomes `pending_approval` → the approver is notified --->
-Step 5: Audit log and live stat (`document_reviewed`).
-
-### 2.6 Inline comments: tags and assignments
-Step 1: Anyone who can open a document selects text, right-clicks and chooses **Comment**. This works on drafts and on approved, locked documents --->
-Step 2: Typing `@` lists users. A tagged person is **notified only**. On documents that aren't locked, ticking **Assign** next to a tagged person also gives them a task with a target date --->
-Step 3: On a **locked** document the comment is for reference and discussion only. It is private to the author and the people tagged, it can't assign tasks, and the approved version is never changed --->
-Step 4: A tagged person's notifications about the document clear when they open it (`POST /api/documents/:id/seen`) --->
-Step 5: The commented text is highlighted. The Comments panel shows tags, assignments, private notes and change-request points. Comments can be resolved by the author, a tagged or assigned person, an admin, the QM or the COO.
-
-### 2.6a Return for revision (one step back)
-Step 1: The person currently responsible opens the document. That is the reviewer (In Review), the approver (Pending Approval) or the COO (awaiting final approval in the Hub). A **Comment / Return** button is on their task in My Tasks, in the Dashboard task pop-up, in the Documents list menu, and in the Hub for the COO --->
-Step 2: They add at least one comment in the document explaining the reason (2.6). Returning is refused without one --->
-Step 3: They click **Return for Revision**, optionally add an overall note → `POST /api/documents/:id/return` --->
-Step 4: The document goes back one step and the signature for that step is cleared:
-  - reviewer → **Draft**, back to the preparer (or the creator if no preparer is set)
-  - approver → **In Review**, back to the reviewer
-  - COO → **Pending Approval**, back to the approver (the document leaves the Hub queue) --->
-Step 5: The person it goes back to is notified. A returned draft appears as a "Returned for Revision" task, and the document shows a banner with who returned it, when, the note and the open-comment count --->
-Step 6: A workflow log and an audit entry (`return_for_revision`) are written. When the document moves forward again, the return banner clears.
-
-### 2.7 Approve (moves the document to the Document Hub)
-Step 1: The approver opens the "approve" task --->
-Step 2: `POST /api/my-tasks/:docId/complete {taskType:"approve"}` --->
-Step 3: Status becomes `approved` and the approver's signature is stamped. The document is **not locked yet**. It moves to the Document Hub with `hubStatus = pending_coo_approval` and can no longer be edited --->
-Step 4: The COO is notified that a document is awaiting final approval --->
-Step 5: Puppeteer creates the **Document Approval Report** PDF with signatures and report number `DAR-YYYY-NNN` --->
-Step 6: The PDF is saved to User Records for every admin and for the creator, and each of them is notified --->
-Step 7: Live stat (`document_approved`).
-
-### 2.8 COO final approval & storage in the Sahih Hub
-Step 1: The COO opens `/document-hub` → "Awaiting Final Approval" tab. The Documents list also shows an "Awaiting COO final approval" badge --->
-Step 2: The COO views the document, then clicks Approve & Store --->
-Step 3: The COO picks a classification: **Confidential**, **Controlled Copy**, **Public Information** or **Legal**. For any classification except public, the COO can also choose who gets access --->
-Step 4: `POST /api/documents/:id/hub-approve` (COO only). The document is locked, `hubStatus = stored`, and the classification, COO and timestamp are recorded --->
-Step 5: Access is granted to the chosen users. They, the creator and the approver are notified, and an audit log entry is written --->
-Step 6: The document appears in the Hub master list with its classification. Public Information documents can be read by every signed-in user. The other three classifications can be read only by people granted access. The COO can change the classification later (`POST /api/documents/:id/classification`).
-
-### 2.8a Document status in the Hub (COO)
-Step 1: A stored document starts as **Current**. The Status column is the last column of the Hub's Document Master List --->
-Step 2: The COO changes it to **Under Revision**, **Obsolete** or **Quarantine** (`POST /api/documents/:id/lifecycle-status`). Obsolete and Quarantine ask for confirmation and an optional reason --->
-Step 3: Everyone with access, and the author, is notified, and an audit entry is written --->
-Step 4: Current and Under Revision documents stay readable. Obsolete and Quarantined documents are withdrawn: only the COO can open them, whatever their classification or access grants --->
-Step 5: The Documents list shows an Under Revision, Obsolete or Quarantine badge.
-
-### 2.8b Change request → revision → new version (approved documents)
-Step 1: Under an approved document (Documents list) a user has **View**, **Request Access** (if they have no access yet) and **Change Request** --->
-Step 2: In change-request mode the user highlights text, right-clicks → **Add to Change Request**, writes the change and picks the reason: self observation, standard deviation, audit finding, internal audit, external audit, feedback, legal change, or other (specify). Several points can be added; together they form a draft `CR-YYYY-NNN` --->
-Step 3: **Submit to COO** → the COO gets a "Change Request" task (default 2 days) and sees it in Document Hub → **Change Requests** --->
-Step 4a: **Reject** → the approved version stays valid, and the initiator is notified --->
-Step 4b: **Accept** → the COO picks who prepares the revision and by when. The approved version is recorded and stays in force for readers, while the document shows **Current · Under revision**. The preparer gets a Prepare task with the change-request points highlighted --->
-Step 5: The revision goes through prepare → review → approve → COO final approval as usual. At final approval the COO chooses a **new revision** (Ed.X Rev.Y+1) or a **new edition** (Ed.X+1 Rev.0) --->
-Step 6: The new version becomes current. The previous version is stamped **Obsolete** and kept. Every version stays available under **Version History** in the Hub. The change request becomes Implemented and an entry is added to the document's revision history.
-
-Locked documents are permanent: they can't be edited, deleted (nor can any document that was ever approved), or amended through the old revision-history route. Changes go through a change request; withdrawal is the COO's Obsolete status.
-
-### 2.9 Reassign a workflow step
-Step 1: The current assignee, an admin or the QM opens the task --->
-Step 2: Chooses a new preparer, reviewer or approver and gives a reason → `POST /api/documents/:id/reassign` --->
-Step 3: The document field is updated → the new assignee is notified → audit log.
-
-### 2.10 Official PDF generation
-Step 1: An allowed user (COO, a workflow member, or someone granted access) clicks Generate PDF --->
-Step 2: `POST /api/documents/:id/generate-pdf` (full) or `/generate-pdf-light` --->
-Step 3: Puppeteer renders the HTML with logo, header, signatories and Ed/Rev → `finalPdfUrl` is saved --->
-Step 4: `GET /api/documents/:id/pdf` returns the PDF for viewing or download.
-
-### 2.11 Revision (amendment) history
-Step 1: A user adds an amendment entry with description, reason and signatories → `POST /api/documents/:id/revision-history` (status `pending`) --->
-Step 2: The entry is reviewed --->
-Step 3: `PATCH /api/revision-history/:id {status:"approved"}` --->
-Step 4: The next revision number is assigned and the document's `revisionNumber` goes up (Ed.X Rev.Y+1).
-
-### 2.12 Compliance monitoring (review-due alerts)
-Step 1: Approved documents carry a `nextReviewDate` --->
-Step 2: The Dashboard calls `/api/dashboard/stats` and `/api/dashboard/alerts` --->
-Step 3: The server sorts the documents into yellow (due within 30 days) and red (overdue / non-compliant) --->
-Step 4: The Dashboard shows the counters and the alert list.
+### 1.5 User management (Users page) ✅ / 🔒
+Step 1: admin opens Users → Step 2: creates a user (password hashed) → Step 3: audit entry → Step 4: edit role / deactivate / delete → Step 5: upload signature (used on PDFs).
+- 🔒 **None of the user routes check login or role.** A logged-out visitor or any staff member can create an admin, promote themselves to admin, change others' roles, delete users and read everyone's signature.
+- ⚠️ Deleting a user who has data (posts, documents) fails with an error.
 
 ---
 
-## TASK 3 – Document Hub & Access Control
+## TASK 2 – Document control (core QMS cycle)
 
-### 3.1 Request access to a restricted document
-Step 1: A non-member opens the list. Approved or locked documents come back with metadata only (content, file and PDF stripped) --->
-Step 2: The user clicks Request Access and gives a reason → `POST /api/document-access-requests` --->
-Step 3: Admins and the QM are notified, and an "access_approval" task appears in their My Tasks --->
-Step 4: **Only the COO** can approve or reject (`/document-access-requests/:id/approve|reject`) --->
-Step 5: On approval a `document_access` row is created and the requester is notified --->
-Step 6: The requester can now see the full content and PDF.
+Lifecycle: **Draft → In Review → Pending Approval → Approved → COO final approval → Stored in the Hub (Current)**. Version shown as `Ed.X Rev.Y`.
 
-### 3.2 Direct grant / revoke (COO)
-Step 1: The COO opens the document access panel → `GET /api/document-access` --->
-Step 2: Grants one user or many (`/grant-access`, `/grant-access-multiple`) --->
-Step 3: Revokes access when needed (`/revoke-access`, which sets `isRevoked`) --->
-Step 4: Notifications and audit log.
+### 2.1 Add a document – three ways ✅
+**A. Link a Google file** (Docs, Sheets, Slides, Drive) ✅
+Step 1: paste the Google link → Step 2: enter Doc Ref, name, type, edition, revision, issue date, prepared / reviewed / approved by → Step 3: Register & send to COO → Step 4: COO approves and classifies → Step 5: stored as Current with the entered edition, revision and issue date; opens in Google.
 
-### 3.3 Download request
-Step 1: A user asks to download a controlled PDF → `POST /api/download-requests` --->
-Step 2: A "download_approval" task appears for admins and the QM --->
-Step 3: Approve or reject (`/download-requests/:id/approve|reject`) --->
-Step 4: The requester is notified, and the download is allowed only if approved.
+**B. Upload a Word file** ✅
+Step 1: choose .docx / .txt / .html (≤7 MB) → Step 2: content appears in the editor, file name fills the title → Step 3: continue as C.
 
---->
-Step 2: `POST /api/documents/:id/lock` --->
-Step 3: `isLocked = true`, access is granted to those users, and they are notified.
+**C. Type or paste** ✅
+Step 1: Doc Ref, name, type → Step 2: write or paste content → Step 3: preparer + due date, staff/departments, next review date → Step 4: saved as Draft → Step 5: logs written; continues at 2.3.
+
+### 2.1b Associated procedures ✅
+Step 1: link the procedures a document refers to → Step 2: card shows each one's version and status, plus "Referenced by" → Step 3: links editable by the working team (or COO/admin/QM) → Step 4: when a linked procedure gets a new version, linked documents are flagged → Step 5: owner notified + "Linked Procedure Changed" task → Step 6: owner marks "still valid" (task closes) or raises a change request.
+
+### 2.2 Edit a draft ✅
+Step 1: open draft → Step 2: edit / Find & Replace / AI Rewrite / AI Review → Step 3: save (refused when locked) → Step 4: audit entry.
+- ⏸ AI Rewrite and AI Review need an OpenAI key.
+
+### 2.3 Preparer confirmation ✅
+Step 1: preparer opens draft → Step 2: Confirm Preparation → Step 3: signature date stamped + audit.
+
+### 2.4 Submit for review ✅
+Step 1: choose reviewer (+ approver) and review due date → Step 2: submit → Step 3: In Review → Step 4: reviewer notified + task.
+
+### 2.5 Review ✅
+Step 1: reviewer's task → Step 2: open, comment if needed → Step 3: complete review with approval due date → Step 4: Pending Approval, approver notified → Step 5: logs.
+- ⚠️ The review signature date (`reviewedBySignedAt`) is never filled in.
+
+### 2.6 Inline comments (tags and assignments) ✅
+Step 1: select text → right-click → Comment → Step 2: @mention people (tag = notification; Assign = task with due date) → Step 3: on locked documents comments are private reference notes → Step 4: notification clears when the tagged person opens the document → Step 5: highlights, Comments panel, resolve.
+
+### 2.6a Return for revision ✅
+Step 1: reviewer / approver / COO opens the document → Step 2: adds at least one comment with the reason → Step 3: Return for Revision → Step 4: goes back one step (reviewer → preparer, approver → reviewer, COO → approver) → Step 5: person notified, banner shows reason → Step 6: logs.
+
+### 2.7 Approve → Document Hub ✅ / ⏸
+Step 1: approver's task → Step 2: approve with COO due date → Step 3: Approved, moved to the Hub awaiting COO → Step 4: COO notified + task → Step 5: Document Approval Report PDF → Step 6: PDF saved to User Records → Step 7: stats.
+- ⏸ Steps 5–6: the report PDF uses a fixed Replit browser path. It failed here; it works only if that exact path exists on Replit (to be checked there).
+
+### 2.8 COO final approval & storage ✅
+Step 1: COO opens Hub → Awaiting Final Approval → Step 2: views → Step 3: picks classification (Confidential / Controlled Copy / Public / Legal) and who gets access → Step 4: document locked and stored → Step 5: access granted, people notified → Step 6: listed in the Hub; COO can change classification later.
+
+### 2.8a Hub status ✅
+Step 1: stored as Current → Step 2: COO sets Under Revision / Obsolete / Quarantine → Step 3: people notified → Step 4: Obsolete and Quarantine withdraw it (COO only) → Step 5: badges shown.
+
+### 2.8b Change request → revision → new version ✅
+Step 1: on an approved document: View / Request Access / Change Request → Step 2: highlight text, add points with reasons → Step 3: submit to COO (task) → Step 4a: reject (old version stays) or 4b: accept (Current · Under revision, preparer gets task) → Step 5: revision goes through the normal cycle; COO picks new revision or new edition → Step 6: new version Current, old one Obsolete and kept in Version History.
+
+### 2.9 Reassign a step ✅ / ⚠️
+Step 1: assignee, admin or QM opens the task → Step 2: chooses new person + reason → Step 3: new person notified + task, old task closes.
+- ⚠️ An approved, locked document can still be reassigned, which clears the review signature and gives the new person access.
+- ⚠️ The audit entry loses the "before" value.
+
+### 2.10 Official PDF ⚠️ / ⏸
+Step 1: allowed user clicks Generate PDF → Step 2: full or light version → Step 3: PDF with logo, Ed/Rev and signatories → Step 4: view / download.
+- ✅ With the browser path set, the full PDF came out correctly (header, Ed/Rev, three signatories). Who may generate is enforced on approved documents.
+- ⏸ Fails here because the app couldn't find a browser; should work on Replit.
+- ⚠️ On drafts, any logged-in user can generate it.
+
+### 2.11 Revision (amendment) history ✅ / ⚠️
+Step 1: add amendment entry → Step 2: reviewed → Step 3: approved → Step 4: revision number goes up.
+- ✅ Locked documents refuse this (use a change request).
+- ⚠️ No permission check: any user can add or approve entries on anyone's draft.
+
+### 2.12 Compliance (review-due) alerts ✅ / 🔒
+Step 1: approved documents carry a next review date → Step 2: Dashboard asks for stats and alerts → Step 3: yellow = due within 30 days, red = overdue → Step 4: counters and list.
+- ⚠️ The next review date can only be set while the document is a draft.
+- 🔒 Dashboard stats, alerts and activity are readable without logging in.
+
+---
+
+## TASK 3 – Document Hub access
+
+### 3.1 Request access to a restricted document ✅
+Step 1: non-member sees details only → Step 2: Request Access with reason → Step 3: admins/QM notified, COO task → Step 4: COO approves or rejects → Step 5: access granted, requester notified → Step 6: full content visible ("Access Pending" shows meanwhile).
+
+### 3.2 Direct grant / revoke (COO) ✅
+Step 1: COO opens access panel → Step 2: grants one or many → Step 3: revokes → Step 4: notifications + audit.
+
+### 3.3 Download request ❌
+Step 1: user requests to download a controlled PDF → Step 2: admins/QM get a task → Step 3: approve / reject → Step 4: requester notified; download allowed only if approved.
+- ❌ There is **no button in the app** to make a request (API only).
+- ❌ Approval **does not unlock** the download, and anyone with access can already download without asking.
+- ⚠️ A decided request can be decided again.
 
 ---
 
 ## TASK 4 – HR
 
-### 4.1 Employee record approval workflow
-Step 1: HR creates the employee (number, name, email, job title, department, employment type, supervisor, hire date) → `POST /api/employees` (`draft`) --->
-Step 2: Submits for review with a reviewer → `/employees/:id/submit-review` (`in_review`) --->
-Step 3: The reviewer gets an "employee_review" task in My Tasks --->
-Step 4: The reviewer forwards it with an approver → `/submit-approval` (`pending_approval`) --->
-Step 5: The approver approves (`/approve`) or rejects (`/reject`). Rejected records go back to the start and can be resubmitted from Step 2 --->
-Step 6: On approval the **Staff Confirmation Report** PDF is created (`SCR-YYYY-NNN`) and saved to User Records for HR, admins and the linked user, and they are notified.
-(Side cycle: `/employees/:id/reassign` moves the review or approval to someone else.)
+### 4.1 Employee record approval ✅ / ❌ / 🔒
+Step 1: HR creates employee (Draft) → Step 2: submit for review with reviewer + due date → Step 3: reviewer gets task → Step 4: reviewer forwards to approver → Step 5: approver approves or rejects (rejected can be resubmitted) → Step 6: Staff Confirmation Report PDF saved to User Records + notifications. Side cycle: reassign ✅.
+- ✅ Steps 1–5 and reassign work, with tasks and due dates.
+- ❌ Step 6: the report is **never created** (fixed Replit browser path), so no User Record and no notification, although the approval succeeds.
+- ⚠️ Anyone can forward or approve (no check that it's their task), and performance then credits the assigned person.
+- 🔒 Employee routes need no login (list readable by anyone; changes possible).
 
-### 4.2 Organogram
-Step 1: `/hr` loads the employees --->
-Step 2: The tree is built from `supervisorId` --->
-Step 3: The reporting hierarchy is shown.
+### 4.2 Organogram ✅
+Step 1: HR page loads employees → Step 2: tree built from supervisor → Step 3: hierarchy shown.
+- ⚠️ People in a supervisor loop disappear from the chart; drafts are included.
 
-### 4.3 Employee tasks
-Step 1: Create a task for an employee, optionally linked to a document → `POST /api/employee-tasks` --->
-Step 2: Update status and priority (`PUT`) --->
-Step 3: Complete it (`/employee-tasks/:id/complete`) → audit log.
+### 4.3 Employee tasks ✅
+Step 1: create task (optionally linked to a document) → Step 2: update status/priority → Step 3: complete → audit. Appears in the person's My Tasks.
+- ⚠️ No notification when assigned; no permission checks.
 
 ---
 
-## TASK 5 – Trainings & Assessments
+## TASK 5 – Trainings & assessments
 
-### 5.1 Training cycle
-Step 1: Create a training, assessment or certification with category, duration, passing score, validity (months) and an optional linked document → `POST /api/trainings` --->
-Step 2: Assign it to an employee with a due date → `POST /api/training-assignments` --->
-Step 3: The employee works through it (`PUT`, in_progress) --->
-Step 4: Complete it with score and passed flag → `/training-assignments/:id/complete` --->
-Step 5: A training completion is created with a certificate number, and the expiry date = today + validity --->
-Step 6: The completion and certificate can be viewed or printed (`/api/training-completions`).
+### 5.1 Training cycle ❌
+Step 1: create training (category, duration, passing score, validity) → Step 2: assign to employee with due date → Step 3: in progress → Step 4: complete with score → Step 5: certificate number + expiry (today + validity) → Step 6: view / print certificate.
+- ❌ Step 2: **assigning with a due date always fails**, and the page always sends one, so trainings can't be assigned from the app.
+- ⚠️ Step 4: the passing score is ignored (a fail still gets a certificate); completing twice gives two certificates with the same number; employees can certify themselves.
+- ❌ Step 6: no certificate view or print in the app (list only).
 
 ---
 
-## TASK 6 – Certification Process (ISO 17021 client cycle)
+## TASK 6 – Certification process (ISO 17021 client cycle)
 
-### 6.1 Certification application
-Step 1: An auditor, admin or QM enters the client (name, location, contact), the ISO standard, sector code and scope → `POST /api/certification-applications` (`submitted`) --->
-Step 2: The application is reviewed and an auditor or lead auditor is assigned (`PUT`, `under_review`) --->
-Step 3: The status moves through audit_scheduled → stage1_complete → stage2_scheduled → stage2_complete → pending_decision → approved (or rejected / suspended / withdrawn).
+### 6.1 Application ✅ / ⚠️
+Step 1: QM/auditor enters client, standard, scope → Step 2: review + assign auditor and lead auditor → Step 3: status moves audit scheduled → stage 1 → stage 2 → decision → approved.
+- ✅ Assigned auditors get a My Tasks entry.
+- ⚠️ No control on the page to assign auditors (API only); any status or order is accepted; any logged-in user can edit an application.
 
-### 6.2 Audits & findings (backend only, no UI yet)
-Step 1: Create an audit for the application (stage1/stage2/surveillance/recert/special) → `POST /api/certification-audits` --->
-Step 2: Record findings (major NC, minor NC, observation, OFI) with clause and evidence → `POST /api/audit-findings` --->
-Step 3: The client adds corrective action → the finding goes to `pending_verification` --->
-Step 4: The auditor verifies and closes it → the audit gets a recommendation and is completed.
+### 6.2 Audits & findings ❌
+Step 1: create audit (stage 1/2, surveillance, recert) → Step 2: record findings (major/minor NC, observation, OFI) → Step 3: client corrective action → Step 4: verify, close, recommend, complete.
+- ❌ **No screens** for audits or findings.
+- ❌ Any date (scheduled, target closure, verified, completed) causes an error.
+- ⚠️ Adding a corrective action doesn't move the finding forward; an audit can be completed with major NCs still open.
 
-### 6.3 Certificate issue
-Step 1: The application is approved --->
-Step 2: Issue the certificate with number, issue and expiry dates, and surveillance dates 1 and 2 → `POST /api/certificates` --->
-Step 3: The application status becomes `certificate_issued` → audit log --->
-Step 4: Lay out and print the certificate in `CertificateDesigner` (left and right backgrounds).
-
----
-
-## TASK 7 – Tasks, Performance & Records
-
-### 7.1 My Tasks (everything assigned to anyone)
-Step 1: `server/task-sources.ts` collects every open assignment in the system, each with an assigned date and a due date. Sources without their own due date get a default time allowance (`TASK_SLA_HOURS`):
-  - Documents: prepare, review, approve, COO final approval in the Hub, revise (returned), @mention comments, amendment approvals
-  - Access: download requests (any admin or QM), access requests (COO)
-  - HR: employee review and approval, tasks assigned to an employee, trainings. Employees are matched to their login by `userId`, or else by the same email
-  - Reports: performance report review (COO) and approval (CEO)
-  - Bug reports: fix (assignee, or the COO if unassigned), then verify and close (COO)
-  - CRM: lead follow-ups (on the follow-up date), lead update requests
-  - Certification: assigned auditor and lead auditor, certification audits
-  - DocuGenie forms assigned to someone --->
-Step 2: `GET /api/my-tasks` returns the signed-in user's tasks, soonest due first, with Overdue flags --->
-Step 3: My Tasks and the Dashboard show every type. Review, approval and request tasks keep their own buttons; every other task has **Open**, which goes to the page where the work is done --->
-Step 4: The task disappears from the list once the work is done.
-
-### 7.1a Target dates and task initiators
-Step 1: Whenever work is assigned or forwarded, the person doing it gives a **target completion date**. The field is pre-filled with the default: prepare 2 days, review 1 day, approve 1 day, COO final approval 1 day, revise after a return 2 days, @mention comment 1 day, employee review or approval 1 day (`DEFAULT_TARGET_DAYS`). Where it is asked for:
-  - New Document: Prepared by + preparation date
-  - Submit for Review: review date
-  - Complete Review: approval date
-  - Approve: COO final approval date
-  - Return for Revision: date for the person it goes back to
-  - Comment with @mentions: action date
-  - Every Re-assign dialog
-  - Employee review and approval steps --->
-Step 2: `task_assignments` stores, per task (e.g. `review:12`), the **initiator** (who assigned it) and the target date. A target date always overrides default allowances. Dates in the past are refused --->
-Step 3: My Tasks shows "Assigned by …" and the target date on every task --->
-Step 4: The initiator, an admin, the QM or the COO opens **My Tasks → Assigned by me** and can move the task to another person (documents, employee records, comments, bug reports, lead follow-ups) or change its target date (any task). This uses `POST /api/tasks/change`. The assignee is notified and an audit entry is written. Managers can switch on "Show everyone's open tasks" --->
-Step 5: The task ledger follows the latest target date. A task moved to someone else closes as *transferred* for the first person, so it does not count against them.
-
-### 7.2 Task ledger → individual performance (automatic)
-Step 1: After every successful change, and every minute, `server/task-ledger.ts` reconciles open tasks against the `task_records` table. A record opens when a task first appears in someone's list, with its assigned and due dates --->
-Step 2: When a task leaves a person's list, the record closes as:
-  - **completed**, with time taken and on time or late
-  - **transferred**, if it was reassigned
-  - **closed by other**, for a shared task someone else handled (decided from the audit log)
-  - **cancelled**, if the source was deleted or withdrawn --->
-Step 3: For any person and month, `computeTaskMetrics` works out, against each task's target date: tasks assigned, completed, on time and late; on-time rate; completion rate; efficiency (time allowed ÷ time taken); total and average time; average delay; open and overdue; rework (documents returned to them); reassigned or handled by others; a breakdown by task type; and a **Performance Score** (on-time 50%, completion 30%, efficiency 20%) --->
-Step 4: Everyone with a task this month automatically gets a draft monthly performance report. Draft reports refresh every 5 minutes and whenever the reports page is opened --->
-Step 5: The admin submits the report → the COO reviews it (a task for the COO) → the CEO approves it (a task for the CEO). Figures stop changing once the report is submitted --->
-Step 6: The Performance Reports page shows On Time, Efficiency, Overdue and Score in the table, with all task figures and the per-type breakdown in the report detail. My Tasks shows the user's own completed count and on-time rate for the month.
-
-### 7.3 Compliance Buddy (avatar)
-Step 1: `GET /api/buddy/status` / `system-status` work out the compliance score from tasks --->
-Step 2: The score is mapped to a state (flexing ≥90, healthy, tired, weak, critical <60) → the BuddyAvatar is drawn --->
-Step 3: Dialogues are created (reminder, congratulation, warning) → the user acknowledges them (`/buddy/dialogues/:id/acknowledge`) --->
-Step 4: An optional push subscription is saved (`/buddy/subscribe`).
-
-### 7.4 User Records
-Step 1: Approval cycles (2.7, 4.1) save report PDFs --->
-Step 2: `/user-records` lists the user's own records. Admins see all of them --->
-Step 3: View or download through `GET /api/user-records/:id/pdf`.
-
-### 7.5 Audit trail (ISO 17021)
-Step 1: Every create, update, delete and workflow action writes an `audit_logs` row (user, entity, previous and new JSON, timestamp) --->
-Step 2: `/audit-log` shows the latest 100 entries for surveillance and audit evidence.
+### 6.3 Certificate issue ❌
+Step 1: application approved → Step 2: issue certificate (number, dates, surveillance dates) → Step 3: application becomes "certificate issued" → Step 4: design and print.
+- ❌ Step 2 **always fails** (date error), so no certificate can be issued and the application stays open forever.
+- ❌ Step 4: designer has no background fields, print or download.
 
 ---
 
-## TASK 8 – Communication & Support
+## TASK 7 – Tasks, performance & records
 
-### 8.1 Notifications
-Step 1: Workflow cycles create notifications with an urgency level --->
-Step 2: `NotificationManager` and the bell poll `/api/notifications` --->
-Step 3: The user marks one read or all read.
+### 7.1 My Tasks ✅
+Step 1: every open assignment in the system is collected with a due date → Step 2: user's list, soonest first, overdue flagged → Step 3: Open / action buttons → Step 4: disappears when done.
+- ✅ Confirmed sources: document steps, comments, returns, linked-procedure reviews, change requests, access and download approvals, employee review/approval, employee tasks, trainings, bug reports, lead follow-ups and update requests, certification and audits, DocuGenie forms, performance report review/approval.
 
-### 8.2 Gmail integration
-Step 1: The user clicks Connect → `/api/gmail/connect` → Google OAuth consent --->
-Step 2: `/api/gmail/callback` saves the tokens on the user --->
-Step 3: Inbox → `/gmail/emails` → open an email or thread --->
-Step 4: Optional **AI draft** reply (`/gmail/ai-draft`, gpt-4o) → `/gmail/send` (SMTP is the fallback) --->
-Step 5: Star, archive, spam, move or mark read and unread; labels --->
-Step 6: Disconnect.
+### 7.1a Target dates & initiators ✅
+Step 1: due date required when assigning/forwarding (defaults: prepare 2 d, review 1 d, approve 1 d) → Step 2: initiator + date stored → Step 3: shown on the task → Step 4: initiator can move the task or change the date (Assigned by me) → Step 5: performance follows the latest target.
 
-### 8.3 Dashboard wall posts
-Step 1: The user posts an update → `POST /api/wall-posts` --->
-Step 2: Edit, pin or delete it --->
-Step 3: It shows on the Dashboard feed.
+### 7.2 Performance (automatic) ✅ / ❌
+Step 1: every task is recorded when it appears → Step 2: closed as completed / transferred / closed by other / cancelled → Step 3: monthly figures (on time, efficiency, delay, score…) → Step 4: draft monthly report per person → Step 5: admin submits → COO reviews → CEO approves → Step 6: shown on Performance Reports and My Tasks.
+- ✅ Figures, submit, COO review and figure freeze work.
+- ❌ CEO approval returns an error: the report is marked approved but no User Record is saved and the person isn't notified.
+- ⚠️ No order checks (CEO can approve a draft directly; approved reports can be moved back).
 
-### 8.4 Hub-eebi AI assistant
-Step 1: The user opens the chat bubble → types a question --->
-Step 2: `POST /api/hubeebi/chat` streams a gpt-4o-mini answer with QMS context --->
-Step 3: The answer is drawn as it streams in.
+### 7.3 Compliance Buddy ⚠️
+Step 1: score from tasks → Step 2: avatar state → Step 3: messages, acknowledge → Step 4: push subscription.
+- ⚠️ Score is always 100 (reads an unused table, not the task records).
+- ❌ Push messages are never sent.
+- ⚠️ Anyone can acknowledge anyone's message.
 
-### 8.5 Bug reports
-Step 1: Any user files a bug with title, description, priority and screenshot → `POST /api/bug-reports` (ticket number) → the COO is notified --->
-Step 2: The COO or an admin assigns it and sets it in progress (`PATCH`) --->
-Step 3: Resolves it with notes and an evidence attachment (`/resolve`) --->
-Step 4: Closes it (`/close`) → the reporter gets a thank-you notification (`userNotified`).
+### 7.4 User Records ❌
+Step 1: approvals save report PDFs → Step 2: user sees own records; admins see all → Step 3: view / download.
+- ❌ Step 1: nothing produced records in testing (PDF path for approval reports; error on performance reports).
+- ❌ Step 2: admins only see their own records.
+- ✅ Step 3: viewing permissions are correct.
 
----
+### 7.5 Audit trail ✅ / 🔒
+Step 1: every change writes an audit entry → Step 2: Audit Log page shows the latest 100.
+- 🔒 The audit log is readable by anyone, including logged-out visitors.
+- ⚠️ Some modules lose the description text (DocuGenie; the "before" value on reassign).
 
-## TASK 9 – DocuGenie (AI form builder)
-
-### 9.1 Convert → publish → collect
-Step 1: Paste content from a document or Google Form → `POST /api/docugenie/convert` (gpt-4o returns fields and HTML) --->
-Step 2: Save it as a draft form → `POST /api/docugenie/forms` --->
-Step 3: Edit or adjust it (`PATCH`) --->
-Step 4: Publish → `/forms/:id/publish` creates a `shareToken` --->
-Step 5: Someone outside opens `/form/:token`. This page is public and needs no login --->
-Step 6: They submit → `POST /api/docugenie/submit/:token` --->
-Step 7: The owner views the submissions → `/forms/:id/submissions`.
+### 11 – Records & Data Hive (COO, admins, QM) ✅
+- 11.1 Change request & revision register → printable Change Request Form ✅
+- 11.2 Obsolete documents (superseded versions + withdrawn) ✅
+- 11.3 Document Master List (Doc Ref, name, type, edition, revision, issue date, prepared/reviewed/approved by, classification, status, next review; CSV export) ✅
 
 ---
 
-## TASK 10 – CRM (admin / QM / COO only)
+## TASK 8 – Communication & support
 
-### 10.1 Lead management
-Step 1: Create a lead with name, company, contact, source (website/referral/ads/WhatsApp) and interested course or ISO → `POST /api/leads` --->
-Step 2: Assign it to a salesperson and set the next follow-up date --->
-Step 3: Change status with a reason and an evidence file → `POST /api/leads/:id/status` → a `lead_status_history` row is written --->
-Step 4: The COO asks the assignee for an update → `POST /api/leads/:id/update-requests` → the assignee is notified --->
-Step 5: The assignee replies and resolves it → `/lead-update-requests/:id/resolve` --->
-Step 6: The lead ends at approved, lost, not_interested or not_relevant.
+### 8.1 Notifications 🔒
+Step 1: workflows create notifications → Step 2: bell shows them → Step 3: mark read / mark all read.
+- 🔒 **Everyone sees everyone's notifications**, including logged-out visitors; anyone can mark others' as read.
 
-### 10.2 Customer management
-Step 1: Create a customer with contacts, address, industry and account owner → `POST /api/customers` --->
-Step 2: Log the communication history (`PUT`) --->
-Step 3: Upload the contract → `POST /api/customers/:id/contract` --->
-Step 4: View or download the contract.
+### 8.2 Gmail ⏸ / ❌
+Step 1: connect Google → Step 2: tokens saved → Step 3: inbox / threads → Step 4: AI draft reply → send → Step 5: star, archive, labels → Step 6: disconnect.
+- ⏸ Needs Google keys; without them it fails politely.
+- ❌ AI draft reply is broken even with a key (code error).
 
-### 10.3 Opportunity pipeline
-Step 1: Create an opportunity linked to a customer, with course or ISO, deal value, discount and expected close date → `POST /api/opportunities` (`qualified`) --->
-Step 2: Upload the proposal → `/opportunities/:id/proposal` → stage becomes proposal_sent --->
-Step 3: negotiation → won or lost (`PUT`) --->
-Step 4: The pipeline dashboard shows total value, qualified, proposals, won and lost.
+### 8.3 Dashboard wall posts ✅ / 🔒
+Step 1: post → Step 2: edit / pin / delete → Step 3: shown on Dashboard.
+- 🔒 Anyone can edit, pin or delete anyone's post.
 
-### 10.4 Historical performance data
-Step 1: Enter a year and month with leads, deals, revenue, trainings and certifications → `POST /api/historical-data` --->
-Step 2: Edit or delete --->
-Step 3: Filter by year → the stats cards and table update.
+### 8.4 Hub-eebi AI assistant ⏸
+Step 1: open chat, ask → Step 2: AI answer with QMS context → Step 3: shown as it streams. Needs an OpenAI key; fails politely without one.
+
+### 8.5 Bug reports ✅ / ❌
+Step 1: user files a bug (ticket number), COO notified → Step 2: COO assigns, in progress → Step 3: resolved with notes/evidence → Step 4: closed, reporter thanked.
+- ✅ Works when the COO handles it.
+- ❌ If assigned to someone else, they get a task but **cannot see or resolve the bug** (dead end).
+- ❌ After any bug report is deleted, **new reports fail** (ticket numbering).
 
 ---
 
-## TASK 11 – Records & Data Hive (COO, admins, QM)
+## TASK 9 – DocuGenie (form builder)
 
-### 11.1 Change request & revision register
-Step 1: `/records` → **Change Requests & Revision History** lists every submitted change request: date, document, ref, edition, initiator, approver (COO), need of change, status and new version --->
-Step 2: **Form** opens the printable Change Request Form (`/records/change-requests/:id`): document, request, points with reasons, the COO's decision and the implementation. It can be printed or saved as PDF.
-
-### 11.2 List of obsolete documents
-Step 1: Every superseded version (with what replaced it and the change request), plus documents the COO withdrew as Obsolete. Retained and not for use.
-
-### 11.3 Document Master List
-Columns for audit: Doc Ref No., Document Name, Type, Edition, Revision, Issue Date, Prepared by, Reviewed by, Approved by, Classification, Status, Next review (Google files link straight to the file). Export CSV adds the COO's final approval and where the document is kept.
-Step 1: Every document with an approved version: ref, title, category, current version, approval date and approver, classification, status, next review date and how many versions are kept. It updates automatically each time a document is approved, and can be exported to CSV or printed.
-
-## Recommended order to build / verify (dependency chain)
-
-TASK 0 Foundation ---> TASK 1 Identity ---> TASK 2 Document Control ---> TASK 3 Hub & Access ---> TASK 7 My Tasks / Records / Audit ---> TASK 4 HR ---> TASK 5 Trainings ---> TASK 6 Certification ---> TASK 8 Communication ---> TASK 9 DocuGenie ---> TASK 10 CRM
+### 9.1 Convert → publish → collect ✅ / 🔒
+Step 1: paste content → AI converts to a form → Step 2: save draft → Step 3: edit → Step 4: publish (share link) → Step 5: public opens link without login → Step 6: submits → Step 7: owner sees submissions.
+- ⏸ Step 1 needs an OpenAI key. ✅ Steps 2–7 work.
+- 🔒 Any logged-in user can read, edit, republish (breaking the link) or delete anyone's form, and read its submissions.
 
 ---
 
-## Breaks found while reading the code (cycles that do not complete today)
+## TASK 10 – CRM (admin / QM / COO)
 
-| # | Cycle | Problem | Where |
-|---|-------|---------|-------|
-| 1 | 2.7 → 2.8 | **Fixed.** Approval used to lock the document, so the follow-up "Lock & Transfer" always failed. Now approval moves the document to the Hub, and the COO gives final approval with a classification. | — |
-| 2 | 10.1 Step 3 | **Fixed.** Lead status changes now save to `leadStatus` and record the previous status; a reason is required and the status must be a valid one. CRM audit entries now keep their text (it was written to a `description` field that does not exist). | — |
-| 3 | 10.1 / 10.2 / 10.3 uploads | **Fixed.** Lead evidence, contracts and proposals now upload to object storage (the same storage Bug Reports uses) instead of the missing `/api/upload`. Uploading and opening stored files needs a login. | — |
-| 4 | 2.4 / 2.5 | **Fixed.** Reviewer, approver and COO can now return a document one step back, with the reason written as comments in the document. | — |
-| 5 | 7.3 Buddy | The Buddy score still reads the unused `document_tasks` table. Performance reports now use the task ledger (7.2); the Buddy could be switched to it too. | `storage.calculateUserCompliance` |
-| 6 | 2.x versions | **Fixed.** Every COO approval records a version in `document_versions`; the previous one is stamped obsolete and kept (Records & Data Hive). | — |
-| 7 | 6.2 | The audits and findings APIs exist, but `CertificationProcess.tsx` has no UI for them. | client |
-| 8 | 7.3 push | Push subscriptions are stored, but no web-push sender exists, so no push is ever delivered. | buddy routes |
-| 9 | **Security** | 51 routes have no `requireAuth`. Among them: create, update and delete **users** (anyone could create an admin), employees workflow, dashboard and audit logs. `GET /api/notifications` returns **all users'** notifications. | `server/routes.ts` 431–4092 | **Document routes fixed:** documents list/get/create/update/delete and all document-access routes now need a login, and staff only see their own access requests and grants.
-| 10 | **Security** | `init-users.ts` hard-codes the passwords for the HR, COO and CEO accounts and **resets them on every boot**. The session secret has a hard-coded fallback. | `server/init-users.ts`, `server/index.ts` |
-| 11 | Maintainability | COO and CEO powers are checked by fixed email strings in more than 40 places instead of by role. `routes.ts` is about 8,000 lines in one file. | `server/routes.ts` |
-| 12 | 7.2 reports page | **Fixed.** The Performance Reports list requested `/api/performance-reports/10/2026`, which isn't a real route, so it always showed "No reports". It now passes month and year as query parameters. | — |
-| 13 | Document deletion | **Fixed.** `DELETE /api/documents/:id` needed no login and could remove approved documents. It now needs a login and refuses any document that is locked, approved, under revision or has a recorded version. | — |
-| 14 | 3.1 access requests | **Fixed.** Staff never saw their own access requests (the page requested `/api/document-access-requests/[object Object]`), so "Access Pending" never showed. | — |
+### 10.1 Leads ✅ / 🔒
+Step 1: create lead → Step 2: assign + follow-up date (assignee gets task) → Step 3: status change with reason + evidence (history kept) → Step 4: COO asks for an update (task) → Step 5: assignee resolves → Step 6: ends approved / lost / not interested / not relevant.
+- ✅ Fixed today: status saves, history, uploads.
+- 🔒 Staff can create, edit and delete leads directly, and editing can change the status without a history entry.
+- ⚠️ Anyone can resolve an update request; the reply text isn't saved; COO isn't told it was resolved.
+
+### 10.2 Customers ✅
+Step 1: create → Step 2: communication history → Step 3: upload contract → Step 4: view.
+- ⚠️ Communication history is one box that each save overwrites (not a growing log). ⏸ Opening the file needs Replit storage.
+
+### 10.3 Opportunities ⚠️
+Step 1: create (linked to customer) → Step 2: upload proposal → stage "proposal sent" → Step 3: negotiation → won / lost → Step 4: pipeline totals.
+- ❌ Step 2: uploading a proposal does not change the stage.
+- ⚠️ Stage values aren't validated; "total value" includes lost deals.
+
+### 10.4 Historical data ✅
+Step 1: enter year/month figures → Step 2: edit / delete → Step 3: filter by year. (No validation of year/month or duplicates.)
+
+---
+
+# Open workflows (what still needs steps to complete)
+
+### A. Security – fix before real use 🔒
+1. User accounts: anyone can create admins, change roles, delete users (1.5).
+2. Notifications: everyone's are visible to everyone (8.1).
+3. Audit log and dashboard data readable without login (7.5, 2.12).
+4. Employee (HR) routes need no login (4.1).
+5. Fixed HR / COO / CEO passwords reset on every restart (0.1).
+6. Others' data can be changed by any logged-in user: wall posts (8.3), DocuGenie forms and submissions (9.1), certification applications (6.1), CRM leads (10.1), revision-history entries (2.11).
+7. Deactivated users stay logged in (1.1).
+
+### B. Broken – the workflow cannot finish ❌
+1. Certificate issue always fails → certification cycle never closes (6.3).
+2. Audits & findings: no screens, dates fail (6.2).
+3. Assigning a training from the app always fails (5.1).
+4. Report PDFs (Document Approval, Staff Confirmation) depend on a fixed Replit browser path → no User Records (2.7, 4.1, 7.4). Check on Replit; fix by finding the browser automatically.
+5. CEO approval of performance reports errors; no User Record saved (7.2).
+6. Download requests: no button, and approval doesn't control the download (3.3).
+7. Online-hours tracking never starts (1.3).
+8. Bug assigned to a non-COO person is a dead end; ticket numbering breaks after a delete (8.5).
+9. Proposal upload doesn't move the opportunity stage (10.3).
+10. Gmail AI draft reply code error (8.2).
+11. Certificate view/print for trainings and certificate designer print/download missing (5.1, 6.3).
+
+### C. Works, but needs finishing ⚠️
+1. Employee review/approval: check the person acting is the assignee (4.1).
+2. Locked documents shouldn't be reassignable (2.9).
+3. Performance report steps should follow the order (7.2).
+4. Compliance Buddy score should use the task records; push messages never sent (7.3).
+5. User Records: admins should see all (7.4).
+6. Training: enforce passing score, unique certificate numbers (5.1).
+7. Lead update reply text, CRM communication log, status/stage validation (10.x).
+8. Review signature date never recorded (2.5).
+9. Assign auditors from the certification page (6.1).
+
+### D. Not testable here ⏸ (check on the live app)
+AI features (needs OpenAI key), Gmail (Google keys), file storage (Replit), PDF generation (Replit browser path).
+
+### E. Not on GitHub
+`server/google-ai.ts` and `components/form-builder/` exist only on Replit; the internal audit module hasn't been pushed. Push them to GitHub so they can be checked.

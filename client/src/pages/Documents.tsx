@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useDocuments, useCreateDocument, useUpdateDocument, useDeleteDocument, useSubmitDocumentForReview, useDocumentAccessRequests, useCreateDocumentAccessRequest, useDocumentAccess } from "@/hooks/use-documents";
 import { useUsers } from "@/hooks/use-users";
 import { useAuth } from "@/hooks/use-auth";
@@ -143,6 +144,30 @@ export default function Documents() {
     return myAccessRequests.some((req: any) => req.documentId === docId && req.status === 'pending');
   };
   
+  // Download requests: reading an approved document does not include downloading its PDF
+  type DownloadState = { viewerCanDownload?: boolean; pdfAvailable?: boolean };
+  const { data: downloadRequests = [] } = useQuery<{ id: number; documentId: number; requesterId: number; status: string }[]>({
+    queryKey: ["/api/download-requests"],
+    enabled: !!currentUser,
+  });
+  const myDownloadRequest = (docId: number) =>
+    downloadRequests.filter(r => r.documentId === docId && r.requesterId === currentUser?.id).sort((a, b) => b.id - a.id)[0];
+  const [downloadRequestDoc, setDownloadRequestDoc] = useState<Document | null>(null);
+  const [downloadReason, setDownloadReason] = useState("");
+  const requestDownloadMutation = useMutation({
+    mutationFn: async ({ documentId, reason }: { documentId: number; reason: string }) =>
+      (await apiRequest("POST", "/api/download-requests", { documentId, reason })).json(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/download-requests"] });
+      toast({ title: "Download request submitted", description: "An admin or the Quality Manager will review it." });
+      setDownloadRequestDoc(null);
+      setDownloadReason("");
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error requesting download", description: error.message, variant: "destructive" });
+    },
+  });
+
   // Handle requesting access to a document
   const handleRequestAccess = async (doc: Document) => {
     try {
@@ -624,7 +649,7 @@ export default function Documents() {
                           <>
                             {(hasAccessToDocument(doc) || doc.createdById === currentUser?.id || doc.reviewerId === currentUser?.id || doc.approverId === currentUser?.id) ? (
                               <>
-                                {doc.finalPdfUrl && (
+                                {doc.finalPdfUrl ? (
                                   <Button
                                     variant="outline"
                                     size="sm"
@@ -634,6 +659,24 @@ export default function Documents() {
                                     <FileDown className="w-4 h-4 mr-1" />
                                     PDF
                                   </Button>
+                                ) : (doc as Document & DownloadState).viewerCanDownload === false && (doc as Document & DownloadState).pdfAvailable && (
+                                  myDownloadRequest(doc.id)?.status === 'pending' ? (
+                                    <Badge variant="secondary" className="bg-amber-100 text-amber-700" data-testid={`badge-download-pending-${doc.id}`}>
+                                      <Clock className="w-3 h-3 mr-1" />
+                                      Download Pending
+                                    </Badge>
+                                  ) : (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => { setDownloadReason(""); setDownloadRequestDoc(doc); }}
+                                      title={myDownloadRequest(doc.id)?.status === 'rejected' ? 'Your last download request was rejected' : undefined}
+                                      data-testid={`button-request-download-${doc.id}`}
+                                    >
+                                      <FileDown className="w-4 h-4 mr-1" />
+                                      Request download
+                                    </Button>
+                                  )
                                 )}
                                 {doc.isLocked && doc.hubStatus === "stored" && !doc.activeChangeRequestId &&
                                   !["under_revision", "obsolete", "quarantine"].includes(doc.lifecycleStatus || "") && (
@@ -679,7 +722,7 @@ export default function Documents() {
                               <DropdownMenuItem onClick={() => handleViewPdf(doc)}>
                                 <FileDown className="w-4 h-4 mr-2" /> View Final Draft
                               </DropdownMenuItem>
-                            ) : (
+                            ) : (doc as Document & DownloadState).viewerCanDownload === false ? null : (
                               <DropdownMenuItem onClick={() => handleGeneratePdf(doc)}>
                                 <FileDown className="w-4 h-4 mr-2" /> Generate PDF
                               </DropdownMenuItem>
@@ -1269,6 +1312,38 @@ export default function Documents() {
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setShowPdfDialog(false)} data-testid="button-close-pdf">
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Request Download Dialog */}
+      <Dialog open={!!downloadRequestDoc} onOpenChange={(open) => { if (!open) setDownloadRequestDoc(null); }}>
+        <DialogContent data-testid="dialog-request-download">
+          <DialogHeader>
+            <DialogTitle>Request download</DialogTitle>
+            <DialogDescription>
+              {downloadRequestDoc?.documentCode} - {downloadRequestDoc?.title}. Downloading this controlled document's PDF needs approval from an admin or the Quality Manager.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="download-reason">Reason</Label>
+            <Textarea
+              id="download-reason"
+              value={downloadReason}
+              onChange={(e) => setDownloadReason(e.target.value)}
+              placeholder="Why do you need a copy of this document?"
+              data-testid="input-download-reason"
+            />
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDownloadRequestDoc(null)}>Cancel</Button>
+            <Button
+              onClick={() => downloadRequestDoc && requestDownloadMutation.mutate({ documentId: downloadRequestDoc.id, reason: downloadReason.trim() })}
+              disabled={!downloadReason.trim() || requestDownloadMutation.isPending}
+              data-testid="button-submit-download-request"
+            >
+              {requestDownloadMutation.isPending ? "Submitting..." : "Submit request"}
             </Button>
           </DialogFooter>
         </DialogContent>

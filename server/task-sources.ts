@@ -6,8 +6,10 @@ import {
   DocumentStatus, DocumentHubStatus, DocumentCommentStatus, EmployeeRecordStatus, TaskStatus,
   TrainingAssignmentStatus, MonthlyReportStatus, BugReportStatus, LeadStatus, CertificationApplicationStatus,
   AuditStatus, RevisionHistoryStatus, DocuGenieFormStatus, UserRole, taskAssignments, DEFAULT_TARGET_DAYS,
-  changeRequests, ChangeRequestStatus, documentLinks,
+  changeRequests, ChangeRequestStatus, documentLinks, internalAudits, InternalAuditStatus,
 } from "@shared/schema";
+import { ALL_CHECKS, requiresAction } from "@shared/auditTemplate";
+import { parseRecord } from "./internal-audit";
 
 const COO_EMAIL = 'coo@sahihcertify.com';
 const CEO_EMAIL = 'ceo@sahihcertify.com';
@@ -41,6 +43,10 @@ export const TASK_SLA_HOURS: Record<string, number> = {
   change_request: DEFAULT_TARGET_DAYS.change_request * 24,
   link_review: DEFAULT_TARGET_DAYS.link_review * 24,
   certification_audit: 7 * 24,
+  internal_audit: 14 * 24,
+  internal_audit_signoff: 72,
+  internal_audit_action: 30 * 24,
+  internal_audit_verify: 7 * 24,
 };
 
 export const TASK_TYPE_LABELS: Record<string, string> = {
@@ -68,10 +74,14 @@ export const TASK_TYPE_LABELS: Record<string, string> = {
   form_fill: 'Form to Fill',
   change_request: 'Change Request',
   link_review: 'Linked Procedure Changed',
+  internal_audit: 'Internal Audit',
+  internal_audit_signoff: 'Internal Audit Sign-off',
+  internal_audit_action: 'Audit Corrective Action',
+  internal_audit_verify: 'Verify Corrective Action',
 };
 
 // Tasks offered to a group (any admin / QM). Whoever acts completes it; the others are "closed by a colleague".
-export const POOLED_TASK_TYPES = new Set(['download_approval', 'comment']);
+export const POOLED_TASK_TYPES = new Set(['download_approval', 'comment', 'internal_audit_signoff']);
 
 export interface OpenTask {
   key: string;            // identifies the piece of work, e.g. "review:12"; the same key can move between people
@@ -433,7 +443,8 @@ export async function collectOpenTasks(): Promise<TaskSnapshot> {
     const assigned = at(audit.createdAt);
     tasks.push({
       key: `certification_audit:${audit.id}`, userId: audit.leadAuditorId, dueSource: audit.scheduledDate ? 'source' : 'default', taskType: 'certification_audit',
-      title: `${audit.auditType.replace(/_|\d/g, ' ').trim()} audit: ${app?.clientName || 'Client'}`, reference: app?.applicationNumber || 'Audit',
+      // "stage2" -> "Stage 2 audit", "surveillance1" -> "Surveillance 1 audit"
+      title: `${audit.auditType.replace(/_/g, ' ').replace(/(\D)(\d)/, '$1 $2').replace(/^./, c => c.toUpperCase())} audit: ${app?.clientName || 'Client'}`, reference: app?.applicationNumber || 'Audit',
       description: audit.scheduledDate ? `Scheduled for ${audit.scheduledDate.toLocaleDateString('en-GB')}.` : 'Audit not yet scheduled.',
       link: '/certification', assignedAt: assigned,
       dueAt: audit.scheduledDate ? due(endOfDay(audit.scheduledDate), 'certification_audit') : null,
@@ -506,6 +517,64 @@ export async function collectOpenTasks(): Promise<TaskSnapshot> {
   }
   // links that no longer exist were removed (not reviewed): treat their tasks as cancelled
   for (const link of await db.select({ id: documentLinks.id }).from(documentLinks)) exists('document_link', link.id);
+
+  // ---- Internal audits: the lead auditor runs it, management signs it off, owners close corrective actions ----
+  for (const audit of await db.select().from(internalAudits)) {
+    exists('internal_audit', audit.id);
+    const record = parseRecord(audit);
+    const link = `/internal-audits/${audit.id}`;
+    const period = `${audit.periodStart ?? '?'} to ${audit.periodEnd ?? '?'}`;
+    const created = at(audit.createdAt);
+    if ((audit.status === InternalAuditStatus.DRAFT || audit.status === InternalAuditStatus.IN_PROGRESS) && audit.leadAuditorId) {
+      tasks.push({
+        key: `internal_audit:${audit.id}`, userId: audit.leadAuditorId, taskType: 'internal_audit', initiatorId: audit.createdById,
+        title: `Internal audit ${audit.reference}`, reference: audit.reference,
+        description: `${audit.returnNote ? `Returned by management: ${audit.returnNote}. ` : ''}Assess every check (ISO/IEC 17021-1 modules 4–10) for ${period}, complete the sampling and submit for sign-off.`,
+        link, assignedAt: created,
+        dueAt: audit.periodEnd ? endOfDay(new Date(`${audit.periodEnd}T00:00:00`)) : due(created, 'internal_audit'),
+        dueSource: audit.periodEnd ? 'source' : undefined,
+        entityType: 'internal_audit', entityId: audit.id,
+      });
+    }
+    if (audit.status === InternalAuditStatus.PENDING_SIGNOFF) {
+      const assigned = at(audit.submittedAt);
+      for (const manager of [coo, ceo]) {
+        if (!manager) continue;
+        tasks.push({
+          key: `internal_audit_signoff:${audit.id}`, userId: manager.id, taskType: 'internal_audit_signoff', initiatorId: audit.submittedById,
+          title: `Sign off internal audit ${audit.reference}`, reference: audit.reference,
+          description: `The audit for ${period} is complete. Review the findings and corrective actions, then sign it off or return it.`,
+          link, assignedAt: assigned, dueAt: due(assigned, 'internal_audit_signoff'),
+          entityType: 'internal_audit', entityId: audit.id,
+        });
+      }
+    }
+    if (audit.status === InternalAuditStatus.DRAFT) continue;
+    for (const check of ALL_CHECKS) {
+      const r = record.responses[check.id];
+      if (!requiresAction(r.rating) || r.effectivenessVerified) continue;
+      const actionDue = r.dueDate ? endOfDay(new Date(`${r.dueDate}T00:00:00`)) : null;
+      if (!r.actionCompleted && r.ownerId) {
+        tasks.push({
+          key: `internal_audit_action:${audit.id}:${check.id}`, userId: r.ownerId, taskType: 'internal_audit_action', initiatorId: audit.leadAuditorId,
+          title: `${check.id}: ${r.correctiveAction || check.text}`.slice(0, 200), reference: audit.reference,
+          description: `Corrective action from internal audit ${audit.reference} (${r.rating === 'major_nc' ? 'major' : 'minor'} non-conformity). Carry it out, then record what was done.`,
+          link, assignedAt: at(audit.updatedAt, created), dueAt: actionDue ?? due(created, 'internal_audit_action'),
+          dueSource: actionDue ? 'source' : undefined,
+          entityType: 'internal_audit', entityId: audit.id,
+        });
+      }
+      if (r.actionCompleted && audit.leadAuditorId) {
+        tasks.push({
+          key: `internal_audit_verify:${audit.id}:${check.id}`, userId: audit.leadAuditorId, taskType: 'internal_audit_verify', initiatorId: r.ownerId,
+          title: `Verify ${check.id}: ${r.correctiveAction || check.text}`.slice(0, 200), reference: audit.reference,
+          description: `${r.owner || 'The owner'} recorded the corrective action: "${r.actionTaken.slice(0, 160)}". Verify that it is effective.`,
+          link, assignedAt: at(audit.updatedAt, created), dueAt: due(at(audit.updatedAt, created), 'internal_audit_verify'),
+          entityType: 'internal_audit', entityId: audit.id,
+        });
+      }
+    }
+  }
 
   // A target date set when the task was assigned or forwarded overrides everything else
   const assignments = new Map((await db.select().from(taskAssignments)).map(a => [a.taskKey, a]));

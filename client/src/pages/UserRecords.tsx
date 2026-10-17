@@ -96,6 +96,8 @@ export default function UserRecords() {
         return "Document Approval";
       case "staff_confirmation":
         return "Staff Confirmation";
+      case "monthly_performance":
+        return "Monthly Performance";
       default:
         return reportType;
     }

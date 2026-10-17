@@ -27,6 +27,7 @@ import CrmOpportunities from "@/pages/CrmOpportunities";
 import CrmHistoricalData from "@/pages/CrmHistoricalData";
 import FormSubmit from "@/pages/FormSubmit";
 import RecordsHive from "@/pages/RecordsHive";
+import InternalAudits from "@/pages/InternalAudits";
 import ChangeRequestForm from "@/pages/ChangeRequestForm";
 import Login from "@/pages/Login";
 import NotFound from "@/pages/not-found";
@@ -35,6 +36,7 @@ import { MobileBottomNav } from "@/components/MobileBottomNav";
 import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
 import { HubEebiChat } from "@/components/HubEebiChat";
 import { UserAgreementModal } from "@/components/UserAgreementModal";
+import { useActivitySession, endActivitySession } from "@/hooks/use-users";
 
 interface User {
   id: number;
@@ -50,6 +52,7 @@ function ViewDocumentRedirect({ params }: { params: { id: string } }) {
 
 function AuthenticatedRouter({ user, onLogout }: { user: User; onLogout: () => void }) {
   const needsAgreement = !user.agreementAcceptedAt;
+  useActivitySession();
 
   return (
     <>
@@ -81,6 +84,8 @@ function AuthenticatedRouter({ user, onLogout }: { user: User; onLogout: () => v
             <Route path="/audit-log" component={AuditLog} />
             <Route path="/records" component={RecordsHive} />
             <Route path="/records/change-requests/:id" component={ChangeRequestForm} />
+            <Route path="/internal-audits" component={InternalAudits} />
+            <Route path="/internal-audits/:id" component={InternalAudits} />
             <Route component={NotFound} />
           </Switch>
         </div>
@@ -122,6 +127,7 @@ function App() {
 
   const handleLogout = async () => {
     try {
+      await endActivitySession();
       await apiRequest('POST', '/api/auth/logout');
       setUser(null);
       queryClient.clear();
