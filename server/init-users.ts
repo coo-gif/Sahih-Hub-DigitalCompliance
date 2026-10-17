@@ -1,14 +1,14 @@
 import { db } from "./db";
 import { users } from "@shared/schema";
-import { sql } from "drizzle-orm";
 import bcrypt from "bcrypt";
 
 const SALT_ROUNDS = 10;
 
+// Initial passwords come from the environment so none live in the source.
 const defaultUsers = [
-  { name: 'Nourin Saira', email: 'hr@sahihcertify.com', password: 'HRO@2026', role: 'admin' as const },
-  { name: 'Nazif Ahammad', email: 'coo@sahihcertify.com', password: 'COO@2026', role: 'admin' as const },
-  { name: 'Mohamed Ali Al Ahbabi', email: 'ceo@sahihcertify.com', password: 'CEO@2026', role: 'admin' as const },
+  { name: 'Nourin Saira', email: 'hr@sahihcertify.com', passwordEnv: 'HR_INITIAL_PASSWORD', role: 'admin' as const },
+  { name: 'Nazif Ahammad', email: 'coo@sahihcertify.com', passwordEnv: 'COO_INITIAL_PASSWORD', role: 'admin' as const },
+  { name: 'Mohamed Ali Al Ahbabi', email: 'ceo@sahihcertify.com', passwordEnv: 'CEO_INITIAL_PASSWORD', role: 'admin' as const },
 ];
 
 export async function initializeDefaultUsers(): Promise<void> {
@@ -26,28 +26,27 @@ export async function initializeDefaultUsers(): Promise<void> {
         const existingUsers = await db.select({ id: users.id, email: users.email }).from(users);
         const existing = existingUsers.find(u => u.email.toLowerCase() === user.email.toLowerCase());
         
-        const hashedPassword = await bcrypt.hash(user.password, SALT_ROUNDS);
-        
-        if (!existing) {
-          console.log(`[init] Creating user: ${user.email}`);
-          await db.insert(users).values({
-            name: user.name,
-            email: user.email,
-            passwordHash: hashedPassword,
-            role: user.role,
-            inductionStatus: 'completed',
-            isActive: true,
-          });
-          console.log(`[init] Successfully created user: ${user.email}`);
-        } else {
-          // Update password for existing user to ensure it matches
-          console.log(`[init] Updating password for existing user: ${user.email} (id: ${existing.id})`);
-          await db.update(users).set({ 
-            passwordHash: hashedPassword,
-            isActive: true 
-          }).where(sql`${users.id} = ${existing.id}`);
-          console.log(`[init] Password updated for: ${user.email}`);
+        if (existing) {
+          // Never overwrite the password of an account that already exists
+          continue;
         }
+
+        const password = process.env[user.passwordEnv];
+        if (!password) {
+          console.warn(`[init] ${user.passwordEnv} is not set; skipping creation of ${user.email}`);
+          continue;
+        }
+
+        console.log(`[init] Creating user: ${user.email}`);
+        await db.insert(users).values({
+          name: user.name,
+          email: user.email,
+          passwordHash: await bcrypt.hash(password, SALT_ROUNDS),
+          role: user.role,
+          inductionStatus: 'completed',
+          isActive: true,
+        });
+        console.log(`[init] Successfully created user: ${user.email}`);
       } catch (err: any) {
         console.error(`[init] Error creating user ${user.email}:`, err.message || err);
       }

@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useForm } from "react-hook-form";
@@ -17,9 +17,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Pencil, Phone, Building2, User, Calendar, MessageSquare, Search, Filter, Users, History, Eye, FileText, Upload, Bell, ArrowRight } from "lucide-react";
+import { Plus, Trash2, Pencil, Phone, Building2, User, Calendar, MessageSquare, Search, Filter, Users, Eye, FileText, Bell } from "lucide-react";
 import { format } from "date-fns";
-import type { Lead, User as UserType, LeadStatusHistory, LeadUpdateRequest } from "@shared/schema";
+import type { Lead, User as UserType, LeadUpdateRequest } from "@shared/schema";
 
 const createLeadSchema = z.object({
   leadName: z.string().min(1, "Lead name is required"),
@@ -34,10 +34,6 @@ const createLeadSchema = z.object({
 });
 
 type CreateLeadData = z.infer<typeof createLeadSchema>;
-
-interface StatusHistoryEntry extends LeadStatusHistory {
-  changedByName: string;
-}
 
 interface UpdateRequestEntry extends LeadUpdateRequest {
   requestedByName: string;
@@ -81,17 +77,12 @@ export default function CrmLeads() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isLeadDetailsOpen, setIsLeadDetailsOpen] = useState(false);
-  const [isStatusChangeOpen, setIsStatusChangeOpen] = useState(false);
   const [isAskUpdateOpen, setIsAskUpdateOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [newStatus, setNewStatus] = useState<string>("");
-  const [statusReason, setStatusReason] = useState("");
-  const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
   const [updateMessage, setUpdateMessage] = useState("");
   const [updateTargetUserId, setUpdateTargetUserId] = useState<number | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<CreateLeadData>({
     resolver: zodResolver(createLeadSchema),
@@ -133,11 +124,6 @@ export default function CrmLeads() {
 
   const { data: currentUser } = useQuery<UserType>({
     queryKey: ["/api/user"],
-  });
-
-  const { data: statusHistory = [] } = useQuery<StatusHistoryEntry[]>({
-    queryKey: ["/api/leads", selectedLead?.id, "status-history"],
-    enabled: !!selectedLead && isLeadDetailsOpen,
   });
 
   const { data: updateRequests = [] } = useQuery<UpdateRequestEntry[]>({
@@ -196,35 +182,6 @@ export default function CrmLeads() {
     },
   });
 
-  const changeStatus = useMutation({
-    mutationFn: async ({ leadId, newStatus, reason, evidenceUrl, evidenceFileName }: {
-      leadId: number;
-      newStatus: string;
-      reason: string;
-      evidenceUrl?: string;
-      evidenceFileName?: string;
-    }) => {
-      return apiRequest("POST", `/api/leads/${leadId}/status`, {
-        newStatus,
-        reason,
-        evidenceUrl,
-        evidenceFileName,
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/leads", selectedLead?.id, "status-history"] });
-      setIsStatusChangeOpen(false);
-      setNewStatus("");
-      setStatusReason("");
-      setEvidenceFile(null);
-      toast({ title: "Status updated successfully" });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Error updating status", description: error.message, variant: "destructive" });
-    },
-  });
-
   const requestUpdate = useMutation({
     mutationFn: async ({ leadId, requestedFromId, message }: {
       leadId: number;
@@ -253,51 +210,10 @@ export default function CrmLeads() {
     setIsLeadDetailsOpen(true);
   };
 
-  const handleOpenStatusChange = (lead: Lead) => {
-    setSelectedLead(lead);
-    setNewStatus(lead.leadStatus || "new");
-    setIsStatusChangeOpen(true);
-  };
-
   const handleOpenAskUpdate = (lead: Lead) => {
     setSelectedLead(lead);
     setUpdateTargetUserId(lead.assignedToId || null);
     setIsAskUpdateOpen(true);
-  };
-
-  const handleStatusChangeSubmit = async () => {
-    if (!selectedLead || !newStatus) return;
-    
-    let evidenceUrl = undefined;
-    let evidenceFileName = undefined;
-    
-    if (evidenceFile) {
-      const formData = new FormData();
-      formData.append('file', evidenceFile);
-      
-      try {
-        const response = await fetch('/api/upload', {
-          method: 'POST',
-          body: formData,
-          credentials: 'include',
-        });
-        const result = await response.json();
-        if (result.url) {
-          evidenceUrl = result.url;
-          evidenceFileName = evidenceFile.name;
-        }
-      } catch (error) {
-        console.error("Error uploading evidence:", error);
-      }
-    }
-    
-    changeStatus.mutate({
-      leadId: selectedLead.id,
-      newStatus,
-      reason: statusReason,
-      evidenceUrl,
-      evidenceFileName,
-    });
   };
 
   const handleEdit = (lead: Lead) => {
@@ -694,18 +610,9 @@ export default function CrmLeads() {
                             size="icon"
                             onClick={() => handleViewDetails(lead)}
                             data-testid={`button-view-lead-${lead.id}`}
-                            title="View Details & History"
+                            title="View Details"
                           >
                             <Eye className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleOpenStatusChange(lead)}
-                            data-testid={`button-change-status-${lead.id}`}
-                            title="Change Status"
-                          >
-                            <History className="h-4 w-4" />
                           </Button>
                           {isCooOrAdmin && (
                             <Button
@@ -941,7 +848,7 @@ export default function CrmLeads() {
         </DialogContent>
       </Dialog>
 
-      {/* Lead Details Dialog with Status History */}
+      {/* Lead Details Dialog */}
       <Dialog open={isLeadDetailsOpen} onOpenChange={setIsLeadDetailsOpen}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -950,15 +857,14 @@ export default function CrmLeads() {
               {selectedLead?.leadName}
             </DialogTitle>
             <DialogDescription>
-              Lead details and complete interaction history
+              Lead details and update requests
             </DialogDescription>
           </DialogHeader>
           
           {selectedLead && (
             <Tabs defaultValue="details" className="w-full">
-              <TabsList className="grid w-full grid-cols-3">
+              <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="details" data-testid="tab-lead-details">Details</TabsTrigger>
-                <TabsTrigger value="history" data-testid="tab-status-history">Status History</TabsTrigger>
                 <TabsTrigger value="requests" data-testid="tab-update-requests">Update Requests</TabsTrigger>
               </TabsList>
               
@@ -1022,52 +928,6 @@ export default function CrmLeads() {
                 )}
               </TabsContent>
               
-              <TabsContent value="history" className="mt-4">
-                <ScrollArea className="h-[350px]">
-                  {statusHistory.length === 0 ? (
-                    <p className="text-muted-foreground text-center py-8">No status changes recorded yet</p>
-                  ) : (
-                    <div className="space-y-4">
-                      {statusHistory.map((entry) => (
-                        <div key={entry.id} className="border rounded-lg p-4 space-y-2">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <Badge className={leadStatusColors[entry.previousStatus || "new"]}>
-                              {leadStatusLabels[entry.previousStatus || "new"]}
-                            </Badge>
-                            <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                            <Badge className={leadStatusColors[entry.newStatus || "new"]}>
-                              {leadStatusLabels[entry.newStatus || "new"]}
-                            </Badge>
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            Changed by <span className="font-medium">{entry.changedByName}</span> on{" "}
-                            {entry.changedAt ? format(new Date(entry.changedAt), "MMM d, yyyy 'at' HH:mm") : "N/A"}
-                          </div>
-                          {entry.reason && (
-                            <div className="text-sm">
-                              <span className="font-medium">Reason:</span> {entry.reason}
-                            </div>
-                          )}
-                          {entry.evidenceUrl && (
-                            <div className="flex items-center gap-2 text-sm">
-                              <FileText className="h-4 w-4" />
-                              <a 
-                                href={entry.evidenceUrl} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="text-primary hover:underline"
-                              >
-                                {entry.evidenceFileName || "View Evidence"}
-                              </a>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </ScrollArea>
-              </TabsContent>
-              
               <TabsContent value="requests" className="mt-4">
                 <ScrollArea className="h-[350px]">
                   {updateRequests.length === 0 ? (
@@ -1104,98 +964,6 @@ export default function CrmLeads() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsLeadDetailsOpen(false)}>
               Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Status Change Dialog */}
-      <Dialog open={isStatusChangeOpen} onOpenChange={setIsStatusChangeOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Change Lead Status</DialogTitle>
-            <DialogDescription>
-              Update the status of {selectedLead?.leadName}. Please provide a reason and optional evidence.
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Current Status</label>
-              <Badge className={leadStatusColors[selectedLead?.leadStatus || "new"]}>
-                {leadStatusLabels[selectedLead?.leadStatus || "new"]}
-              </Badge>
-            </div>
-            
-            <div className="space-y-2">
-              <label className="text-sm font-medium">New Status *</label>
-              <Select value={newStatus} onValueChange={setNewStatus}>
-                <SelectTrigger data-testid="select-new-status">
-                  <SelectValue placeholder="Select new status" />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(leadStatusLabels).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Reason for Change *</label>
-              <Textarea
-                placeholder="Explain why you are changing the status..."
-                value={statusReason}
-                onChange={(e) => setStatusReason(e.target.value)}
-                className="min-h-[80px]"
-                data-testid="textarea-status-reason"
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Evidence (Optional)</label>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={(e) => setEvidenceFile(e.target.files?.[0] || null)}
-                  className="hidden"
-                  data-testid="input-evidence-file"
-                />
-                <Button 
-                  type="button" 
-                  variant="outline" 
-                  onClick={() => fileInputRef.current?.click()}
-                  className="gap-2"
-                >
-                  <Upload className="h-4 w-4" />
-                  Upload Evidence
-                </Button>
-                {evidenceFile && (
-                  <span className="text-sm text-muted-foreground">{evidenceFile.name}</span>
-                )}
-              </div>
-            </div>
-          </div>
-          
-          <DialogFooter>
-            <Button 
-              variant="outline" 
-              onClick={() => {
-                setIsStatusChangeOpen(false);
-                setNewStatus("");
-                setStatusReason("");
-                setEvidenceFile(null);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleStatusChangeSubmit}
-              disabled={!newStatus || !statusReason || changeStatus.isPending}
-              data-testid="button-submit-status-change"
-            >
-              {changeStatus.isPending ? "Updating..." : "Update Status"}
             </Button>
           </DialogFooter>
         </DialogContent>

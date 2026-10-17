@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useForm } from "react-hook-form";
@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Pencil, Phone, Building2, User, MapPin, Factory, FileText, Search, Upload, Download, X, Users } from "lucide-react";
+import { Plus, Trash2, Pencil, Phone, Building2, User, MapPin, Factory, FileText, Search, Download, X, Users } from "lucide-react";
 import { format } from "date-fns";
 import type { Customer, User as UserType } from "@shared/schema";
 
@@ -37,8 +37,6 @@ export default function CrmCustomers() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [isUploading, setIsUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<CreateCustomerData>({
     resolver: zodResolver(createCustomerSchema),
@@ -125,47 +123,6 @@ export default function CrmCustomers() {
       toast({ title: "Error deleting customer", description: error.message, variant: "destructive" });
     },
   });
-
-  const uploadContract = useMutation({
-    mutationFn: async ({ customerId, file }: { customerId: number; file: File }) => {
-      const formData = new FormData();
-      formData.append("file", file);
-      
-      const uploadResponse = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
-      
-      if (!uploadResponse.ok) {
-        throw new Error("Failed to upload file");
-      }
-      
-      const { url } = await uploadResponse.json();
-      
-      return apiRequest("POST", `/api/customers/${customerId}/contract`, {
-        fileUrl: url,
-        fileName: file.name,
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
-      toast({ title: "Contract uploaded successfully" });
-      setIsUploading(false);
-    },
-    onError: (error: Error) => {
-      toast({ title: "Error uploading contract", description: error.message, variant: "destructive" });
-      setIsUploading(false);
-    },
-  });
-
-  const handleFileUpload = async (customerId: number, event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    
-    setIsUploading(true);
-    uploadContract.mutate({ customerId, file });
-  };
 
   const handleEditClick = (customer: Customer) => {
     setSelectedCustomer(customer);
@@ -519,29 +476,7 @@ export default function CrmCustomers() {
                           </a>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="file"
-                            ref={fileInputRef}
-                            onChange={(e) => handleFileUpload(customer.id, e)}
-                            className="hidden"
-                            accept=".pdf,.doc,.docx"
-                            data-testid={`input-upload-contract-${customer.id}`}
-                          />
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setSelectedCustomer(customer);
-                              fileInputRef.current?.click();
-                            }}
-                            disabled={isUploading}
-                            data-testid={`button-upload-contract-${customer.id}`}
-                          >
-                            <Upload className="h-3 w-3 mr-1" />
-                            {isUploading && selectedCustomer?.id === customer.id ? "Uploading..." : "Upload"}
-                          </Button>
-                        </div>
+                        <span className="text-muted-foreground text-sm">—</span>
                       )}
                     </TableCell>
                     <TableCell className="text-right">

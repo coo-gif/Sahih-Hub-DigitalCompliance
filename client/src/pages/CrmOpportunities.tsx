@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useForm } from "react-hook-form";
@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Pencil, DollarSign, Calendar, Target, FileText, Search, Upload, TrendingUp, CheckCircle, XCircle } from "lucide-react";
+import { Plus, Trash2, Pencil, DollarSign, Calendar, Target, FileText, Search, TrendingUp, CheckCircle, XCircle } from "lucide-react";
 import { format } from "date-fns";
 import type { Opportunity, Customer } from "@shared/schema";
 
@@ -69,8 +69,6 @@ export default function CrmOpportunities() {
   const [selectedOpportunity, setSelectedOpportunity] = useState<Opportunity | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [stageFilter, setStageFilter] = useState<string>("all");
-  const [isUploading, setIsUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<CreateOpportunityData>({
     resolver: zodResolver(createOpportunitySchema),
@@ -159,47 +157,6 @@ export default function CrmOpportunities() {
       toast({ title: "Error deleting opportunity", description: error.message, variant: "destructive" });
     },
   });
-
-  const uploadProposal = useMutation({
-    mutationFn: async ({ opportunityId, file }: { opportunityId: number; file: File }) => {
-      const formData = new FormData();
-      formData.append("file", file);
-      
-      const uploadResponse = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
-      
-      if (!uploadResponse.ok) {
-        throw new Error("Failed to upload file");
-      }
-      
-      const { url } = await uploadResponse.json();
-      
-      return apiRequest("POST", `/api/opportunities/${opportunityId}/proposal`, {
-        fileUrl: url,
-        fileName: file.name,
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/opportunities"] });
-      toast({ title: "Proposal uploaded successfully" });
-      setIsUploading(false);
-    },
-    onError: (error: Error) => {
-      toast({ title: "Error uploading proposal", description: error.message, variant: "destructive" });
-      setIsUploading(false);
-    },
-  });
-
-  const handleFileUpload = async (opportunityId: number, event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    
-    setIsUploading(true);
-    uploadProposal.mutate({ opportunityId, file });
-  };
 
   const handleEditClick = (opportunity: Opportunity) => {
     setSelectedOpportunity(opportunity);
@@ -607,29 +564,7 @@ export default function CrmOpportunities() {
                           <span className="truncate max-w-[80px]">{opportunity.proposalFileName || "View"}</span>
                         </a>
                       ) : (
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="file"
-                            ref={fileInputRef}
-                            onChange={(e) => handleFileUpload(opportunity.id, e)}
-                            className="hidden"
-                            accept=".pdf,.doc,.docx"
-                            data-testid={`input-upload-proposal-${opportunity.id}`}
-                          />
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setSelectedOpportunity(opportunity);
-                              fileInputRef.current?.click();
-                            }}
-                            disabled={isUploading}
-                            data-testid={`button-upload-proposal-${opportunity.id}`}
-                          >
-                            <Upload className="h-3 w-3 mr-1" />
-                            {isUploading && selectedOpportunity?.id === opportunity.id ? "..." : "Upload"}
-                          </Button>
-                        </div>
+                        <span className="text-muted-foreground text-sm">—</span>
                       )}
                     </TableCell>
                     <TableCell className="text-right">

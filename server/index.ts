@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import pgSession from "connect-pg-simple";
@@ -34,6 +35,11 @@ if (process.env.NODE_ENV === "production") {
   app.set("trust proxy", 1);
 }
 
+const sessionSecret = process.env.SESSION_SECRET;
+if (!sessionSecret && process.env.NODE_ENV === "production") {
+  throw new Error("SESSION_SECRET must be set in production");
+}
+
 app.use(
   session({
     store: new PgStore({
@@ -41,7 +47,7 @@ app.use(
       tableName: "user_sessions",
       createTableIfMissing: true,
     }),
-    secret: process.env.SESSION_SECRET || "qms-secret-key-change-in-production",
+    secret: sessionSecret || randomBytes(32).toString("hex"),
     resave: false,
     saveUninitialized: false,
     cookie: {

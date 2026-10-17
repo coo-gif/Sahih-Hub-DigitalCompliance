@@ -2,15 +2,14 @@ import { db } from "./db";
 import {
   users, documents, documentVersions, workflowLogs, notifications, auditLogs,
   employees, employeeTasks, downloadRequests, documentFeedback, documentComments, documentTasks, taskPokes,
-  documentAccessRequests, documentAccess, userRecords, buddyStatus, pushSubscriptions, buddyDialogues,
+  documentAccessRequests, documentAccess, userRecords, buddyStatus, buddyDialogues,
   userActivityLogs, monthlyPerformanceReports, bugReports,
-  certificationApplications, certificationAudits, auditFindings, certificates, wallPosts, revisionHistory,
+  certificationApplications, certificates, wallPosts, revisionHistory,
   trainings, trainingAssignments, trainingCompletions, docugenieForms, docugenieFormSubmissions, 
-  leads, leadStatusHistory, leadUpdateRequests, customers, opportunities, historicalData,
+  leads, leadUpdateRequests, customers, opportunities, historicalData,
   type User, type InsertUser,
   type DocumentComment, type InsertDocumentComment,
   type Lead, type InsertLead,
-  type LeadStatusHistory, type InsertLeadStatusHistory,
   type LeadUpdateRequest, type InsertLeadUpdateRequest,
   type Customer, type InsertCustomer,
   type Opportunity, type InsertOpportunity,
@@ -36,14 +35,11 @@ import {
   type DocumentAccess, type InsertDocumentAccess,
   type UserRecord, type InsertUserRecord,
   type BuddyStatus, type InsertBuddyStatus,
-  type PushSubscription, type InsertPushSubscription,
   type BuddyDialogue, type InsertBuddyDialogue,
   type UserActivityLog, type InsertUserActivityLog,
   type MonthlyPerformanceReport, type InsertMonthlyPerformanceReport,
   type BugReport, type InsertBugReport,
   type CertificationApplication, type InsertCertificationApplication,
-  type CertificationAudit, type InsertCertificationAudit,
-  type AuditFinding, type InsertAuditFinding,
   type Certificate, type InsertCertificate,
   type WallPost, type InsertWallPost,
   DocumentStatus, DocumentCommentStatus, InductionStatus, TaskStatus, FeedbackStatus, DocumentTaskStatus,
@@ -90,7 +86,6 @@ export interface IStorage {
   deleteDocument(id: number): Promise<void>;
 
   // Document Versions
-  createDocumentVersion(version: InsertDocumentVersion): Promise<DocumentVersion>;
   getDocumentVersions(documentId: number): Promise<DocumentVersion[]>;
 
   // Workflow Logs
@@ -225,15 +220,8 @@ export interface IStorage {
   getBuddyStatus(userId: number): Promise<BuddyStatus | undefined>;
   getOrCreateBuddyStatus(userId: number): Promise<BuddyStatus>;
   updateBuddyStatus(userId: number, updates: Partial<InsertBuddyStatus>): Promise<BuddyStatus>;
-  calculateUserCompliance(userId: number): Promise<{ score: number; state: string }>;
-  getUserTaskStats(userId: number): Promise<{ totalTasks: number; completedTasks: number; overdueTasks: number }>;
   calculateSystemCompliance(): Promise<{ score: number; state: string }>;
   getSystemTaskStats(): Promise<{ totalTasks: number; completedTasks: number; overdueTasks: number }>;
-
-  // Push Subscriptions
-  getPushSubscriptions(userId: number): Promise<PushSubscription[]>;
-  savePushSubscription(subscription: InsertPushSubscription): Promise<PushSubscription>;
-  removePushSubscription(userId: number, endpoint: string): Promise<void>;
 
   // Buddy Dialogues
   getBuddyDialogues(userId: number, unacknowledgedOnly?: boolean): Promise<BuddyDialogue[]>;
@@ -263,18 +251,6 @@ export interface IStorage {
   createCertificationApplication(app: InsertCertificationApplication): Promise<CertificationApplication>;
   updateCertificationApplication(id: number, app: Partial<InsertCertificationApplication>): Promise<CertificationApplication>;
   deleteCertificationApplication(id: number): Promise<void>;
-
-  // Certification Audits
-  getCertificationAudits(applicationId?: number): Promise<CertificationAudit[]>;
-  getCertificationAudit(id: number): Promise<CertificationAudit | undefined>;
-  createCertificationAudit(audit: InsertCertificationAudit): Promise<CertificationAudit>;
-  updateCertificationAudit(id: number, audit: Partial<InsertCertificationAudit>): Promise<CertificationAudit>;
-
-  // Audit Findings
-  getAuditFindings(auditId?: number): Promise<AuditFinding[]>;
-  getAuditFinding(id: number): Promise<AuditFinding | undefined>;
-  createAuditFinding(finding: InsertAuditFinding): Promise<AuditFinding>;
-  updateAuditFinding(id: number, finding: Partial<InsertAuditFinding>): Promise<AuditFinding>;
 
   // Certificates
   getCertificates(filters?: { applicationId?: number; status?: string }): Promise<Certificate[]>;
@@ -318,8 +294,6 @@ export interface IStorage {
   deleteLead(id: number): Promise<void>;
 
   // CRM - Lead Status History
-  getLeadStatusHistory(leadId: number): Promise<Array<LeadStatusHistory & { changedByName: string }>>;
-  createLeadStatusHistory(entry: InsertLeadStatusHistory): Promise<LeadStatusHistory>;
 
   // CRM - Lead Update Requests
   getLeadUpdateRequests(leadId: number): Promise<Array<LeadUpdateRequest & { requestedByName: string; requestedFromName: string }>>;
@@ -501,14 +475,6 @@ export class DatabaseStorage implements IStorage {
 
   async deleteDocument(id: number): Promise<void> {
     await db.delete(documents).where(eq(documents.id, id));
-  }
-
-  // ============================================
-  // DOCUMENT VERSIONS
-  // ============================================
-  async createDocumentVersion(version: InsertDocumentVersion): Promise<DocumentVersion> {
-    const [created] = await db.insert(documentVersions).values(version).returning();
-    return created;
   }
 
   async getDocumentVersions(documentId: number): Promise<DocumentVersion[]> {
@@ -1377,65 +1343,6 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async calculateUserCompliance(userId: number): Promise<{ score: number; state: string }> {
-    const tasks = await db.select().from(documentTasks)
-      .where(eq(documentTasks.assignedToId, userId));
-
-    const totalTasks = tasks.length;
-    if (totalTasks === 0) {
-      return { score: 100, state: BuddyState.FLEXING };
-    }
-
-    const completedTasks = tasks.filter(t => t.status === 'completed').length;
-    const overdueTasks = tasks.filter(t => {
-      if (t.status === 'completed') return false;
-      if (!t.targetDate) return false;
-      return new Date(t.targetDate) < new Date();
-    }).length;
-
-    // Calculate compliance score
-    // Base score from completion rate
-    const completionRate = (completedTasks / totalTasks) * 100;
-    // Penalty for overdue tasks
-    const overduePenalty = (overdueTasks / totalTasks) * 30;
-    const score = Math.max(0, Math.min(100, Math.round(completionRate - overduePenalty)));
-
-    // Determine state based on score
-    let state: string;
-    if (score >= 90) state = BuddyState.FLEXING;
-    else if (score >= 80) state = BuddyState.HEALTHY;
-    else if (score >= 70) state = BuddyState.TIRED;
-    else if (score >= 60) state = BuddyState.WEAK;
-    else state = BuddyState.CRITICAL;
-
-    // Update buddy status
-    await this.getOrCreateBuddyStatus(userId);
-    await this.updateBuddyStatus(userId, {
-      complianceScore: score,
-      currentState: state,
-      totalTasksAssigned: totalTasks,
-      tasksCompleted: completedTasks,
-      tasksOverdue: overdueTasks,
-    });
-
-    return { score, state };
-  }
-
-  async getUserTaskStats(userId: number): Promise<{ totalTasks: number; completedTasks: number; overdueTasks: number }> {
-    const tasks = await db.select().from(documentTasks)
-      .where(eq(documentTasks.assignedToId, userId));
-
-    const totalTasks = tasks.length;
-    const completedTasks = tasks.filter(t => t.status === 'completed').length;
-    const overdueTasks = tasks.filter(t => {
-      if (t.status === 'completed') return false;
-      if (!t.targetDate) return false;
-      return new Date(t.targetDate) < new Date();
-    }).length;
-
-    return { totalTasks, completedTasks, overdueTasks };
-  }
-
   async calculateSystemCompliance(): Promise<{ score: number; state: string }> {
     // Get ALL tasks across the entire system
     const tasks = await db.select().from(documentTasks);
@@ -1481,46 +1388,6 @@ export class DatabaseStorage implements IStorage {
     }).length;
 
     return { totalTasks, completedTasks, overdueTasks };
-  }
-
-  // ============================================
-  // PUSH SUBSCRIPTIONS
-  // ============================================
-  async getPushSubscriptions(userId: number): Promise<PushSubscription[]> {
-    return await db.select().from(pushSubscriptions)
-      .where(and(
-        eq(pushSubscriptions.userId, userId),
-        eq(pushSubscriptions.isActive, true)
-      ));
-  }
-
-  async savePushSubscription(subscription: InsertPushSubscription): Promise<PushSubscription> {
-    // Check if subscription already exists
-    const existing = await db.select().from(pushSubscriptions)
-      .where(and(
-        eq(pushSubscriptions.userId, subscription.userId),
-        eq(pushSubscriptions.endpoint, subscription.endpoint)
-      ));
-
-    if (existing.length > 0) {
-      const [updated] = await db.update(pushSubscriptions)
-        .set({ ...subscription, isActive: true, updatedAt: new Date() })
-        .where(eq(pushSubscriptions.id, existing[0].id))
-        .returning();
-      return updated;
-    }
-
-    const [created] = await db.insert(pushSubscriptions).values(subscription).returning();
-    return created;
-  }
-
-  async removePushSubscription(userId: number, endpoint: string): Promise<void> {
-    await db.update(pushSubscriptions)
-      .set({ isActive: false, updatedAt: new Date() })
-      .where(and(
-        eq(pushSubscriptions.userId, userId),
-        eq(pushSubscriptions.endpoint, endpoint)
-      ));
   }
 
   // ============================================
@@ -1969,66 +1836,6 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ============================================
-  // CERTIFICATION AUDITS
-  // ============================================
-  async getCertificationAudits(applicationId?: number): Promise<CertificationAudit[]> {
-    if (applicationId) {
-      return db.select().from(certificationAudits)
-        .where(eq(certificationAudits.applicationId, applicationId))
-        .orderBy(desc(certificationAudits.scheduledDate));
-    }
-    return db.select().from(certificationAudits).orderBy(desc(certificationAudits.scheduledDate));
-  }
-
-  async getCertificationAudit(id: number): Promise<CertificationAudit | undefined> {
-    const [audit] = await db.select().from(certificationAudits).where(eq(certificationAudits.id, id));
-    return audit;
-  }
-
-  async createCertificationAudit(data: InsertCertificationAudit): Promise<CertificationAudit> {
-    const [audit] = await db.insert(certificationAudits).values(data).returning();
-    return audit;
-  }
-
-  async updateCertificationAudit(id: number, data: Partial<InsertCertificationAudit>): Promise<CertificationAudit> {
-    const [updated] = await db.update(certificationAudits)
-      .set({ ...data, updatedAt: new Date() })
-      .where(eq(certificationAudits.id, id))
-      .returning();
-    return updated;
-  }
-
-  // ============================================
-  // AUDIT FINDINGS
-  // ============================================
-  async getAuditFindings(auditId?: number): Promise<AuditFinding[]> {
-    if (auditId) {
-      return db.select().from(auditFindings)
-        .where(eq(auditFindings.auditId, auditId))
-        .orderBy(desc(auditFindings.createdAt));
-    }
-    return db.select().from(auditFindings).orderBy(desc(auditFindings.createdAt));
-  }
-
-  async getAuditFinding(id: number): Promise<AuditFinding | undefined> {
-    const [finding] = await db.select().from(auditFindings).where(eq(auditFindings.id, id));
-    return finding;
-  }
-
-  async createAuditFinding(data: InsertAuditFinding): Promise<AuditFinding> {
-    const [finding] = await db.insert(auditFindings).values(data).returning();
-    return finding;
-  }
-
-  async updateAuditFinding(id: number, data: Partial<InsertAuditFinding>): Promise<AuditFinding> {
-    const [updated] = await db.update(auditFindings)
-      .set({ ...data, updatedAt: new Date() })
-      .where(eq(auditFindings.id, id))
-      .returning();
-    return updated;
-  }
-
-  // ============================================
   // CERTIFICATES
   // ============================================
   async getCertificates(filters?: { applicationId?: number; status?: string }): Promise<Certificate[]> {
@@ -2356,39 +2163,6 @@ export class DatabaseStorage implements IStorage {
 
   async deleteLead(id: number): Promise<void> {
     await db.delete(leads).where(eq(leads.id, id));
-  }
-
-  // ============================================
-  // CRM - LEAD STATUS HISTORY
-  // ============================================
-  async getLeadStatusHistory(leadId: number): Promise<Array<LeadStatusHistory & { changedByName: string }>> {
-    const result = await db
-      .select({
-        id: leadStatusHistory.id,
-        leadId: leadStatusHistory.leadId,
-        previousStatus: leadStatusHistory.previousStatus,
-        newStatus: leadStatusHistory.newStatus,
-        reason: leadStatusHistory.reason,
-        evidenceUrl: leadStatusHistory.evidenceUrl,
-        evidenceFileName: leadStatusHistory.evidenceFileName,
-        changedById: leadStatusHistory.changedById,
-        changedAt: leadStatusHistory.changedAt,
-        changedByName: users.name,
-      })
-      .from(leadStatusHistory)
-      .leftJoin(users, eq(leadStatusHistory.changedById, users.id))
-      .where(eq(leadStatusHistory.leadId, leadId))
-      .orderBy(desc(leadStatusHistory.changedAt));
-    
-    return result.map(r => ({
-      ...r,
-      changedByName: r.changedByName || 'Unknown',
-    }));
-  }
-
-  async createLeadStatusHistory(entry: InsertLeadStatusHistory): Promise<LeadStatusHistory> {
-    const [result] = await db.insert(leadStatusHistory).values(entry).returning();
-    return result;
   }
 
   // ============================================

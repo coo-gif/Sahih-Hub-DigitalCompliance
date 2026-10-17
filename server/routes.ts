@@ -127,6 +127,14 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+// Account management is limited to administrators
+function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  if ((req as any).user?.role !== 'admin') {
+    return res.status(403).json({ message: 'Administrator access required' });
+  }
+  next();
+}
+
 const COO_EMAIL = 'coo@sahihcertify.com';
 
 // Documents the COO stored in the Hub as public information are readable by every signed-in user
@@ -587,17 +595,17 @@ export async function registerRoutes(
   // ============================================
   // DASHBOARD ROUTES
   // ============================================
-  app.get(api.dashboard.stats.path, async (req, res) => {
+  app.get(api.dashboard.stats.path, requireAuth, async (req, res) => {
     const stats = await storage.getDashboardStats();
     res.json(stats);
   });
 
-  app.get(api.dashboard.alerts.path, async (req, res) => {
+  app.get(api.dashboard.alerts.path, requireAuth, async (req, res) => {
     const alerts = await storage.getComplianceAlerts();
     res.json(alerts);
   });
 
-  app.get(api.dashboard.recentActivity.path, async (req, res) => {
+  app.get(api.dashboard.recentActivity.path, requireAuth, async (req, res) => {
     const activity = await storage.getAuditLogs(10);
     res.json(activity);
   });
@@ -629,12 +637,12 @@ export async function registerRoutes(
     }
   });
 
-  app.get(api.users.list.path, async (req, res) => {
+  app.get(api.users.list.path, requireAuth, async (req, res) => {
     const users = await storage.getUsers();
     res.json(users);
   });
 
-  app.get(api.users.get.path, async (req, res) => {
+  app.get(api.users.get.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid user ID' });
@@ -646,7 +654,7 @@ export async function registerRoutes(
     res.json(user);
   });
 
-  app.post(api.users.create.path, async (req, res) => {
+  app.post(api.users.create.path, requireAuth, requireAdmin, async (req, res) => {
     try {
       const input = api.users.create.input.parse(req.body);
       
@@ -686,7 +694,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.users.update.path, async (req, res) => {
+  app.put(api.users.update.path, requireAuth, requireAdmin, async (req, res) => {
     try {
       const input = api.users.update.input.parse(req.body);
       const id = Number(req.params.id);
@@ -720,7 +728,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete(api.users.delete.path, async (req, res) => {
+  app.delete(api.users.delete.path, requireAuth, requireAdmin, async (req, res) => {
     const id = Number(req.params.id);
     const existing = await storage.getUser(id);
     if (!existing) {
@@ -741,13 +749,17 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
-  app.put(api.users.updateSignature.path, async (req, res) => {
+  app.put(api.users.updateSignature.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
         return res.status(400).json({ message: 'Invalid user ID' });
       }
       
+      if (id !== getCurrentUserId(req) && (req as any).user?.role !== 'admin') {
+        return res.status(403).json({ message: 'You can only change your own signature' });
+      }
+
       const existing = await storage.getUser(id);
       if (!existing) {
         return res.status(404).json({ message: 'User not found' });
@@ -1092,7 +1104,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.documents.update.path, async (req, res) => {
+  app.put(api.documents.update.path, requireAuth, async (req, res) => {
     try {
       const input = api.documents.update.input.parse(req.body);
       const id = Number(req.params.id);
@@ -1735,14 +1747,18 @@ export async function registerRoutes(
   // ============================================
   // NOTIFICATION ROUTES
   // ============================================
-  app.get(api.notifications.list.path, async (req, res) => {
-    const notifications = await storage.getNotifications();
+  app.get(api.notifications.list.path, requireAuth, async (req, res) => {
+    const notifications = await storage.getNotifications(getCurrentUserId(req));
     res.json(notifications);
   });
 
-  app.put(api.notifications.markRead.path, async (req, res) => {
+  app.put(api.notifications.markRead.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     try {
+      const own = await storage.getNotifications(getCurrentUserId(req));
+      if (!own.some(n => n.id === id)) {
+        return res.status(404).json({ message: 'Notification not found' });
+      }
       const notification = await storage.markNotificationRead(id);
       res.json(notification);
     } catch {
@@ -1750,7 +1766,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.notifications.markAllRead.path, async (req, res) => {
+  app.put(api.notifications.markAllRead.path, requireAuth, async (req, res) => {
     const count = await storage.markAllNotificationsRead(getCurrentUserId(req));
     res.json({ count });
   });
@@ -1758,7 +1774,11 @@ export async function registerRoutes(
   // ============================================
   // AUDIT LOG ROUTES
   // ============================================
-  app.get(api.auditLogs.list.path, async (req, res) => {
+  app.get(api.auditLogs.list.path, requireAuth, async (req, res) => {
+    const role = (req as any).user?.role;
+    if (role !== 'admin' && role !== 'quality_manager') {
+      return res.status(403).json({ message: 'Audit logs are limited to administrators and the quality manager' });
+    }
     const logs = await storage.getAuditLogs(100);
     res.json(logs);
   });
@@ -1766,7 +1786,7 @@ export async function registerRoutes(
   // ============================================
   // EMPLOYEE ROUTES (HR)
   // ============================================
-  app.get(api.employees.list.path, async (req, res) => {
+  app.get(api.employees.list.path, requireAuth, async (req, res) => {
     const filters = {
       status: req.query.status as string | undefined,
       department: req.query.department as string | undefined,
@@ -1775,7 +1795,7 @@ export async function registerRoutes(
     res.json(employees);
   });
 
-  app.get(api.employees.get.path, async (req, res) => {
+  app.get(api.employees.get.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid employee ID' });
@@ -1787,7 +1807,7 @@ export async function registerRoutes(
     res.json(employee);
   });
 
-  app.post(api.employees.create.path, async (req, res) => {
+  app.post(api.employees.create.path, requireAuth, async (req, res) => {
     try {
       const input = api.employees.create.input.parse(req.body);
       
@@ -1843,7 +1863,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.employees.update.path, async (req, res) => {
+  app.put(api.employees.update.path, requireAuth, async (req, res) => {
     try {
       const input = api.employees.update.input.parse(req.body);
       const id = Number(req.params.id);
@@ -1895,7 +1915,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete(api.employees.delete.path, async (req, res) => {
+  app.delete(api.employees.delete.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid employee ID' });
@@ -1923,7 +1943,7 @@ export async function registerRoutes(
   // ============================================
   // EMPLOYEE WORKFLOW ROUTES
   // ============================================
-  app.post(api.employees.submitForReview.path, async (req, res) => {
+  app.post(api.employees.submitForReview.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -1981,7 +2001,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.employees.submitForApproval.path, async (req, res) => {
+  app.post(api.employees.submitForApproval.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -2039,7 +2059,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.employees.approve.path, async (req, res) => {
+  app.post(api.employees.approve.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -2204,7 +2224,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.employees.reject.path, async (req, res) => {
+  app.post(api.employees.reject.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -2257,7 +2277,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.employees.reassign.path, async (req, res) => {
+  app.post(api.employees.reassign.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -2348,7 +2368,7 @@ export async function registerRoutes(
   // ============================================
   // EMPLOYEE TASK ROUTES (HR)
   // ============================================
-  app.get(api.employeeTasks.list.path, async (req, res) => {
+  app.get(api.employeeTasks.list.path, requireAuth, async (req, res) => {
     const filters = {
       employeeId: req.query.employeeId ? Number(req.query.employeeId) : undefined,
       status: req.query.status as string | undefined,
@@ -2358,7 +2378,7 @@ export async function registerRoutes(
     res.json(tasks);
   });
 
-  app.get(api.employeeTasks.get.path, async (req, res) => {
+  app.get(api.employeeTasks.get.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid task ID' });
@@ -2370,7 +2390,7 @@ export async function registerRoutes(
     res.json(task);
   });
 
-  app.post(api.employeeTasks.create.path, async (req, res) => {
+  app.post(api.employeeTasks.create.path, requireAuth, async (req, res) => {
     try {
       const input = api.employeeTasks.create.input.parse(req.body);
       
@@ -2421,7 +2441,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.employeeTasks.update.path, async (req, res) => {
+  app.put(api.employeeTasks.update.path, requireAuth, async (req, res) => {
     try {
       const input = api.employeeTasks.update.input.parse(req.body);
       const id = Number(req.params.id);
@@ -2463,7 +2483,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete(api.employeeTasks.delete.path, async (req, res) => {
+  app.delete(api.employeeTasks.delete.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid task ID' });
@@ -2488,7 +2508,7 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
-  app.post(api.employeeTasks.complete.path, async (req, res) => {
+  app.post(api.employeeTasks.complete.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid task ID' });
@@ -4051,7 +4071,7 @@ export async function registerRoutes(
   // ============================================
   // DOCUMENT ACCESS REQUESTS
   // ============================================
-  app.get(api.documentAccessRequests.list.path, async (req, res) => {
+  app.get(api.documentAccessRequests.list.path, requireAuth, async (req, res) => {
     const documentId = req.query.documentId ? Number(req.query.documentId) : undefined;
     const requesterId = req.query.requesterId ? Number(req.query.requesterId) : undefined;
     const status = req.query.status as string | undefined;
@@ -4060,7 +4080,7 @@ export async function registerRoutes(
     res.json(requests);
   });
 
-  app.get(api.documentAccessRequests.get.path, async (req, res) => {
+  app.get(api.documentAccessRequests.get.path, requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     if (isNaN(id)) {
       return res.status(400).json({ message: 'Invalid request ID' });
@@ -4072,7 +4092,7 @@ export async function registerRoutes(
     res.json(request);
   });
 
-  app.post(api.documentAccessRequests.create.path, async (req, res) => {
+  app.post(api.documentAccessRequests.create.path, requireAuth, async (req, res) => {
     try {
       const input = api.documentAccessRequests.create.input.parse(req.body);
       const userId = getCurrentUserId(req);
@@ -4143,7 +4163,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.documentAccessRequests.approve.path, async (req, res) => {
+  app.post(api.documentAccessRequests.approve.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -4215,7 +4235,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.documentAccessRequests.reject.path, async (req, res) => {
+  app.post(api.documentAccessRequests.reject.path, requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) {
@@ -4283,7 +4303,7 @@ export async function registerRoutes(
   // ============================================
   // DOCUMENT ACCESS
   // ============================================
-  app.get(api.documentAccess.list.path, async (req, res) => {
+  app.get(api.documentAccess.list.path, requireAuth, async (req, res) => {
     const documentId = req.query.documentId ? Number(req.query.documentId) : undefined;
     const userId = req.query.userId ? Number(req.query.userId) : undefined;
     
@@ -4291,7 +4311,7 @@ export async function registerRoutes(
     res.json(accessList);
   });
 
-  app.get(api.documentAccess.check.path, async (req, res) => {
+  app.get(api.documentAccess.check.path, requireAuth, async (req, res) => {
     const documentId = Number(req.params.id);
     if (isNaN(documentId)) {
       return res.status(400).json({ message: 'Invalid document ID' });
@@ -4326,7 +4346,7 @@ export async function registerRoutes(
     res.json({ hasAccess });
   });
 
-  app.post(api.documentAccess.grant.path, async (req, res) => {
+  app.post(api.documentAccess.grant.path, requireAuth, async (req, res) => {
     try {
       const documentId = Number(req.params.id);
       if (isNaN(documentId)) {
@@ -4381,7 +4401,7 @@ export async function registerRoutes(
   });
 
   // Grant access to multiple users at once
-  app.post(api.documentAccess.grantMultiple.path, async (req, res) => {
+  app.post(api.documentAccess.grantMultiple.path, requireAuth, async (req, res) => {
     try {
       const documentId = Number(req.params.id);
       if (isNaN(documentId)) {
@@ -4454,7 +4474,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post(api.documentAccess.revoke.path, async (req, res) => {
+  app.post(api.documentAccess.revoke.path, requireAuth, async (req, res) => {
     try {
       const documentId = Number(req.params.id);
       if (isNaN(documentId)) {
@@ -5095,65 +5115,6 @@ export async function registerRoutes(
   // BUDDY STATUS ENDPOINTS
   // ============================================
   
-  app.get('/api/buddy/status', requireAuth, async (req: Request, res: Response) => {
-    try {
-      const userId = getCurrentUserId(req);
-      const user = await storage.getUser(userId);
-      
-      if (!user) {
-        return res.status(404).json({ message: 'User not found' });
-      }
-      
-      // Get fresh task counts directly from database
-      const taskStats = await storage.getUserTaskStats(userId);
-      const compliance = await storage.calculateUserCompliance(userId);
-      const buddyStatus = await storage.getOrCreateBuddyStatus(userId);
-      const pendingDialogues = await storage.getBuddyDialogues(userId, true);
-      
-      const buddyName = `Buddy ${user.name.split(' ')[0]}`;
-      
-      let colorClass = 'text-green-500';
-      let bgColorClass = 'bg-green-50 dark:bg-green-900/20';
-      let animationClass = '';
-      
-      if (compliance.score < 60) {
-        colorClass = 'text-red-500';
-        bgColorClass = 'bg-red-50 dark:bg-red-900/20';
-        animationClass = 'animate-pulse';
-      } else if (compliance.score < 70) {
-        colorClass = 'text-orange-500';
-        bgColorClass = 'bg-orange-50 dark:bg-orange-900/20';
-        animationClass = 'animate-slow-blink';
-      } else if (compliance.score < 90) {
-        colorClass = 'text-yellow-500';
-        bgColorClass = 'bg-yellow-50 dark:bg-yellow-900/20';
-      }
-      
-      res.json({
-        buddyName,
-        compliance: {
-          score: compliance.score,
-          state: compliance.state,
-        },
-        stats: {
-          totalTasks: taskStats.totalTasks,
-          completedTasks: taskStats.completedTasks,
-          overdueTasks: taskStats.overdueTasks,
-        },
-        style: {
-          colorClass,
-          bgColorClass,
-          animationClass,
-        },
-        pendingDialogues,
-        lastUpdated: buddyStatus.updatedAt,
-      });
-    } catch (err) {
-      console.error('Error fetching buddy status:', err);
-      res.status(500).json({ message: 'Failed to fetch buddy status' });
-    }
-  });
-
   // System-wide compliance status for Buddy Avatar (shows overall system compliance)
   app.get('/api/buddy/system-status', requireAuth, async (req: Request, res: Response) => {
     try {
@@ -5233,53 +5194,6 @@ export async function registerRoutes(
     } catch (err) {
       console.error('Error acknowledging dialogue:', err);
       res.status(500).json({ message: 'Failed to acknowledge dialogue' });
-    }
-  });
-
-  app.post('/api/buddy/subscribe', requireAuth, async (req: Request, res: Response) => {
-    try {
-      const userId = getCurrentUserId(req);
-      const { endpoint, keys } = req.body;
-      
-      if (!endpoint || !keys?.p256dh || !keys?.auth) {
-        return res.status(400).json({ message: 'Invalid subscription data' });
-      }
-      
-      const subscription = await storage.savePushSubscription({
-        userId,
-        endpoint,
-        p256dh: keys.p256dh,
-        auth: keys.auth,
-      });
-      
-      res.json({ success: true, subscriptionId: subscription.id });
-    } catch (err) {
-      console.error('Error saving push subscription:', err);
-      res.status(500).json({ message: 'Failed to save subscription' });
-    }
-  });
-
-  app.delete('/api/buddy/subscribe', requireAuth, async (req: Request, res: Response) => {
-    try {
-      const userId = getCurrentUserId(req);
-      const { endpoint } = req.body;
-      
-      await storage.removePushSubscription(userId, endpoint);
-      res.json({ success: true });
-    } catch (err) {
-      console.error('Error removing push subscription:', err);
-      res.status(500).json({ message: 'Failed to remove subscription' });
-    }
-  });
-
-  app.post('/api/buddy/refresh', requireAuth, async (req: Request, res: Response) => {
-    try {
-      const userId = getCurrentUserId(req);
-      const compliance = await storage.calculateUserCompliance(userId);
-      res.json(compliance);
-    } catch (err) {
-      console.error('Error refreshing compliance:', err);
-      res.status(500).json({ message: 'Failed to refresh compliance' });
     }
   });
 
@@ -5886,135 +5800,6 @@ export async function registerRoutes(
     } catch (err) {
       console.error('Error deleting certification application:', err);
       res.status(500).json({ message: 'Failed to delete certification application' });
-    }
-  });
-
-  // Get audits for an application
-  app.get('/api/certification-audits', requireAuth, async (req: Request, res: Response) => {
-    try {
-      const applicationId = req.query.applicationId ? parseInt(req.query.applicationId as string) : undefined;
-      const audits = await storage.getCertificationAudits(applicationId);
-      res.json(audits);
-    } catch (err) {
-      console.error('Error fetching certification audits:', err);
-      res.status(500).json({ message: 'Failed to fetch certification audits' });
-    }
-  });
-
-  // Get single audit
-  app.get('/api/certification-audits/:id', requireAuth, async (req: Request, res: Response) => {
-    try {
-      const id = parseInt(req.params.id);
-      const audit = await storage.getCertificationAudit(id);
-      
-      if (!audit) {
-        return res.status(404).json({ message: 'Audit not found' });
-      }
-      
-      res.json(audit);
-    } catch (err) {
-      console.error('Error fetching certification audit:', err);
-      res.status(500).json({ message: 'Failed to fetch certification audit' });
-    }
-  });
-
-  // Create audit
-  app.post('/api/certification-audits', requireAuth, async (req: Request, res: Response) => {
-    try {
-      const userId = getCurrentUserId(req);
-      const audit = await storage.createCertificationAudit(req.body);
-      
-      await storage.createAuditLog({
-        action: AuditAction.CREATE,
-        entityType: 'certification_audit',
-        entityId: audit.id,
-        userId,
-        newValue: JSON.stringify({ auditType: audit.auditType, applicationId: audit.applicationId }),
-      });
-      
-      res.status(201).json(audit);
-    } catch (err) {
-      console.error('Error creating certification audit:', err);
-      res.status(500).json({ message: 'Failed to create certification audit' });
-    }
-  });
-
-  // Update audit
-  app.put('/api/certification-audits/:id', requireAuth, async (req: Request, res: Response) => {
-    try {
-      const userId = getCurrentUserId(req);
-      const id = parseInt(req.params.id);
-      
-      const updated = await storage.updateCertificationAudit(id, req.body);
-      
-      await storage.createAuditLog({
-        action: AuditAction.UPDATE,
-        entityType: 'certification_audit',
-        entityId: id,
-        userId,
-        newValue: JSON.stringify(req.body),
-      });
-      
-      res.json(updated);
-    } catch (err) {
-      console.error('Error updating certification audit:', err);
-      res.status(500).json({ message: 'Failed to update certification audit' });
-    }
-  });
-
-  // Get findings for an audit
-  app.get('/api/audit-findings', requireAuth, async (req: Request, res: Response) => {
-    try {
-      const auditId = req.query.auditId ? parseInt(req.query.auditId as string) : undefined;
-      const findings = await storage.getAuditFindings(auditId);
-      res.json(findings);
-    } catch (err) {
-      console.error('Error fetching audit findings:', err);
-      res.status(500).json({ message: 'Failed to fetch audit findings' });
-    }
-  });
-
-  // Create finding
-  app.post('/api/audit-findings', requireAuth, async (req: Request, res: Response) => {
-    try {
-      const userId = getCurrentUserId(req);
-      const finding = await storage.createAuditFinding(req.body);
-      
-      await storage.createAuditLog({
-        action: AuditAction.CREATE,
-        entityType: 'audit_finding',
-        entityId: finding.id,
-        userId,
-        newValue: JSON.stringify({ findingType: finding.findingType, auditId: finding.auditId }),
-      });
-      
-      res.status(201).json(finding);
-    } catch (err) {
-      console.error('Error creating audit finding:', err);
-      res.status(500).json({ message: 'Failed to create audit finding' });
-    }
-  });
-
-  // Update finding
-  app.put('/api/audit-findings/:id', requireAuth, async (req: Request, res: Response) => {
-    try {
-      const userId = getCurrentUserId(req);
-      const id = parseInt(req.params.id);
-      
-      const updated = await storage.updateAuditFinding(id, req.body);
-      
-      await storage.createAuditLog({
-        action: AuditAction.UPDATE,
-        entityType: 'audit_finding',
-        entityId: id,
-        userId,
-        newValue: JSON.stringify(req.body),
-      });
-      
-      res.json(updated);
-    } catch (err) {
-      console.error('Error updating audit finding:', err);
-      res.status(500).json({ message: 'Failed to update audit finding' });
     }
   });
 
@@ -7969,78 +7754,6 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
   // CRM - LEAD STATUS HISTORY ROUTES
   // ============================================
 
-  // Get lead status history
-  app.get("/api/leads/:id/status-history", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const user = req.user as any;
-      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
-        return res.status(403).json({ message: "Access denied" });
-      }
-      
-      const leadId = parseInt(req.params.id);
-      const history = await storage.getLeadStatusHistory(leadId);
-      res.json(history);
-    } catch (error) {
-      console.error("Error fetching lead status history:", error);
-      res.status(500).json({ message: "Error fetching status history" });
-    }
-  });
-
-  // Update lead status with history tracking
-  app.post("/api/leads/:id/status", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const user = req.user as any;
-      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
-        return res.status(403).json({ message: "Access denied" });
-      }
-      
-      const leadId = parseInt(req.params.id);
-      const { newStatus, reason, evidenceUrl, evidenceFileName } = req.body;
-      
-      if (!newStatus) {
-        return res.status(400).json({ message: "New status is required" });
-      }
-      
-      const existingLead = await storage.getLead(leadId);
-      if (!existingLead) {
-        return res.status(404).json({ message: "Lead not found" });
-      }
-      
-      const previousStatus = existingLead.status;
-      
-      // Create status history entry
-      await storage.createLeadStatusHistory({
-        leadId,
-        previousStatus,
-        newStatus,
-        reason: reason || null,
-        evidenceUrl: evidenceUrl || null,
-        evidenceFileName: evidenceFileName || null,
-        changedById: user.id,
-      });
-      
-      // Update the lead status
-      const updatedLead = await storage.updateLead(leadId, {
-        status: newStatus,
-        updatedAt: new Date(),
-      });
-      
-      // Log audit trail
-      await storage.createAuditLog({
-        userId: user.id,
-        action: AuditAction.UPDATE,
-        entityType: 'lead',
-        entityId: leadId,
-        description: `Changed lead status from "${previousStatus}" to "${newStatus}" for: ${existingLead.leadName}`,
-      });
-      
-      res.json(updatedLead);
-    } catch (error) {
-      console.error("Error updating lead status:", error);
-      res.status(500).json({ message: "Error updating lead status" });
-    }
-  });
-
   // ============================================
   // CRM - LEAD UPDATE REQUESTS ROUTES
   // ============================================
@@ -8296,44 +8009,6 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
     }
   });
 
-  // Upload contract file for customer
-  app.post("/api/customers/:id/contract", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const user = req.user as any;
-      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
-        return res.status(403).json({ message: "Access denied" });
-      }
-
-      const customerId = parseInt(req.params.id);
-      const { fileUrl, fileName } = req.body;
-      
-      const existingCustomer = await storage.getCustomer(customerId);
-      if (!existingCustomer) {
-        return res.status(404).json({ message: "Customer not found" });
-      }
-
-      const updatedCustomer = await storage.updateCustomer(customerId, {
-        contractFileUrl: fileUrl,
-        contractFileName: fileName,
-        updatedAt: new Date(),
-      });
-
-      // Log audit trail
-      await storage.createAuditLog({
-        userId: user.id,
-        action: AuditAction.UPDATE,
-        entityType: 'customer',
-        entityId: customerId,
-        description: `Uploaded contract file for customer: ${existingCustomer.customerName}`,
-      });
-
-      res.json(updatedCustomer);
-    } catch (error) {
-      console.error("Error uploading contract:", error);
-      res.status(500).json({ message: "Error uploading contract" });
-    }
-  });
-
   // ============================================
   // CRM - OPPORTUNITIES ROUTES
   // ============================================
@@ -8477,44 +8152,6 @@ Submit button should have class "w-full bg-primary text-white py-2 px-4 rounded-
     } catch (error) {
       console.error("Error deleting opportunity:", error);
       res.status(500).json({ message: "Error deleting opportunity" });
-    }
-  });
-
-  // Upload proposal file for opportunity
-  app.post("/api/opportunities/:id/proposal", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const user = req.user as any;
-      if (user.role !== 'admin' && user.role !== 'quality_manager' && user.email !== 'coo@sahihcertify.com') {
-        return res.status(403).json({ message: "Access denied" });
-      }
-
-      const opportunityId = parseInt(req.params.id);
-      const { fileUrl, fileName } = req.body;
-      
-      const existingOpportunity = await storage.getOpportunity(opportunityId);
-      if (!existingOpportunity) {
-        return res.status(404).json({ message: "Opportunity not found" });
-      }
-
-      const updatedOpportunity = await storage.updateOpportunity(opportunityId, {
-        proposalFileUrl: fileUrl,
-        proposalFileName: fileName,
-        updatedAt: new Date(),
-      });
-
-      // Log audit trail
-      await storage.createAuditLog({
-        userId: user.id,
-        action: AuditAction.UPDATE,
-        entityType: 'opportunity',
-        entityId: opportunityId,
-        description: `Uploaded proposal file for opportunity: ${existingOpportunity.opportunityName}`,
-      });
-
-      res.json(updatedOpportunity);
-    } catch (error) {
-      console.error("Error uploading proposal:", error);
-      res.status(500).json({ message: "Error uploading proposal" });
     }
   });
 

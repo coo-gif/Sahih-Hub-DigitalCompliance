@@ -449,15 +449,15 @@ TASK 0 Foundation ---> TASK 1 Identity ---> TASK 2 Document Control ---> TASK 3 
 | # | Cycle | Problem | Where |
 |---|-------|---------|-------|
 | 1 | 2.7 → 2.8 | **Fixed.** Approval used to lock the document, so the follow-up "Lock & Transfer" always failed. Now approval moves the document to the Hub, and the COO gives final approval with a classification. | — |
-| 2 | 10.1 Step 3 | The lead status change reads `existingLead.status` and writes `status:`. The real column is `leadStatus`, so the new status is never saved and `previousStatus` is empty. `reason` is NOT NULL in the DB, but the code sends `null` when no reason is given. | `server/routes.ts` ~7312, ~7326 |
-| 3 | 10.1 / 10.2 / 10.3 uploads | The CRM pages call `POST /api/upload`, but no such route exists. Lead evidence, contract and proposal uploads fail. | `CrmLeads.tsx:279`, `CrmCustomers.tsx:134`, `CrmOpportunities.tsx:168` |
+| 2 | 10.1 Step 3 | **Removed.** The broken lead status-change route and its dialog are gone; status is changed in the lead edit form. The status-history tab and route were removed with it. | — |
+| 3 | 10.1 / 10.2 / 10.3 uploads | **Removed.** The CRM upload buttons (lead evidence, contract, proposal) and their `/contract` and `/proposal` routes are gone. Files already attached still show as links. | — |
 | 4 | 2.4 / 2.5 | **Fixed.** Reviewer, approver and COO can now return a document one step back, with the reason written as comments in the document. | — |
-| 5 | 7.3 Buddy | The Buddy score still reads the unused `document_tasks` table. Performance reports now use the task ledger (7.2); the Buddy could be switched to it too. | `storage.calculateUserCompliance` |
-| 6 | 2.x versions | `document_versions` is never written (`createDocumentVersion` is unused). Old approved versions are not archived, and status `obsolete` is never set. | storage / routes |
-| 7 | 6.2 | The audits and findings APIs exist, but `CertificationProcess.tsx` has no UI for them. | client |
-| 8 | 7.3 push | Push subscriptions are stored, but no web-push sender exists, so no push is ever delivered. | buddy routes |
-| 9 | **Security** | 51 routes have no `requireAuth`. Among them: create, update and delete **users** (anyone could create an admin), documents CRUD, employees workflow, document-access grant and approve, dashboard and audit logs. `GET /api/notifications` returns **all users'** notifications. | `server/routes.ts` 431–4092 |
-| 10 | **Security** | `init-users.ts` hard-codes the passwords for the HR, COO and CEO accounts and **resets them on every boot**. The session secret has a hard-coded fallback. | `server/init-users.ts`, `server/index.ts` |
+| 5 | 7.3 Buddy | **Removed.** The per-user score (`calculateUserCompliance`, `/api/buddy/status`, `/api/buddy/refresh`) was unused by the client and is gone. The Buddy avatar uses `/api/buddy/system-status`. | — |
+| 6 | 2.x versions | **Removed.** The unused `createDocumentVersion` is gone. Versions are written and archived in `document-control.ts`. | — |
+| 7 | 6.2 | **Removed.** The unused audits and findings routes and storage methods are gone. The tables stay in the schema. | — |
+| 8 | 7.3 push | **Removed.** The push-subscription routes and storage methods are gone. The table stays in the schema. | — |
+| 9 | **Security** | **Fixed.** All routes except login, logout, me, accept-agreement, the Gmail OAuth callback and the public DocuGenie share/submit now need a login. User create, update and delete need the admin role. Notifications are scoped to the signed-in user, signatures to their owner (or admin), audit logs to admin and QM. | — |
+| 10 | **Security** | **Fixed.** No passwords in the source. `init-users.ts` creates the HR, COO and CEO accounts only if missing, using `HR_INITIAL_PASSWORD`, `COO_INITIAL_PASSWORD` and `CEO_INITIAL_PASSWORD`, and never resets an existing password. `SESSION_SECRET` is required in production. | — |
 | 11 | Maintainability | COO and CEO powers are checked by fixed email strings in more than 40 places instead of by role. `routes.ts` is about 8,000 lines in one file. | `server/routes.ts` |
 | 12 | 7.2 reports page | **Fixed.** The Performance Reports list requested `/api/performance-reports/10/2026`, which isn't a real route, so it always showed "No reports". It now passes month and year as query parameters. | — |
 | 13 | Document deletion | **Fixed.** `DELETE /api/documents/:id` needed no login and could remove approved documents. It now needs a login and refuses any document that is locked, approved, under revision or has a recorded version. | — |
