@@ -27,7 +27,7 @@ Not covered (not on GitHub, so not checked): `server/google-ai.ts` and `componen
 
 ### 0.1 Server boot ✅
 Step 1: `npm run dev` starts `server/index.ts` → Step 2: sessions stored in Postgres (24 h cookie) → Step 3: HR, COO and CEO accounts created → Step 4: all routes mounted → Step 5: app served.
-- 🔒 Step 3 **resets the HR, COO and CEO passwords to fixed values on every restart** (`init-users.ts`). The session secret has a fixed fallback.
+- ✅ `init-users.ts` creates the HR, COO and CEO accounts only if missing, with passwords from `HR_INITIAL_PASSWORD`, `COO_INITIAL_PASSWORD` and `CEO_INITIAL_PASSWORD`, and never resets an existing password.
 - ✅ Fixed today: an error inside any request used to crash the whole server; errors are now logged and the server keeps running.
 
 ### 0.2 Database schema ✅
@@ -206,7 +206,7 @@ Step 1: application approved → Step 2: issue certificate (number, dates, surve
 
 ### 7.1 My Tasks ✅
 Step 1: every open assignment in the system is collected with a due date → Step 2: user's list, soonest first, overdue flagged → Step 3: Open / action buttons → Step 4: disappears when done.
-- ✅ Confirmed sources: document steps, comments, returns, linked-procedure reviews, change requests, access and download approvals, employee review/approval, employee tasks, trainings, bug reports, lead follow-ups and update requests, certification and audits, DocuGenie forms, performance report review/approval.
+- ✅ Confirmed sources: document steps, comments, returns, linked-procedure reviews, change requests, access and download approvals, employee review/approval, employee tasks, trainings, bug reports, certification and audits, DocuGenie forms, performance report review/approval.
 
 ### 7.1a Target dates & initiators ✅
 Step 1: due date required when assigning/forwarding (defaults: prepare 2 d, review 1 d, approve 1 d) → Step 2: initiator + date stored → Step 3: shown on the task → Step 4: initiator can move the task or change the date (Assigned by me) → Step 5: performance follows the latest target.
@@ -218,7 +218,7 @@ Step 1: every task is recorded when it appears → Step 2: closed as completed /
 - ⚠️ No order checks (CEO can approve a draft directly; approved reports can be moved back).
 
 ### 7.3 Compliance Buddy ⚠️
-Step 1: score from tasks → Step 2: avatar state → Step 3: messages, acknowledge → Step 4: push subscription.
+Step 1: score from tasks → Step 2: avatar state → Step 3: messages, acknowledge → 
 - ⚠️ Score is always 100 (reads an unused table, not the task records).
 - ❌ Push messages are never sent.
 - ⚠️ Anyone can acknowledge anyone's message.
@@ -276,28 +276,6 @@ Step 1: paste content → AI converts to a form → Step 2: save draft → Step 
 
 ---
 
-## TASK 10 – CRM (admin / QM / COO)
-
-### 10.1 Leads ✅ / 🔒
-Step 1: create lead → Step 2: assign + follow-up date (assignee gets task) → Step 3: status change with reason + evidence (history kept) → Step 4: COO asks for an update (task) → Step 5: assignee resolves → Step 6: ends approved / lost / not interested / not relevant.
-- ✅ Fixed today: status saves, history, uploads.
-- 🔒 Staff can create, edit and delete leads directly, and editing can change the status without a history entry.
-- ⚠️ Anyone can resolve an update request; the reply text isn't saved; COO isn't told it was resolved.
-
-### 10.2 Customers ✅
-Step 1: create → Step 2: communication history → Step 3: upload contract → Step 4: view.
-- ⚠️ Communication history is one box that each save overwrites (not a growing log). ⏸ Opening the file needs Replit storage.
-
-### 10.3 Opportunities ⚠️
-Step 1: create (linked to customer) → Step 2: upload proposal → stage "proposal sent" → Step 3: negotiation → won / lost → Step 4: pipeline totals.
-- ❌ Step 2: uploading a proposal does not change the stage.
-- ⚠️ Stage values aren't validated; "total value" includes lost deals.
-
-### 10.4 Historical data ✅
-Step 1: enter year/month figures → Step 2: edit / delete → Step 3: filter by year. (No validation of year/month or duplicates.)
-
----
-
 # Open workflows (what still needs steps to complete)
 
 ### A. Security – fix before real use 🔒
@@ -306,7 +284,7 @@ Step 1: enter year/month figures → Step 2: edit / delete → Step 3: filter by
 3. Audit log and dashboard data readable without login (7.5, 2.12).
 4. Employee (HR) routes need no login (4.1).
 5. Fixed HR / COO / CEO passwords reset on every restart (0.1).
-6. Others' data can be changed by any logged-in user: wall posts (8.3), DocuGenie forms and submissions (9.1), certification applications (6.1), CRM leads (10.1), revision-history entries (2.11).
+6. Others' data can be changed by any logged-in user: wall posts (8.3), DocuGenie forms and submissions (9.1), certification applications (6.1), revision-history entries (2.11).
 7. Deactivated users stay logged in (1.1).
 
 ### B. Broken – the workflow cannot finish ❌
@@ -318,7 +296,6 @@ Step 1: enter year/month figures → Step 2: edit / delete → Step 3: filter by
 6. Download requests: no button, and approval doesn't control the download (3.3).
 7. Online-hours tracking never starts (1.3).
 8. Bug assigned to a non-COO person is a dead end; ticket numbering breaks after a delete (8.5).
-9. Proposal upload doesn't move the opportunity stage (10.3).
 10. Gmail AI draft reply code error (8.2).
 11. Certificate view/print for trainings and certificate designer print/download missing (5.1, 6.3).
 
@@ -329,7 +306,6 @@ Step 1: enter year/month figures → Step 2: edit / delete → Step 3: filter by
 4. Compliance Buddy score should use the task records; push messages never sent (7.3).
 5. User Records: admins should see all (7.4).
 6. Training: enforce passing score, unique certificate numbers (5.1).
-7. Lead update reply text, CRM communication log, status/stage validation (10.x).
 8. Review signature date never recorded (2.5).
 9. Assign auditors from the certification page (6.1).
 

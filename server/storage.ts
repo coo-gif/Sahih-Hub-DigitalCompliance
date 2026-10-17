@@ -2,19 +2,12 @@ import { db } from "./db";
 import {
   users, documents, documentVersions, workflowLogs, notifications, auditLogs,
   employees, employeeTasks, downloadRequests, documentFeedback, documentComments, documentTasks, taskPokes,
-  documentAccessRequests, documentAccess, userRecords, buddyStatus, pushSubscriptions, buddyDialogues,
+  documentAccessRequests, documentAccess, userRecords, buddyStatus, buddyDialogues,
   userActivityLogs, monthlyPerformanceReports, bugReports,
   certificationApplications, certificationAudits, auditFindings, certificates, wallPosts, revisionHistory,
   trainings, trainingAssignments, trainingCompletions, docugenieForms, docugenieFormSubmissions, 
-  leads, leadStatusHistory, leadUpdateRequests, customers, opportunities, historicalData,
   type User, type InsertUser,
   type DocumentComment, type InsertDocumentComment,
-  type Lead, type InsertLead,
-  type LeadStatusHistory, type InsertLeadStatusHistory,
-  type LeadUpdateRequest, type InsertLeadUpdateRequest,
-  type Customer, type InsertCustomer,
-  type Opportunity, type InsertOpportunity,
-  type HistoricalData, type InsertHistoricalData,
   type DocuGenieForm, type InsertDocuGenieForm,
   type DocuGenieFormSubmission, type InsertDocuGenieFormSubmission,
   type RevisionHistory, type InsertRevisionHistory,
@@ -36,7 +29,6 @@ import {
   type DocumentAccess, type InsertDocumentAccess,
   type UserRecord, type InsertUserRecord,
   type BuddyStatus, type InsertBuddyStatus,
-  type PushSubscription, type InsertPushSubscription,
   type BuddyDialogue, type InsertBuddyDialogue,
   type UserActivityLog, type InsertUserActivityLog,
   type MonthlyPerformanceReport, type InsertMonthlyPerformanceReport,
@@ -119,7 +111,6 @@ export interface IStorage {
   deleteDocument(id: number): Promise<void>;
 
   // Document Versions
-  createDocumentVersion(version: InsertDocumentVersion): Promise<DocumentVersion>;
   getDocumentVersions(documentId: number): Promise<DocumentVersion[]>;
 
   // Workflow Logs
@@ -255,15 +246,8 @@ export interface IStorage {
   getBuddyStatus(userId: number): Promise<BuddyStatus | undefined>;
   getOrCreateBuddyStatus(userId: number): Promise<BuddyStatus>;
   updateBuddyStatus(userId: number, updates: Partial<InsertBuddyStatus>): Promise<BuddyStatus>;
-  calculateUserCompliance(userId: number): Promise<{ score: number; state: string }>;
-  getUserTaskStats(userId: number): Promise<{ totalTasks: number; completedTasks: number; overdueTasks: number }>;
   calculateSystemCompliance(): Promise<{ score: number; state: string }>;
   getSystemTaskStats(): Promise<{ totalTasks: number; completedTasks: number; overdueTasks: number }>;
-
-  // Push Subscriptions
-  getPushSubscriptions(userId: number): Promise<PushSubscription[]>;
-  savePushSubscription(subscription: InsertPushSubscription): Promise<PushSubscription>;
-  removePushSubscription(userId: number, endpoint: string): Promise<void>;
 
   // Buddy Dialogues
   getBuddyDialogues(userId: number, unacknowledgedOnly?: boolean): Promise<BuddyDialogue[]>;
@@ -342,45 +326,6 @@ export interface IStorage {
   getDocuGenieFormSubmissions(formId: number): Promise<DocuGenieFormSubmission[]>;
   getDocuGenieFormSubmission(id: number): Promise<DocuGenieFormSubmission | undefined>;
   createDocuGenieFormSubmission(submission: InsertDocuGenieFormSubmission): Promise<DocuGenieFormSubmission>;
-
-  // CRM - Leads
-  getLeads(filters?: { status?: string; assignedToId?: number }): Promise<Lead[]>;
-  getLead(id: number): Promise<Lead | undefined>;
-  createLead(lead: InsertLead): Promise<Lead>;
-  updateLead(id: number, lead: Partial<InsertLead>): Promise<Lead | undefined>;
-  deleteLead(id: number): Promise<void>;
-
-  // CRM - Lead Status History
-  getLeadStatusHistory(leadId: number): Promise<Array<LeadStatusHistory & { changedByName: string }>>;
-  createLeadStatusHistory(entry: InsertLeadStatusHistory): Promise<LeadStatusHistory>;
-
-  // CRM - Lead Update Requests
-  getLeadUpdateRequests(leadId: number): Promise<Array<LeadUpdateRequest & { requestedByName: string; requestedFromName: string }>>;
-  getPendingLeadUpdateRequests(userId: number): Promise<Array<LeadUpdateRequest & { leadName: string; requestedByName: string }>>;
-  createLeadUpdateRequest(request: InsertLeadUpdateRequest): Promise<LeadUpdateRequest>;
-  getLeadUpdateRequest(id: number): Promise<LeadUpdateRequest | undefined>;
-  resolveLeadUpdateRequest(id: number, response?: string | null): Promise<LeadUpdateRequest | undefined>;
-
-  // CRM - Customers
-  getCustomers(filters?: { accountOwnerId?: number }): Promise<Customer[]>;
-  getCustomer(id: number): Promise<Customer | undefined>;
-  createCustomer(customer: InsertCustomer): Promise<Customer>;
-  updateCustomer(id: number, customer: Partial<InsertCustomer>): Promise<Customer | undefined>;
-  deleteCustomer(id: number): Promise<void>;
-
-  // CRM - Opportunities
-  getOpportunities(filters?: { stage?: string; customerId?: number }): Promise<Opportunity[]>;
-  getOpportunity(id: number): Promise<Opportunity | undefined>;
-  createOpportunity(opportunity: InsertOpportunity): Promise<Opportunity>;
-  updateOpportunity(id: number, opportunity: Partial<InsertOpportunity>): Promise<Opportunity | undefined>;
-  deleteOpportunity(id: number): Promise<void>;
-
-  // Historical Performance Data
-  getHistoricalData(filters?: { year?: number }): Promise<HistoricalData[]>;
-  getHistoricalDataEntry(id: number): Promise<HistoricalData | undefined>;
-  createHistoricalData(data: InsertHistoricalData): Promise<HistoricalData>;
-  updateHistoricalData(id: number, data: Partial<InsertHistoricalData>): Promise<HistoricalData | undefined>;
-  deleteHistoricalData(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -556,11 +501,6 @@ export class DatabaseStorage implements IStorage {
   // ============================================
   // DOCUMENT VERSIONS
   // ============================================
-  async createDocumentVersion(version: InsertDocumentVersion): Promise<DocumentVersion> {
-    const [created] = await db.insert(documentVersions).values(version).returning();
-    return created;
-  }
-
   async getDocumentVersions(documentId: number): Promise<DocumentVersion[]> {
     return await db.select().from(documentVersions)
       .where(eq(documentVersions.documentId, documentId))
@@ -1468,29 +1408,6 @@ export class DatabaseStorage implements IStorage {
     return BuddyState.CRITICAL;
   }
 
-  async calculateUserCompliance(userId: number): Promise<{ score: number; state: string }> {
-    const stats = await this.ledgerTaskStats(userId);
-    const score = stats.score;
-    const state = this.complianceState(score);
-
-    // Update buddy status
-    await this.getOrCreateBuddyStatus(userId);
-    await this.updateBuddyStatus(userId, {
-      complianceScore: score,
-      currentState: state,
-      totalTasksAssigned: stats.totalTasks,
-      tasksCompleted: stats.completedTasks,
-      tasksOverdue: stats.overdueTasks,
-    });
-
-    return { score, state };
-  }
-
-  async getUserTaskStats(userId: number): Promise<{ totalTasks: number; completedTasks: number; overdueTasks: number }> {
-    const { totalTasks, completedTasks, overdueTasks } = await this.ledgerTaskStats(userId);
-    return { totalTasks, completedTasks, overdueTasks };
-  }
-
   async calculateSystemCompliance(): Promise<{ score: number; state: string }> {
     // All users' tasks combined
     const { score } = await this.ledgerTaskStats();
@@ -1500,46 +1417,6 @@ export class DatabaseStorage implements IStorage {
   async getSystemTaskStats(): Promise<{ totalTasks: number; completedTasks: number; overdueTasks: number }> {
     const { totalTasks, completedTasks, overdueTasks } = await this.ledgerTaskStats();
     return { totalTasks, completedTasks, overdueTasks };
-  }
-
-  // ============================================
-  // PUSH SUBSCRIPTIONS
-  // ============================================
-  async getPushSubscriptions(userId: number): Promise<PushSubscription[]> {
-    return await db.select().from(pushSubscriptions)
-      .where(and(
-        eq(pushSubscriptions.userId, userId),
-        eq(pushSubscriptions.isActive, true)
-      ));
-  }
-
-  async savePushSubscription(subscription: InsertPushSubscription): Promise<PushSubscription> {
-    // Check if subscription already exists
-    const existing = await db.select().from(pushSubscriptions)
-      .where(and(
-        eq(pushSubscriptions.userId, subscription.userId),
-        eq(pushSubscriptions.endpoint, subscription.endpoint)
-      ));
-
-    if (existing.length > 0) {
-      const [updated] = await db.update(pushSubscriptions)
-        .set({ ...subscription, isActive: true, updatedAt: new Date() })
-        .where(eq(pushSubscriptions.id, existing[0].id))
-        .returning();
-      return updated;
-    }
-
-    const [created] = await db.insert(pushSubscriptions).values(subscription).returning();
-    return created;
-  }
-
-  async removePushSubscription(userId: number, endpoint: string): Promise<void> {
-    await db.update(pushSubscriptions)
-      .set({ isActive: false, updatedAt: new Date() })
-      .where(and(
-        eq(pushSubscriptions.userId, userId),
-        eq(pushSubscriptions.endpoint, endpoint)
-      ));
   }
 
   // ============================================
@@ -2441,269 +2318,6 @@ export class DatabaseStorage implements IStorage {
   async createDocuGenieFormSubmission(submission: InsertDocuGenieFormSubmission): Promise<DocuGenieFormSubmission> {
     const [created] = await db.insert(docugenieFormSubmissions).values(submission).returning();
     return created;
-  }
-
-  // ============================================
-  // CRM - LEADS
-  // ============================================
-  async getLeads(filters?: { status?: string; assignedToId?: number }): Promise<Lead[]> {
-    let query = db.select().from(leads);
-    
-    if (filters?.status) {
-      query = query.where(eq(leads.leadStatus, filters.status)) as any;
-    }
-    if (filters?.assignedToId) {
-      query = query.where(eq(leads.assignedToId, filters.assignedToId)) as any;
-    }
-    
-    return query.orderBy(desc(leads.createdAt));
-  }
-
-  async getLead(id: number): Promise<Lead | undefined> {
-    const [lead] = await db.select().from(leads).where(eq(leads.id, id));
-    return lead;
-  }
-
-  async createLead(lead: InsertLead): Promise<Lead> {
-    const [created] = await db.insert(leads).values(lead).returning();
-    return created;
-  }
-
-  async updateLead(id: number, lead: Partial<InsertLead>): Promise<Lead | undefined> {
-    const [updated] = await db.update(leads)
-      .set({ ...lead, updatedAt: new Date() })
-      .where(eq(leads.id, id))
-      .returning();
-    return updated;
-  }
-
-  async deleteLead(id: number): Promise<void> {
-    await db.delete(leads).where(eq(leads.id, id));
-  }
-
-  // ============================================
-  // CRM - LEAD STATUS HISTORY
-  // ============================================
-  async getLeadStatusHistory(leadId: number): Promise<Array<LeadStatusHistory & { changedByName: string }>> {
-    const result = await db
-      .select({
-        id: leadStatusHistory.id,
-        leadId: leadStatusHistory.leadId,
-        previousStatus: leadStatusHistory.previousStatus,
-        newStatus: leadStatusHistory.newStatus,
-        reason: leadStatusHistory.reason,
-        evidenceUrl: leadStatusHistory.evidenceUrl,
-        evidenceFileName: leadStatusHistory.evidenceFileName,
-        changedById: leadStatusHistory.changedById,
-        changedAt: leadStatusHistory.changedAt,
-        changedByName: users.name,
-      })
-      .from(leadStatusHistory)
-      .leftJoin(users, eq(leadStatusHistory.changedById, users.id))
-      .where(eq(leadStatusHistory.leadId, leadId))
-      .orderBy(desc(leadStatusHistory.changedAt));
-    
-    return result.map(r => ({
-      ...r,
-      changedByName: r.changedByName || 'Unknown',
-    }));
-  }
-
-  async createLeadStatusHistory(entry: InsertLeadStatusHistory): Promise<LeadStatusHistory> {
-    const [result] = await db.insert(leadStatusHistory).values(entry).returning();
-    return result;
-  }
-
-  // ============================================
-  // CRM - LEAD UPDATE REQUESTS
-  // ============================================
-  async getLeadUpdateRequests(leadId: number): Promise<Array<LeadUpdateRequest & { requestedByName: string; requestedFromName: string }>> {
-    const requestedByUser = db.select({ id: users.id, name: users.name }).from(users).as('requestedByUser');
-    const requestedFromUser = db.select({ id: users.id, name: users.name }).from(users).as('requestedFromUser');
-    
-    const result = await db
-      .select({
-        id: leadUpdateRequests.id,
-        leadId: leadUpdateRequests.leadId,
-        requestedById: leadUpdateRequests.requestedById,
-        requestedFromId: leadUpdateRequests.requestedFromId,
-        message: leadUpdateRequests.message,
-        isResolved: leadUpdateRequests.isResolved,
-        resolvedAt: leadUpdateRequests.resolvedAt,
-        response: leadUpdateRequests.response,
-        respondedAt: leadUpdateRequests.respondedAt,
-        createdAt: leadUpdateRequests.createdAt,
-        requestedByName: sql<string>`(SELECT name FROM users WHERE id = ${leadUpdateRequests.requestedById})`,
-        requestedFromName: sql<string>`(SELECT name FROM users WHERE id = ${leadUpdateRequests.requestedFromId})`,
-      })
-      .from(leadUpdateRequests)
-      .where(eq(leadUpdateRequests.leadId, leadId))
-      .orderBy(desc(leadUpdateRequests.createdAt));
-    
-    return result.map(r => ({
-      ...r,
-      requestedByName: r.requestedByName || 'Unknown',
-      requestedFromName: r.requestedFromName || 'Unknown',
-    }));
-  }
-
-  async getPendingLeadUpdateRequests(userId: number): Promise<Array<LeadUpdateRequest & { leadName: string; requestedByName: string }>> {
-    const result = await db
-      .select({
-        id: leadUpdateRequests.id,
-        leadId: leadUpdateRequests.leadId,
-        requestedById: leadUpdateRequests.requestedById,
-        requestedFromId: leadUpdateRequests.requestedFromId,
-        message: leadUpdateRequests.message,
-        isResolved: leadUpdateRequests.isResolved,
-        resolvedAt: leadUpdateRequests.resolvedAt,
-        response: leadUpdateRequests.response,
-        respondedAt: leadUpdateRequests.respondedAt,
-        createdAt: leadUpdateRequests.createdAt,
-        leadName: leads.leadName,
-        requestedByName: sql<string>`(SELECT name FROM users WHERE id = ${leadUpdateRequests.requestedById})`,
-      })
-      .from(leadUpdateRequests)
-      .leftJoin(leads, eq(leadUpdateRequests.leadId, leads.id))
-      .where(and(
-        eq(leadUpdateRequests.requestedFromId, userId),
-        eq(leadUpdateRequests.isResolved, false)
-      ))
-      .orderBy(desc(leadUpdateRequests.createdAt));
-    
-    return result.map(r => ({
-      ...r,
-      leadName: r.leadName || 'Unknown Lead',
-      requestedByName: r.requestedByName || 'Unknown',
-    }));
-  }
-
-  async createLeadUpdateRequest(request: InsertLeadUpdateRequest): Promise<LeadUpdateRequest> {
-    const [result] = await db.insert(leadUpdateRequests).values(request).returning();
-    return result;
-  }
-
-  async getLeadUpdateRequest(id: number): Promise<LeadUpdateRequest | undefined> {
-    const [result] = await db.select().from(leadUpdateRequests).where(eq(leadUpdateRequests.id, id));
-    return result;
-  }
-
-  async resolveLeadUpdateRequest(id: number, response?: string | null): Promise<LeadUpdateRequest | undefined> {
-    const now = new Date();
-    const [result] = await db
-      .update(leadUpdateRequests)
-      .set({ isResolved: true, resolvedAt: now, response: response ?? null, respondedAt: response ? now : null })
-      .where(eq(leadUpdateRequests.id, id))
-      .returning();
-    return result;
-  }
-
-  // ============================================
-  // CRM - CUSTOMERS
-  // ============================================
-  async getCustomers(filters?: { accountOwnerId?: number }): Promise<Customer[]> {
-    let query = db.select().from(customers);
-    
-    if (filters?.accountOwnerId) {
-      query = query.where(eq(customers.accountOwnerId, filters.accountOwnerId)) as any;
-    }
-    
-    return query.orderBy(desc(customers.createdAt));
-  }
-
-  async getCustomer(id: number): Promise<Customer | undefined> {
-    const [customer] = await db.select().from(customers).where(eq(customers.id, id));
-    return customer;
-  }
-
-  async createCustomer(customer: InsertCustomer): Promise<Customer> {
-    const [created] = await db.insert(customers).values(customer).returning();
-    return created;
-  }
-
-  async updateCustomer(id: number, customer: Partial<InsertCustomer>): Promise<Customer | undefined> {
-    const [updated] = await db.update(customers)
-      .set({ ...customer, updatedAt: new Date() })
-      .where(eq(customers.id, id))
-      .returning();
-    return updated;
-  }
-
-  async deleteCustomer(id: number): Promise<void> {
-    await db.delete(customers).where(eq(customers.id, id));
-  }
-
-  // ============================================
-  // CRM - OPPORTUNITIES
-  // ============================================
-  async getOpportunities(filters?: { stage?: string; customerId?: number }): Promise<Opportunity[]> {
-    let query = db.select().from(opportunities);
-    
-    if (filters?.stage) {
-      query = query.where(eq(opportunities.stage, filters.stage)) as any;
-    }
-    if (filters?.customerId) {
-      query = query.where(eq(opportunities.customerId, filters.customerId)) as any;
-    }
-    
-    return query.orderBy(desc(opportunities.createdAt));
-  }
-
-  async getOpportunity(id: number): Promise<Opportunity | undefined> {
-    const [opportunity] = await db.select().from(opportunities).where(eq(opportunities.id, id));
-    return opportunity;
-  }
-
-  async createOpportunity(opportunity: InsertOpportunity): Promise<Opportunity> {
-    const [created] = await db.insert(opportunities).values(opportunity).returning();
-    return created;
-  }
-
-  async updateOpportunity(id: number, opportunity: Partial<InsertOpportunity>): Promise<Opportunity | undefined> {
-    const [updated] = await db.update(opportunities)
-      .set({ ...opportunity, updatedAt: new Date() })
-      .where(eq(opportunities.id, id))
-      .returning();
-    return updated;
-  }
-
-  async deleteOpportunity(id: number): Promise<void> {
-    await db.delete(opportunities).where(eq(opportunities.id, id));
-  }
-
-  // ============================================
-  // HISTORICAL PERFORMANCE DATA
-  // ============================================
-  async getHistoricalData(filters?: { year?: number }): Promise<HistoricalData[]> {
-    let query = db.select().from(historicalData);
-    
-    if (filters?.year) {
-      query = query.where(eq(historicalData.year, filters.year)) as any;
-    }
-    
-    return query.orderBy(desc(historicalData.year), desc(historicalData.createdAt));
-  }
-
-  async getHistoricalDataEntry(id: number): Promise<HistoricalData | undefined> {
-    const [entry] = await db.select().from(historicalData).where(eq(historicalData.id, id));
-    return entry;
-  }
-
-  async createHistoricalData(data: InsertHistoricalData): Promise<HistoricalData> {
-    const [created] = await db.insert(historicalData).values(data).returning();
-    return created;
-  }
-
-  async updateHistoricalData(id: number, data: Partial<InsertHistoricalData>): Promise<HistoricalData | undefined> {
-    const [updated] = await db.update(historicalData)
-      .set({ ...data, updatedAt: new Date() })
-      .where(eq(historicalData.id, id))
-      .returning();
-    return updated;
-  }
-
-  async deleteHistoricalData(id: number): Promise<void> {
-    await db.delete(historicalData).where(eq(historicalData.id, id));
   }
 }
 

@@ -59,9 +59,6 @@ Maintain a running tally of completed tasks and points.
 - **Employee Tasks:** Training and compliance tasks
 - **Trainings:** Manages training types, assignments, completions, and certificates.
 - **DocuGenie Forms:** AI-generated HTML forms and submissions.
-- **CRM Leads:** Tracks sales leads with various attributes and statuses.
-- **CRM Customers:** Manages customer accounts with contact info, industry, account owners, communication history, and contract file uploads.
-- **CRM Opportunities:** Sales pipeline tracking with customer lookup, course/certification selection, deal value, discount, expected close date, stage management (Qualified → Proposal Sent → Negotiation → Won/Lost), and proposal file uploads.
 
 ### Core Features
 - **Document Workflow Engine:** State machine for document lifecycle (Draft -> In-Review -> Pending Approval -> Approved / Obsolete).
@@ -76,10 +73,6 @@ Maintain a running tally of completed tasks and points.
 - **Document Editor Find & Replace:** In-editor search and mass amendment functionality.
 - **Lock and Transfer to Document Hub:** Post-approval archiving with granular access control.
 - **DocuGenie - AI-Powered Form Conversion System:** Converts documents into embeddable HTML forms, supports public submissions and tracking.
-- **CRM - Leads Management:** Comprehensive lead tracking, qualification, and assignment for sales.
-- **CRM - Customers Management:** Customer account management with contract uploads, account owner assignment, communication history logging, and industry tracking.
-- **CRM - Opportunities Management:** Sales pipeline with dashboard stats (total pipeline value, qualified leads, proposals sent, won/lost deals), customer linking, ISO certification/training course selection, deal value and discount tracking, expected close dates, stage progression, notes, and proposal document upload/download.
-- **CRM - Historical Performance Data:** Monthly business performance tracking with year/month selection, leads received, deals closed, revenue, trainings delivered, certifications issued, and notes. Includes dashboard stats with year filtering and complete CRUD operations.
 
 ### Project Structure
 - `client/`: React frontend

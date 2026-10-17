@@ -33,8 +33,6 @@ import {
   Lock,
   GraduationCap,
   Sparkles,
-  UserPlus,
-  TrendingUp,
   Archive,
   ClipboardCheck,
 } from "lucide-react";
@@ -122,30 +120,6 @@ const navItems: NavItem[] = [
     href: "/docugenie", 
     label: "DocuGenie", 
     icon: Sparkles,
-    canAccess: (user) => user.role === 'admin' || user.role === 'quality_manager' || user.email === 'coo@sahihcertify.com'
-  },
-  { 
-    href: "/crm/leads", 
-    label: "CRM - Leads", 
-    icon: UserPlus,
-    canAccess: (user) => user.role === 'admin' || user.role === 'quality_manager' || user.email === 'coo@sahihcertify.com'
-  },
-  { 
-    href: "/crm/customers", 
-    label: "CRM - Customers", 
-    icon: Users,
-    canAccess: (user) => user.role === 'admin' || user.role === 'quality_manager' || user.email === 'coo@sahihcertify.com'
-  },
-  { 
-    href: "/crm/opportunities", 
-    label: "CRM - Opportunities", 
-    icon: TrendingUp,
-    canAccess: (user) => user.role === 'admin' || user.role === 'quality_manager' || user.email === 'coo@sahihcertify.com'
-  },
-  { 
-    href: "/crm/historical-data", 
-    label: "CRM - Historical Data", 
-    icon: BarChart3,
     canAccess: (user) => user.role === 'admin' || user.role === 'quality_manager' || user.email === 'coo@sahihcertify.com'
   },
   { href: "/audit-log", label: "Audit Log", icon: History, adminOnly: true },
