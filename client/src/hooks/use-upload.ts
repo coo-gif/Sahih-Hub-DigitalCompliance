@@ -1,6 +1,28 @@
 import { useState, useCallback } from "react";
 import type { UppyFile } from "@uppy/core";
 
+/**
+ * Uploads one file to object storage and returns its path (e.g. /objects/uploads/<id>),
+ * which can be saved on a record and opened later by signed-in users.
+ */
+export async function uploadToStorage(file: File): Promise<string> {
+  const contentType = file.type || "application/octet-stream";
+  const urlResponse = await fetch("/api/uploads/request-url", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ name: file.name, size: file.size, contentType }),
+  });
+  if (!urlResponse.ok) {
+    const errorData = await urlResponse.json().catch(() => ({}));
+    throw new Error(errorData.error || errorData.message || "Could not start the upload");
+  }
+  const { uploadURL, objectPath } = await urlResponse.json();
+  const putResponse = await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": contentType } });
+  if (!putResponse.ok) throw new Error("The file could not be stored. Please try again.");
+  return objectPath;
+}
+
 interface UploadMetadata {
   name: string;
   size: number;

@@ -35,6 +35,12 @@ export async function getCurrentVersion(documentId: number): Promise<DocumentVer
   return current;
 }
 
+// The COO reclassified the document: the current version record (master list, records, readers) follows
+export async function setCurrentVersionClassification(documentId: number, classification: string) {
+  const current = await getCurrentVersion(documentId);
+  if (current) await db.update(documentVersions).set({ classification }).where(eq(documentVersions.id, current.id));
+}
+
 // Snapshot the document as it stands now as its current approved version (if not already recorded)
 async function ensureCurrentVersionRecorded(doc: Document): Promise<DocumentVersion> {
   const existing = await getCurrentVersion(doc.id);
@@ -273,6 +279,14 @@ async function changeableDocument(documentId: number, user: AuthedUser, helpers:
 export function registerDocumentControlRoutes(app: Express, helpers: DocumentControlHelpers) {
   const { requireAuth } = helpers;
   const userOf = (req: Request) => (req as any).user as AuthedUser;
+
+  // Every :id in these routes is a number; reject anything else before it reaches the database
+  app.use(['/api/documents/:id/links', '/api/documents/:id/versions', '/api/documents/:id/change-requests',
+    '/api/change-requests/:id', '/api/document-links/:id'], (req, res, next) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ message: 'Invalid ID' });
+    next();
+  });
 
   // ---- Change request: my draft for a document ----
   app.get('/api/documents/:id/change-requests/mine', requireAuth, async (req, res) => {

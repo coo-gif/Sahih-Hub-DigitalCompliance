@@ -1565,3 +1565,42 @@ export type InsertDocuGenieForm = z.infer<typeof insertDocuGenieFormSchema>;
 
 export type DocuGenieFormSubmission = typeof docugenieFormSubmissions.$inferSelect;
 export type InsertDocuGenieFormSubmission = z.infer<typeof insertDocuGenieFormSubmissionSchema>;
+
+// ============================================
+// INTERNAL AUDIT (ISO/IEC 17021-1 deep review, docs/ISO-17021-AUDIT-FRAMEWORK.md)
+// ============================================
+export const InternalAuditStatus = {
+  DRAFT: "draft",                     // created, nothing assessed yet
+  IN_PROGRESS: "in_progress",         // the audit team is assessing checks
+  PENDING_SIGNOFF: "pending_signoff", // complete and submitted to management
+  CLOSED: "closed",                   // signed off by management; corrective actions still followed up
+} as const;
+
+export const internalAudits = pgTable("internal_audits", {
+  id: serial("id").primaryKey(),
+  reference: text("reference").notNull().unique(), // IA-YYYY-NNN
+  periodStart: text("period_start"), // yyyy-mm-dd
+  periodEnd: text("period_end"),
+  leadAuditorId: integer("lead_auditor_id"),
+  auditTeamIds: integer("audit_team_ids").array(),
+  status: text("status").notNull().default(InternalAuditStatus.DRAFT),
+  record: text("record").notNull(), // JSON AuditRecord (shared/auditTemplate.ts)
+  submittedAt: timestamp("submitted_at"),
+  submittedById: integer("submitted_by_id"),
+  returnNote: text("return_note"), // management's reason when sending it back to the audit team
+  signedOffById: integer("signed_off_by_id"),
+  signedOffAt: timestamp("signed_off_at"),
+  createdById: integer("created_by_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type InternalAudit = typeof internalAudits.$inferSelect;
+
+// ============================================
+// NUMBER SEQUENCES (ticket, application and certificate numbers are never reused, even after a delete)
+// ============================================
+export const numberSequences = pgTable("number_sequences", {
+  name: text("name").primaryKey(), // e.g. "BUG", "APP-2026", "TC-2026"
+  lastValue: integer("last_value").notNull().default(0),
+});

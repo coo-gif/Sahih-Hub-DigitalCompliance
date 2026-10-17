@@ -1,4 +1,5 @@
 import { Link, useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { useNotifications, useMarkAllNotificationsRead, useMarkNotificationRead } from "@/hooks/use-notifications";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +21,7 @@ import {
   CheckCheck,
   Network,
   LogOut,
+  KeyRound,
   User,
   Shield,
   ClipboardList,
@@ -32,12 +34,15 @@ import {
   GraduationCap,
   Sparkles,
   Archive,
+  ClipboardCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import sahihLogoPath from "@assets/sahih_logo-1.png";
 import sahihCertifyBanner from "@assets/WhatsApp_Image_2026-01-14_at_14.49.11_(1)_1768391647558.jpeg";
 import { NotificationManager } from "@/components/NotificationManager";
+import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
+import { useState } from "react";
 import { useUnreadCount } from "@/hooks/use-gmail";
 
 interface LayoutProps {
@@ -75,6 +80,12 @@ const navItems: NavItem[] = [
     icon: Archive,
     canAccess: (user) => user.role === 'admin' || user.role === 'quality_manager' || user.email === 'coo@sahihcertify.com'
   },
+  {
+    href: "/internal-audits",
+    label: "Internal Audit",
+    icon: ClipboardCheck,
+    canAccess: (user) => ['admin', 'quality_manager', 'auditor'].includes(user.role) || user.email === 'coo@sahihcertify.com' || user.email === 'ceo@sahihcertify.com'
+  },
   { href: "/tasks", label: "My Tasks", icon: ClipboardList },
   { href: "/email", label: "Email", icon: Mail, showBadge: 'email' },
   { href: "/user-records", label: "My Records", icon: FolderOpen },
@@ -87,10 +98,11 @@ const navItems: NavItem[] = [
   },
   { href: "/performance-reports", label: "Performance Reports", icon: BarChart3, adminOnly: true },
   { 
-    href: "/bug-reports", 
-    label: "Bug Reports", 
+    href: "/bug-reports",
+    label: "Bug Reports",
     icon: Bug,
-    canAccess: (user) => user.email === 'coo@sahihcertify.com'
+    // Others see the link while a bug is assigned to them (see hasAssignedBugs below)
+    canAccess: (user) => user.email === 'coo@sahihcertify.com' || user.role === 'admin'
   },
   { 
     href: "/certification", 
@@ -115,11 +127,25 @@ const navItems: NavItem[] = [
 
 export function Layout({ children, user, onLogout }: LayoutProps) {
   const [location, setLocation] = useLocation();
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const { data: notifications } = useNotifications();
   const markAllRead = useMarkAllNotificationsRead();
   const markRead = useMarkNotificationRead();
   const { data: emailUnreadData } = useUnreadCount();
   
+  // Bug reports this user can see; any assigned to them opens the Bug Reports page for them
+  const { data: visibleBugReports } = useQuery<{ assignedToId: number | null; status: string }[]>({
+    queryKey: ["/api/bug-reports"],
+    enabled: !!user,
+  });
+  const hasAssignedBugs = !!user && !!visibleBugReports?.some(b => b.assignedToId === user.id && b.status !== 'closed');
+
+  // Staff with leads assigned to them (or an update asked of them) get the CRM - Leads page for those
+  const isCrmManagerUser = !!user && (user.role === 'admin' || user.role === 'quality_manager' || user.email === 'coo@sahihcertify.com');
+  const { data: myLeads } = useQuery<unknown[]>({ queryKey: ["/api/leads"], enabled: !!user && !isCrmManagerUser });
+  const { data: myLeadRequests } = useQuery<unknown[]>({ queryKey: ["/api/lead-update-requests/pending"], enabled: !!user && !isCrmManagerUser });
+  const hasAssignedLeads = !!myLeads?.length || !!myLeadRequests?.length;
+
   const unreadCount = notifications?.filter(n => !n.isRead).length || 0;
   const emailUnreadCount = emailUnreadData?.count || 0;
 
@@ -150,6 +176,8 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
         {navItems
           .filter((item) => {
             if (item.adminOnly && user?.role !== 'admin') return false;
+            if (item.href === "/bug-reports" && hasAssignedBugs) return true;
+            if (item.href === "/crm/leads" && hasAssignedLeads) return true;
             if (item.canAccess && (!user || !item.canAccess(user))) return false;
             return true;
           })
@@ -228,6 +256,7 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
 
           <div className="flex items-center gap-3 ml-auto">
             <NotificationManager />
+            <ChangePasswordDialog open={passwordOpen} onOpenChange={setPasswordOpen} />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="icon" className="relative" data-testid="button-notifications">
@@ -309,6 +338,10 @@ export function Layout({ children, user, onLogout }: LayoutProps) {
                     </Badge>
                   </div>
                   <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setPasswordOpen(true)} className="cursor-pointer" data-testid="button-change-password">
+                    <KeyRound className="w-4 h-4 mr-2" />
+                    Change password
+                  </DropdownMenuItem>
                   <DropdownMenuItem 
                     onClick={onLogout}
                     className="text-destructive cursor-pointer"
