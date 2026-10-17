@@ -21,10 +21,6 @@ import Email from "@/pages/Email";
 import DocumentHub from "@/pages/DocumentHub";
 import Trainings from "@/pages/Trainings";
 import DocuGenie from "@/pages/DocuGenie";
-import CrmLeads from "@/pages/CrmLeads";
-import CrmCustomers from "@/pages/CrmCustomers";
-import CrmOpportunities from "@/pages/CrmOpportunities";
-import CrmHistoricalData from "@/pages/CrmHistoricalData";
 import FormSubmit from "@/pages/FormSubmit";
 import RecordsHive from "@/pages/RecordsHive";
 import ChangeRequestForm from "@/pages/ChangeRequestForm";
@@ -74,10 +70,6 @@ function AuthenticatedRouter({ user, onLogout }: { user: User; onLogout: () => v
             <Route path="/document-hub" component={DocumentHub} />
             <Route path="/trainings" component={Trainings} />
             <Route path="/docugenie" component={DocuGenie} />
-            <Route path="/crm/leads" component={CrmLeads} />
-            <Route path="/crm/customers" component={CrmCustomers} />
-            <Route path="/crm/opportunities" component={CrmOpportunities} />
-            <Route path="/crm/historical-data" component={CrmHistoricalData} />
             <Route path="/audit-log" component={AuditLog} />
             <Route path="/records" component={RecordsHive} />
             <Route path="/records/change-requests/:id" component={ChangeRequestForm} />

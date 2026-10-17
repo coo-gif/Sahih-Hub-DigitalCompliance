@@ -14,7 +14,7 @@ export interface MyTask {
   employeeSupervisorName?: string;
   title: string;
   // review, approve, revise, comment, download_approval, access_approval, employee_review, employee_approve,
-  // and every other kind of assignment (hub_approval, training, bug, lead_followup ...) shown generically
+  // and every other kind of assignment (hub_approval, training, bug ...) shown generically
   taskType: string;
   taskKey?: string;
   typeLabel?: string;

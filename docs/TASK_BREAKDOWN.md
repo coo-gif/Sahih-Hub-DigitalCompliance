@@ -299,7 +299,6 @@ Step 1: `server/task-sources.ts` collects every open assignment in the system, e
   - HR: employee review and approval, tasks assigned to an employee, trainings. Employees are matched to their login by `userId`, or else by the same email
   - Reports: performance report review (COO) and approval (CEO)
   - Bug reports: fix (assignee, or the COO if unassigned), then verify and close (COO)
-  - CRM: lead follow-ups (on the follow-up date), lead update requests
   - Certification: assigned auditor and lead auditor, certification audits
   - DocuGenie forms assigned to someone --->
 Step 2: `GET /api/my-tasks` returns the signed-in user's tasks, soonest due first, with Overdue flags --->
@@ -396,35 +395,6 @@ Step 7: The owner views the submissions → `/forms/:id/submissions`.
 
 ---
 
-## TASK 10 – CRM (admin / QM / COO only)
-
-### 10.1 Lead management
-Step 1: Create a lead with name, company, contact, source (website/referral/ads/WhatsApp) and interested course or ISO → `POST /api/leads` --->
-Step 2: Assign it to a salesperson and set the next follow-up date --->
-Step 3: Change status with a reason and an evidence file → `POST /api/leads/:id/status` → a `lead_status_history` row is written --->
-Step 4: The COO asks the assignee for an update → `POST /api/leads/:id/update-requests` → the assignee is notified --->
-Step 5: The assignee replies and resolves it → `/lead-update-requests/:id/resolve` --->
-Step 6: The lead ends at approved, lost, not_interested or not_relevant.
-
-### 10.2 Customer management
-Step 1: Create a customer with contacts, address, industry and account owner → `POST /api/customers` --->
-Step 2: Log the communication history (`PUT`) --->
-Step 3: Upload the contract → `POST /api/customers/:id/contract` --->
-Step 4: View or download the contract.
-
-### 10.3 Opportunity pipeline
-Step 1: Create an opportunity linked to a customer, with course or ISO, deal value, discount and expected close date → `POST /api/opportunities` (`qualified`) --->
-Step 2: Upload the proposal → `/opportunities/:id/proposal` → stage becomes proposal_sent --->
-Step 3: negotiation → won or lost (`PUT`) --->
-Step 4: The pipeline dashboard shows total value, qualified, proposals, won and lost.
-
-### 10.4 Historical performance data
-Step 1: Enter a year and month with leads, deals, revenue, trainings and certifications → `POST /api/historical-data` --->
-Step 2: Edit or delete --->
-Step 3: Filter by year → the stats cards and table update.
-
----
-
 ## TASK 11 – Records & Data Hive (COO, admins, QM)
 
 ### 11.1 Change request & revision register
@@ -440,7 +410,7 @@ Step 1: Every document with an approved version: ref, title, category, current v
 
 ## Recommended order to build / verify (dependency chain)
 
-TASK 0 Foundation ---> TASK 1 Identity ---> TASK 2 Document Control ---> TASK 3 Hub & Access ---> TASK 7 My Tasks / Records / Audit ---> TASK 4 HR ---> TASK 5 Trainings ---> TASK 6 Certification ---> TASK 8 Communication ---> TASK 9 DocuGenie ---> TASK 10 CRM
+TASK 0 Foundation ---> TASK 1 Identity ---> TASK 2 Document Control ---> TASK 3 Hub & Access ---> TASK 7 My Tasks / Records / Audit ---> TASK 4 HR ---> TASK 5 Trainings ---> TASK 6 Certification ---> TASK 8 Communication ---> TASK 9 DocuGenie
 
 ---
 
@@ -449,8 +419,6 @@ TASK 0 Foundation ---> TASK 1 Identity ---> TASK 2 Document Control ---> TASK 3 
 | # | Cycle | Problem | Where |
 |---|-------|---------|-------|
 | 1 | 2.7 → 2.8 | **Fixed.** Approval used to lock the document, so the follow-up "Lock & Transfer" always failed. Now approval moves the document to the Hub, and the COO gives final approval with a classification. | — |
-| 2 | 10.1 Step 3 | **Removed.** The broken lead status-change route and its dialog are gone; status is changed in the lead edit form. The status-history tab and route were removed with it. | — |
-| 3 | 10.1 / 10.2 / 10.3 uploads | **Removed.** The CRM upload buttons (lead evidence, contract, proposal) and their `/contract` and `/proposal` routes are gone. Files already attached still show as links. | — |
 | 4 | 2.4 / 2.5 | **Fixed.** Reviewer, approver and COO can now return a document one step back, with the reason written as comments in the document. | — |
 | 5 | 7.3 Buddy | **Removed.** The per-user score (`calculateUserCompliance`, `/api/buddy/status`, `/api/buddy/refresh`) was unused by the client and is gone. The Buddy avatar uses `/api/buddy/system-status`. | — |
 | 6 | 2.x versions | **Removed.** The unused `createDocumentVersion` is gone. Versions are written and archived in `document-control.ts`. | — |

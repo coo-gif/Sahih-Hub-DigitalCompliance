@@ -1,10 +1,10 @@
 import { db } from "./db";
 import {
   users, documents, documentComments, downloadRequests, documentAccessRequests, employees, employeeTasks,
-  trainings, trainingAssignments, monthlyPerformanceReports, bugReports, leads, leadUpdateRequests,
+  trainings, trainingAssignments, monthlyPerformanceReports, bugReports,
   certificationApplications, certificationAudits, revisionHistory, docugenieForms, docugenieFormSubmissions,
   DocumentStatus, DocumentHubStatus, DocumentCommentStatus, EmployeeRecordStatus, TaskStatus,
-  TrainingAssignmentStatus, MonthlyReportStatus, BugReportStatus, LeadStatus, CertificationApplicationStatus,
+  TrainingAssignmentStatus, MonthlyReportStatus, BugReportStatus, CertificationApplicationStatus,
   AuditStatus, RevisionHistoryStatus, DocuGenieFormStatus, UserRole, taskAssignments, DEFAULT_TARGET_DAYS,
   changeRequests, ChangeRequestStatus, documentLinks,
 } from "@shared/schema";
@@ -35,7 +35,6 @@ export const TASK_SLA_HOURS: Record<string, number> = {
   bug_medium: 7 * 24,
   bug_low: 14 * 24,
   bug_verify: 48,
-  lead_update: 48,
   amendment_approval: 72,
   form_fill: 7 * 24,
   change_request: DEFAULT_TARGET_DAYS.change_request * 24,
@@ -60,8 +59,6 @@ export const TASK_TYPE_LABELS: Record<string, string> = {
   report_approve: 'Report Approval',
   bug: 'Bug Report',
   bug_verify: 'Verify Bug Fix',
-  lead_update: 'Lead Update Request',
-  lead_followup: 'Lead Follow-up',
   certification: 'Certification Application',
   certification_audit: 'Certification Audit',
   amendment_approval: 'Amendment Approval',
@@ -111,7 +108,7 @@ export async function collectOpenTasks(): Promise<TaskSnapshot> {
 
   const [
     allUsers, allDocs, openComments, pendingDownloads, pendingAccess, allEmployees, allEmployeeTasks,
-    allTrainings, allTrainingAssignments, allReports, allBugs, allLeads, pendingLeadRequests,
+    allTrainings, allTrainingAssignments, allReports, allBugs,
     allCertApps, allCertAudits, pendingAmendments, allForms, allSubmissions,
   ] = await Promise.all([
     db.select({ id: users.id, name: users.name, email: users.email, role: users.role, isActive: users.isActive }).from(users),
@@ -125,8 +122,6 @@ export async function collectOpenTasks(): Promise<TaskSnapshot> {
     db.select().from(trainingAssignments),
     db.select().from(monthlyPerformanceReports),
     db.select().from(bugReports),
-    db.select().from(leads),
-    db.select().from(leadUpdateRequests),
     db.select().from(certificationApplications),
     db.select().from(certificationAudits),
     db.select().from(revisionHistory),
@@ -371,36 +366,6 @@ export async function collectOpenTasks(): Promise<TaskSnapshot> {
         entityType: 'bug_report', entityId: b.id,
       });
     }
-  }
-
-  // ---- CRM: lead follow-ups and update requests ----
-  const closedLeadStatuses: string[] = [LeadStatus.APPROVED, LeadStatus.LOST, LeadStatus.NOT_INTERESTED, LeadStatus.NOT_RELEVANT];
-  for (const lead of allLeads) {
-    exists('lead', lead.id);
-    if (!lead.assignedToId || !lead.nextFollowUpDate || closedLeadStatuses.includes(lead.leadStatus)) continue;
-    const dueAt = endOfDay(lead.nextFollowUpDate);
-    tasks.push({
-      // a new follow-up date is a new piece of work
-      key: `lead_followup:${lead.id}:${dueAt.toISOString().slice(0, 10)}`, userId: lead.assignedToId, initiatorId: lead.createdById, dueSource: 'source', taskType: 'lead_followup',
-      title: `Follow up: ${lead.leadName}${lead.companyName ? ` (${lead.companyName})` : ''}`, reference: lead.interestedCourse || 'Lead',
-      description: `Follow up with this lead by ${dueAt.toLocaleDateString('en-GB')}.`,
-      link: '/crm/leads', assignedAt: at(lead.updatedAt, lead.createdAt), dueAt,
-      entityType: 'lead', entityId: lead.id,
-    });
-  }
-  const leadById = new Map(allLeads.map(l => [l.id, l]));
-  for (const r of pendingLeadRequests) {
-    exists('lead_update_request', r.id);
-    if (r.isResolved) continue;
-    const lead = leadById.get(r.leadId);
-    const assigned = at(r.createdAt);
-    tasks.push({
-      key: `lead_update:${r.id}`, userId: r.requestedFromId, initiatorId: r.requestedById, taskType: 'lead_update',
-      title: `Update requested: ${lead?.leadName || 'Lead'}`, reference: lead?.companyName || 'Lead',
-      description: `${userName.get(r.requestedById) || 'Management'} asked for an update.${r.message ? ` "${r.message}"` : ''}`,
-      link: '/crm/leads', assignedAt: assigned, dueAt: due(assigned, 'lead_update'),
-      entityType: 'lead_update_request', entityId: r.id,
-    });
   }
 
   // ---- Certification: assigned auditors (no fixed deadline), audits led ----
